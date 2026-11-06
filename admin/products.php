@@ -104,7 +104,8 @@ if (is_post()) {
         'min_order_qty' => max(1, Request::int('min_order_qty', 1)),
         'unit' => (string) Request::input('unit', 'piece'),
         'is_featured' => Request::bool('is_featured') ? 1 : 0,
-        'status' => in_array(Request::input('status'), ['active', 'inactive', 'draft'], true) ? (string) Request::input('status') : 'active',
+        // products.status is ENUM('active','inactive') — "draft" must never reach it.
+        'status' => Request::input('status') === 'inactive' ? 'inactive' : 'active',
         'meta_title' => (string) Request::input('meta_title', ''),
         'meta_description' => (string) Request::input('meta_description', ''),
         'meta_keywords' => (string) Request::input('meta_keywords', ''),
@@ -114,7 +115,7 @@ if (is_post()) {
         'direct_commission_value' => round((float) Request::input('direct_commission_value', 0), 2),
         'grand_direct_commission_type' => Request::input('grand_direct_commission_type') === 'fixed' ? 'fixed' : 'percent',
         'grand_direct_commission_value' => round((float) Request::input('grand_direct_commission_value', 0), 2),
-        'commission_basis' => in_array(Request::input('commission_basis'), ['price', 'line_total', 'commissionable_amount'], true) ? (string) Request::input('commission_basis') : 'line_total',
+        'commission_basis' => normalize_commission_basis((string) Request::input('commission_basis', '')),
         'royalty_eligible' => Request::bool('royalty_eligible') ? 1 : 0,
         'updated_at' => date('Y-m-d H:i:s'),
     ];
@@ -252,7 +253,7 @@ require __DIR__ . '/includes/layout.php';
           <div class="col-6 col-md-3"><label class="form-label">Unit</label><input name="unit" class="form-control" value="<?= e((string) ($product['unit'] ?? 'piece')) ?>"></div>
           <div class="col-6 col-md-3"><label class="form-label">Status</label>
             <select name="status" class="form-select">
-              <?php foreach (['active' => 'Active', 'inactive' => 'Inactive', 'draft' => 'Draft'] as $k => $label): ?>
+              <?php foreach (['active' => 'Active', 'inactive' => 'Inactive'] as $k => $label): ?>
                 <option value="<?= e($k) ?>" <?= ($product['status'] ?? 'active') === $k ? 'selected' : '' ?>><?= e($label) ?></option>
               <?php endforeach; ?>
             </select>
@@ -295,8 +296,8 @@ require __DIR__ . '/includes/layout.php';
           <div class="col-6 col-md-3"><label class="form-label small">Grand direct value</label><input type="number" step="0.01" name="grand_direct_commission_value" class="form-control form-control-sm" value="<?= e((string) ($product['grand_direct_commission_value'] ?? 0)) ?>"></div>
           <div class="col-12"><label class="form-label small">Commission basis</label>
             <select name="commission_basis" class="form-select form-select-sm">
-              <?php foreach (['line_total' => 'Line total (price × qty)', 'price' => 'Unit price', 'commissionable_amount' => 'Commissionable amount'] as $k => $label): ?>
-                <option value="<?= e($k) ?>" <?= ($product['commission_basis'] ?? '') === $k ? 'selected' : '' ?>><?= e($label) ?></option>
+              <?php foreach (commission_basis_options() as $k => $label): ?>
+                <option value="<?= e($k) ?>" <?= normalize_commission_basis($product['commission_basis'] ?? '') === $k ? 'selected' : '' ?>><?= e($label) ?></option>
               <?php endforeach; ?>
             </select>
           </div>

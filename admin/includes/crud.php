@@ -38,6 +38,10 @@ if (!function_exists('friendlyDbError')) {
         if (stripos($message, '1406') !== false || stripos($message, 'too long') !== false) {
             return 'one of the values is too long for its field.';
         }
+        if (stripos($message, '1265') !== false || stripos($message, 'Data truncated') !== false) {
+            return 'one of the selected options is not valid for its field. '
+                . 'Re-open the record and pick a value from the list (for example Commission basis).';
+        }
         return $message;
     }
 }

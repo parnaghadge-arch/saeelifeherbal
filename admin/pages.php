@@ -85,7 +85,8 @@ if (is_post()) {
         'custom_css' => (string) Request::raw('custom_css', ''),
         'template' => (string) Request::input('template', 'default'),
         'robots' => (string) Request::input('robots', 'index,follow'),
-        'visibility' => (string) Request::input('visibility', 'public'),
+        // website_pages.visibility is ENUM('public','private','members').
+        'visibility' => in_array(Request::input('visibility'), ['public', 'private', 'members'], true) ? (string) Request::input('visibility') : 'public',
         'show_in_nav' => Request::bool('show_in_nav') ? 1 : 0,
         'show_in_footer' => Request::bool('show_in_footer') ? 1 : 0,
         'status' => Request::input('status') === 'published' ? 'published' : 'draft',

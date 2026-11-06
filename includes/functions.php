@@ -224,6 +224,41 @@ function get_testimonials(int $limit = 6): array
 }
 
 /**
+ * Allowed values for the products.commission_basis / mlm_commission_rules.commission_basis
+ * enum, with the label shown in the admin panel.
+ *
+ * The database enum is the source of truth: sending anything outside this list raises
+ * "SQLSTATE[01000] 1265 Data truncated for column 'commission_basis'" on MySQL.
+ */
+function commission_basis_options(): array
+{
+    return [
+        'selling_price' => 'Selling price (discounted price the customer pays)',
+        'mrp' => 'MRP (printed maximum retail price)',
+        'net_amount' => 'Net amount (line total after discount)',
+    ];
+}
+
+/**
+ * Coerce any posted/legacy commission basis to a value the enum accepts.
+ * Unknown or legacy keys (price, line_total, commissionable_amount) are mapped to the
+ * equivalent enum member instead of being written through to the database.
+ */
+function normalize_commission_basis(?string $value): string
+{
+    $options = commission_basis_options();
+    $value = trim((string) $value);
+    if (isset($options[$value])) {
+        return $value;
+    }
+    return match ($value) {
+        'price', 'unit_price' => 'selling_price',
+        'line_total', 'commissionable_amount', 'net' => 'net_amount',
+        default => 'selling_price',
+    };
+}
+
+/**
  * Founder / team profiles managed in Admin → Founder & Team.
  *
  * @param string|null $role  'founder', 'team', 'advisor' or null for all

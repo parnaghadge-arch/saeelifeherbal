@@ -20,6 +20,6 @@ crud_page([
         "meta_description" => ["type" => "textarea", "label" => "Meta description", "max" => 170],
         "is_featured" => ["type" => "checkbox", "label" => "Featured"],
         "published_at" => ["type" => "datetime", "label" => "Publish date"],
-        "status" => ["type" => "select", "label" => "Status", "options" => [1 => "Published", 0 => "Draft"], "default" => 1],
+        "status" => ["type" => "select", "label" => "Status", "options" => ["published" => "Published", "draft" => "Draft"], "default" => "published"],
     ],
 ]);

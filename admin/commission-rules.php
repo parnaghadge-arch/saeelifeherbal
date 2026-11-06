@@ -49,7 +49,7 @@ if (is_post()) {
         'direct_value' => round((float) Request::input('direct_value', 0), 2),
         'grand_direct_type' => Request::input('grand_direct_type') === 'fixed' ? 'fixed' : 'percent',
         'grand_direct_value' => round((float) Request::input('grand_direct_value', 0), 2),
-        'commission_basis' => in_array(Request::input('commission_basis'), ['line_total', 'price', 'commissionable_amount'], true) ? (string) Request::input('commission_basis') : 'line_total',
+        'commission_basis' => normalize_commission_basis((string) Request::input('commission_basis', '')),
         'royalty_eligible' => Request::bool('royalty_eligible') ? 1 : 0,
         'is_active' => 1,
         'effective_from' => (string) (Request::input('effective_from') ?: date('Y-m-d H:i:s')),
@@ -149,9 +149,9 @@ require __DIR__ . '/includes/layout.php';
           </div>
           <div class="col-12"><label class="form-label small">Commission basis</label>
             <select name="commission_basis" class="form-select form-select-sm">
-              <option value="line_total">Line total (price × qty)</option>
-              <option value="price">Unit price</option>
-              <option value="commissionable_amount">Commissionable amount</option>
+              <?php foreach (commission_basis_options() as $k => $label): ?>
+                <option value="<?= e($k) ?>"><?= e($label) ?></option>
+              <?php endforeach; ?>
             </select>
           </div>
           <div class="col-12"><label class="form-label small">Effective from</label>

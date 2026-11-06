@@ -100,6 +100,37 @@ final class MlmCommissionEngine
         });
     }
 
+    /**
+     * Amount the commission percentage/fixed value is applied to.
+     *
+     * The product's configuration decides (products.commission_basis):
+     *   selling_price → discounted unit price × quantity
+     *   mrp           → printed MRP × quantity
+     *   net_amount    → what the customer actually paid for the line (after discount)
+     * Falls back to the line total whenever the chosen column is missing or zero.
+     */
+    private function basisForItem(array $item, string $basis): float
+    {
+        $qty = max(1.0, (float) ($item['quantity'] ?? 1));
+        $lineTotal = (float) ($item['line_total'] ?? 0);
+        $net = (float) ($item['commissionable_amount'] ?? 0) > 0 ? (float) $item['commissionable_amount'] : $lineTotal;
+
+        switch ($basis) {
+            case 'mrp':
+                $mrp = (float) ($item['mrp'] ?? 0);
+                if ($mrp <= 0 && !empty($item['product_id'])) {
+                    $mrp = (float) $this->db->value('SELECT mrp FROM products WHERE id = :id', ['id' => (int) $item['product_id']]);
+                }
+                return $mrp > 0 ? round($mrp * $qty, 2) : $net;
+            case 'net_amount':
+                return $net;
+            case 'selling_price':
+            default:
+                $unit = (float) ($item['unit_price'] ?? 0);
+                return $unit > 0 ? round($unit * $qty, 2) : $net;
+        }
+    }
+
     /** Compute a commission amount in rupee float (2 dp) from a basis and a rule. */
     public static function compute(float $basis, string $type, float $value): float
     {
@@ -207,7 +238,7 @@ final class MlmCommissionEngine
                 $result['skipped']++;
                 continue;
             }
-            $basis = (float) ($item['commissionable_amount'] > 0 ? $item['commissionable_amount'] : $item['line_total']);
+            $basis = $this->basisForItem($item, (string) ($rule['commission_basis'] ?? 'selling_price'));
 
             foreach ([1 => 'direct', 2 => 'grand_direct'] as $level => $type) {
                 if ($level > count($upline)) {
