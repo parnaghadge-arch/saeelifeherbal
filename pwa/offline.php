@@ -18,7 +18,7 @@ require INCLUDES_PATH . '/header.php';
     <h1 class="h3">You appear to be offline</h1>
     <p class="text-muted">Your connection dropped. Pages you already visited may still be available. Reconnect and try again.</p>
     <button class="btn btn-primary" onclick="location.reload()"><i class="fa-solid fa-rotate-right me-2"></i>Retry</button>
-    <a href="<?= e(Url::base()) ?>/" class="btn btn-outline-primary">Home</a>
+    <a href="<?= e(Url::to('')) ?>" class="btn btn-outline-primary">Home</a>
     <p class="small text-muted mt-4 mb-0">Support: <?= e(Settings::get('contact_phone')) ?></p>
   </div>
 </section>

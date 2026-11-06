@@ -38,7 +38,7 @@ $pageTitle = $product['meta_title'] ?: $product['name'];
 $pageDescription = $product['meta_description'] ?: truncate_text($product['short_description'] ?: $product['description'], 160);
 $pageImage = $product['featured_image'];
 $extraScripts = (new SeoService(db()))->productSchema($product, ['name' => $product['category_name'] ?? ''])
-    . (new SeoService(db()))->breadcrumbSchema(['Home' => Url::base() . '/', 'Products' => Url::to('our-products'), $product['name'] => product_url((string) $product['slug'])]);
+    . (new SeoService(db()))->breadcrumbSchema(['Home' => Url::absoluteBase() . '/', 'Products' => Url::to('our-products'), $product['name'] => product_url((string) $product['slug'])]);
 
 require INCLUDES_PATH . '/header.php';
 echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' => 'our-products', ($product['category_name'] ?? 'Category') => 'products.php?category=' . urlencode((string) ($product['category_slug'] ?? '')), $product['name'] => '']);

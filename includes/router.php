@@ -68,6 +68,51 @@ if (!function_exists('saee_app_root')) {
     }
 
     /**
+     * Stream a static file with the correct MIME type and a short cache header. Used by the
+     * development router so CSS/JS/fonts also work when the app is installed in a
+     * sub-directory (the built-in server resolves paths against its document root only).
+     */
+    function saee_serve_static(string $file): void
+    {
+        $types = [
+            'css' => 'text/css; charset=UTF-8', 'js' => 'application/javascript; charset=UTF-8',
+            'mjs' => 'application/javascript; charset=UTF-8', 'json' => 'application/json; charset=UTF-8',
+            'webmanifest' => 'application/manifest+json; charset=UTF-8', 'map' => 'application/json',
+            'svg' => 'image/svg+xml', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg',
+            'gif' => 'image/gif', 'webp' => 'image/webp', 'avif' => 'image/avif', 'ico' => 'image/x-icon',
+            'woff' => 'font/woff', 'woff2' => 'font/woff2', 'ttf' => 'font/ttf', 'otf' => 'font/otf',
+            'eot' => 'application/vnd.ms-fontobject', 'mp4' => 'video/mp4', 'webm' => 'video/webm',
+            'pdf' => 'application/pdf', 'txt' => 'text/plain; charset=UTF-8', 'xml' => 'application/xml',
+            'zip' => 'application/zip', 'csv' => 'text/csv; charset=UTF-8',
+        ];
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        header('Content-Type: ' . ($types[$ext] ?? 'application/octet-stream'));
+        header('Content-Length: ' . (string) filesize($file));
+        header('Cache-Control: public, max-age=3600');
+        header('X-Content-Type-Options: nosniff');
+        readfile($file);
+    }
+
+    /**
+     * Request path relative to the application root, always starting with "/".
+     * Used by the built-in-server router to map a URL onto a file on disk; it tolerates
+     * setups that expose the physical script path in REQUEST_URI.
+     */
+    function saee_normalized_path(): string
+    {
+        $uri = str_replace('\\', '/', rawurldecode((string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH)));
+        $root = saee_app_root();
+        if ($root !== '' && str_starts_with($uri, $root)) {
+            $uri = substr($uri, strlen($root));
+        }
+        $base = saee_base_path();
+        if ($base !== '' && str_starts_with($uri, $base)) {
+            $uri = substr($uri, strlen($base));
+        }
+        return $uri === '' ? '/' : $uri;
+    }
+
+    /**
      * Normalise the request path: strip the sub-directory the app is installed in and the
      * leading/trailing slashes. Works for http://localhost/LIVEpro/SaeeLifeHerbal-1/... too.
      */

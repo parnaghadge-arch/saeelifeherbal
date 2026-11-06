@@ -4,7 +4,7 @@
  * - Network-first for HTML, stale-while-revalidate for static assets.
  * - NEVER caches admin, member portal, API responses or any authenticated/financial data.
  */
-const VERSION = 'saee-v1.0.0';
+const VERSION = 'saee-v1.1.0';
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 

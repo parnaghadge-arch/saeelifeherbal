@@ -89,7 +89,7 @@ $whatsapp = preg_replace('/\D/', '', (string) Settings::get('whatsapp_number', '
 
 <!-- Mobile app-style bottom tab bar (phones / small tablets only) -->
 <nav class="mobile-bottom-nav app-tabbar" aria-label="Quick navigation">
-  <a href="<?= e(Url::base()) ?>" class="<?= active_class('home', 'active') ?>">
+  <a href="<?= e(Url::to('')) ?>" class="<?= active_class('home', 'active') ?>">
     <i class="fa-solid fa-house" aria-hidden="true"></i><span>Home</span>
   </a>
   <a href="<?= e(Url::to('products.php')) ?>" class="<?= active_class('products', 'active') ?>">

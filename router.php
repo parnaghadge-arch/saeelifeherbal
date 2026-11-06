@@ -13,16 +13,9 @@ declare(strict_types=1);
 require __DIR__ . '/includes/router.php';
 
 $root = __DIR__;
-$base = saee_base_path();
 
 // Normalised path inside the application ("/", "/admin", "/assets/css/app.css").
-$uri = str_replace('\\', '/', rawurldecode((string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH)));
-if ($base !== '' && str_starts_with($uri, $base)) {
-    $uri = substr($uri, strlen($base));
-}
-if ($uri === '') {
-    $uri = '/';
-}
+$uri = saee_normalized_path();
 
 // Never expose application internals through the dev server.
 if (preg_match('#^/(storage|config|lib|includes|database|tools|tests|docs)(/|$)#', $uri)) {
@@ -30,16 +23,18 @@ if (preg_match('#^/(storage|config|lib|includes|database|tools|tests|docs)(/|$)#
     exit('Not found');
 }
 
-// A real file (css, js, images, fonts, service-worker.js …) is served as-is.
-if ($uri !== '/' && is_file($root . $uri)) {
-    return false;
+// A real file (css, js, images, fonts, service-worker.js …) is served as-is. Static files are
+// streamed from here instead of returning false, because the built-in server resolves the
+// path against its document root — which is wrong when the app lives in a sub-directory.
+if ($uri !== '/' && is_file($root . $uri) && !str_ends_with($uri, '.php')) {
+    saee_serve_static($root . $uri);
+    return true;
 }
-// A real directory that owns an index (admin/, member/, api/, pwa/) is served by the
-// server's own directory index. Directories without one (empty placeholder folders such as
-// member/wallet/) fall through to the front controller so member/wallet.php still answers.
-if ($uri !== '/' && is_dir($root . $uri)
-    && (is_file($root . $uri . '/index.php') || is_file($root . $uri . '/index.html'))) {
-    return false;
-}
+// PHP scripts are dispatched by the front controller as well: the built-in server resolves
+// "return false" paths against its own document root, which breaks in a sub-directory install.
+// saee_dispatch() requires the resolved script with the correct SCRIPT_NAME/query.
+
+// Everything else — including directories such as /admin, /member, /api — is resolved by the
+// front controller, which understands directory indexes and pretty URLs alike.
 
 saee_run_front_controller();

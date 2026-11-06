@@ -23,7 +23,7 @@ final class SeoService
         $keywords = trim((string) ($meta['keywords'] ?? Settings::get('meta_keywords_default', '')));
         $canonical = (string) ($meta['canonical'] ?? Url::canonical());
         $image = (string) ($meta['image'] ?? Settings::get('og_default_image', 'assets/images/logo-square.png'));
-        $imageUrl = Url::media($image);
+        $imageUrl = Url::absolute(Url::media($image, 'assets/images/logo-square.png'));
         $robots = (string) ($meta['robots'] ?? 'index,follow');
         $type = (string) ($meta['type'] ?? 'website');
 
@@ -57,7 +57,7 @@ final class SeoService
             '@context' => 'https://schema.org',
             '@type' => 'Organization',
             'name' => (string) Settings::get('site_name', APP_NAME),
-            'url' => Url::base(),
+            'url' => Url::absoluteBase(),
             'logo' => Url::media((string) Settings::get('logo_header', 'assets/images/logo.png')),
             'description' => (string) Settings::get('site_description', ''),
             'email' => (string) Settings::get('contact_email', ''),
@@ -117,7 +117,7 @@ final class SeoService
 
     public function sitemapXml(): string
     {
-        $base = Url::base();
+        $base = Url::absoluteBase();
         $now = date('c');
         $urls = [
             ['loc' => $base . '/', 'priority' => '1.0', 'changefreq' => 'daily'],
@@ -129,13 +129,13 @@ final class SeoService
             $urls[] = ['loc' => $base . '/' . $page['slug'], 'priority' => '0.6', 'changefreq' => 'monthly', 'lastmod' => $page['updated_at']];
         }
         foreach ($this->db->select("SELECT slug, updated_at FROM product_categories WHERE status = 1") as $cat) {
-            $urls[] = ['loc' => $base . '/products.php?category=' . $cat['slug'], 'priority' => '0.8', 'changefreq' => 'weekly', 'lastmod' => $cat['updated_at']];
+            $urls[] = ['loc' => $base . '/' . Url::pretty('products.php?category=' . $cat['slug']), 'priority' => '0.8', 'changefreq' => 'weekly', 'lastmod' => $cat['updated_at']];
         }
         foreach ($this->db->select("SELECT slug, updated_at FROM products WHERE status = 'active'") as $product) {
-            $urls[] = ['loc' => product_url((string) $product['slug']), 'priority' => '0.8', 'changefreq' => 'weekly', 'lastmod' => $product['updated_at']];
+            $urls[] = ['loc' => $base . '/product/' . rawurlencode((string) $product['slug']), 'priority' => '0.8', 'changefreq' => 'weekly', 'lastmod' => $product['updated_at']];
         }
         foreach ($this->db->select("SELECT slug, updated_at FROM blogs WHERE status = 'published'") as $blog) {
-            $urls[] = ['loc' => blog_url((string) $blog['slug']), 'priority' => '0.6', 'changefreq' => 'monthly', 'lastmod' => $blog['updated_at']];
+            $urls[] = ['loc' => $base . '/blog/' . rawurlencode((string) $blog['slug']), 'priority' => '0.6', 'changefreq' => 'monthly', 'lastmod' => $blog['updated_at']];
         }
         $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
         foreach ($urls as $url) {
@@ -153,7 +153,7 @@ final class SeoService
     public function robotsTxt(): string
     {
         $custom = (string) Settings::get('robots_txt', '');
-        $sitemap = 'Sitemap: ' . Url::base() . '/sitemap.xml';
+        $sitemap = 'Sitemap: ' . Url::absoluteBase() . '/sitemap.xml';
         return ($custom !== '' ? $custom : "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /member\nDisallow: /api\n") . "\n\n" . $sitemap . "\n";
     }
 }

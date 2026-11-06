@@ -17,6 +17,7 @@ No framework, no Composer, no build step. Upload, run the installer, done.
 - Branded content pages (About, Business Opportunity, Privacy, Terms, Refund, Shipping, Disclaimer)
 - SEO built in: per-page meta + Open Graph, JSON-LD (Organization, Product, Breadcrumb, FAQ), `sitemap.php`, `robots.php`
 - Clean, extension-less URLs (`/product-categories`, `/about-us`, `/product/<slug>`, `/blog/<slug>`) that also work with `.php`, at the domain root or in a sub-directory, driven by one route table (`config/routes.php`)
+- Proxy/CDN safe URLs: assets and links are origin-relative, so HTTPS-terminating proxies, reverse proxies and tunnels can never break the stylesheet (no mixed content)
 - Logo image, logo text and subtitle come from **Admin → Settings → Logos & Branding** — nothing in the header is hardcoded
 - Responsive header from 320 px to ultrawide: brand (image + text) always visible, nav collapses to an app drawer below 1200 px, no overflow or overlap
 - Mobile app feel: sticky translucent header, safe-area aware bottom tab bar (Home / Shop / Explore / Cart / Account), touch-sized controls, two-column product grid

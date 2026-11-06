@@ -68,7 +68,7 @@ if (is_post()) {
     </div>
     <button class="btn btn-primary w-100" type="submit">Sign in securely</button>
   </form>
-  <p class="small text-muted text-center mt-3 mb-0"><a href="<?= e(Url::base()) ?>/">← Back to website</a></p>
+  <p class="small text-muted text-center mt-3 mb-0"><a href="<?= e(Url::to('')) ?>">← Back to website</a></p>
 </div>
 </body>
 </html>

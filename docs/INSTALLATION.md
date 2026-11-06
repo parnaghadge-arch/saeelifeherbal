@@ -216,6 +216,8 @@ Sub-directory troubleshooting:
 
 | Symptom | Fix |
 | --- | --- |
+| **A page loads as plain unstyled HTML (CSS/JS "blocked")** | This happened when the page was opened through https but the links were written as `http://…` — the browser refuses mixed content. Application URLs are now origin-relative (`/assets/css/app.css`), so the scheme and host always follow the page. If you upgraded from an older copy, hard-refresh once (the asset version is `?v=1.1.0`, the service-worker cache is `saee-v1.1.0`). |
+| Styles look stale after an update | Bump `APP_VERSION` in `config/app.php`; asset URLs and the service-worker cache name derive from it. |
 | `/LIVEpro/SaeeLifeHerbal-1/about-us` shows the home page | The rewrite is not reaching `index.php`. Confirm `mod_rewrite` is enabled and `AllowOverride All` is set for `htdocs`, or set `RewriteBase /LIVEpro/SaeeLifeHerbal-1/` in `.htaccess`. |
 | Every page is styled but links point at the domain root | Copy your real domain (with `/LIVEpro/SaeeLifeHerbal-1`) into `APP_URL` in `.env`; otherwise the base path is auto-detected from the request. |
 | Admin links jump to the public site | You are on an old copy — the router now derives the base from `DOCUMENT_ROOT`, which is identical for the front controller and the admin/member apps. |

@@ -16,8 +16,8 @@ $manifest = [
     'name' => $name,
     'short_name' => (string) Settings::get('pwa_short_name', 'Saee Life'),
     'description' => (string) Settings::get('site_description', ''),
-    'start_url' => Url::base() . '/?source=pwa',
-    'scope' => Url::base() . '/',
+    'start_url' => Url::absoluteBase() . '/?source=pwa',
+    'scope' => Url::absoluteBase() . '/',
     'display' => 'standalone',
     'orientation' => 'portrait-primary',
     'background_color' => (string) Settings::get('pwa_background_color', '#F7FAF6'),
@@ -31,9 +31,9 @@ $manifest = [
         ['src' => $icon, 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
     ],
     'shortcuts' => [
-        ['name' => 'Shop Products', 'url' => Url::base() . '/our-products', 'icons' => [['src' => $icon, 'sizes' => '192x192']]],
-        ['name' => 'Partner Dashboard', 'url' => Url::base() . '/member/dashboard', 'icons' => [['src' => $icon, 'sizes' => '192x192']]],
-        ['name' => 'My Orders', 'url' => Url::base() . '/my-orders.php', 'icons' => [['src' => $icon, 'sizes' => '192x192']]],
+        ['name' => 'Shop Products', 'url' => Url::absoluteBase() . '/our-products', 'icons' => [['src' => $icon, 'sizes' => '192x192']]],
+        ['name' => 'Partner Dashboard', 'url' => Url::absoluteBase() . '/member/dashboard', 'icons' => [['src' => $icon, 'sizes' => '192x192']]],
+        ['name' => 'My Orders', 'url' => Url::absoluteBase() . '/my-orders', 'icons' => [['src' => $icon, 'sizes' => '192x192']]],
     ],
 ];
 

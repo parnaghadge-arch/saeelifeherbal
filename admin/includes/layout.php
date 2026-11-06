@@ -77,7 +77,7 @@ $menu = [
         </a>
       <?php endforeach; ?>
       <div class="nav-section">Shortcuts</div>
-      <a href="<?= e(Url::base()) ?>/" target="_blank"><i class="fa-solid fa-globe"></i><span>View Website</span></a>
+      <a href="<?= e(Url::to('')) ?>" target="_blank"><i class="fa-solid fa-globe"></i><span>View Website</span></a>
       <a href="<?= e(\Saee\Lib\Url::admin('logout.php')) ?>"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a>
     </nav>
   </aside>

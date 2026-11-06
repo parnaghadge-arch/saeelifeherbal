@@ -40,7 +40,7 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
 ]) ?>
 <link rel="icon" href="<?= e(Url::media((string) Settings::get('favicon', 'assets/images/logo-square.png'))) ?>">
 <link rel="apple-touch-icon" href="<?= e(Url::media((string) Settings::get('logo_pwa', 'assets/images/logo-square.png'))) ?>">
-<link rel="manifest" href="<?= e(Url::base()) ?>/manifest.json">
+<link rel="manifest" href="<?= e(Url::to('manifest.json')) ?>">
 <link rel="preload" href="<?= e(Url::asset('fonts/poppins/poppins-latin-600-normal.woff2')) ?>" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="<?= e(Url::asset('vendor/bootstrap/bootstrap.min.css')) ?>">
 <link rel="stylesheet" href="<?= e(Url::asset('vendor/fontawesome/css/all.min.css')) ?>">
@@ -74,7 +74,7 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
   <?php endif; ?>
   <nav class="navbar navbar-expand-xl py-1" aria-label="Main navigation">
     <div class="container header-inner">
-      <a class="navbar-brand" href="<?= e(Url::base()) ?>" aria-label="<?= e($siteName) ?> — home">
+      <a class="navbar-brand" href="<?= e(Url::to('')) ?>" aria-label="<?= e($siteName) ?> — home">
         <?php if ($logo !== ''): ?>
           <img src="<?= e(Url::media($logo)) ?>" alt="<?= e($siteName) ?> logo" class="brand-logo" width="160" height="52" decoding="async">
         <?php endif; ?>

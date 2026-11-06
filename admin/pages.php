@@ -203,7 +203,7 @@ require __DIR__ . '/includes/layout.php';
       </form>
       <?php if ($page): ?>
         <div class="d-flex gap-2 mt-2">
-          <a class="btn btn-sm btn-outline-secondary flex-grow-1" target="_blank" rel="noopener" href="<?= e(Url::base() . '/' . $page['slug']) ?>">Preview</a>
+          <a class="btn btn-sm btn-outline-secondary flex-grow-1" target="_blank" rel="noopener" href="<?= e(Url::to((string) $page['slug'])) ?>">Preview</a>
           <?php if ((int) $page['is_system'] !== 1): ?>
             <form method="post" class="flex-grow-1" data-confirm="Delete this page and its sections?">
               <?= csrf_field() ?>
@@ -282,7 +282,7 @@ require __DIR__ . '/includes/layout.php';
               <td data-label="Nav" class="small"><?= (int) $row['show_in_nav'] === 1 ? 'Header' : '—' ?></td>
               <td class="text-end">
                 <a class="btn btn-sm btn-light-green" href="?id=<?= (int) $row['id'] ?>"><i class="fa-solid fa-pen"></i></a>
-                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="<?= e(Url::base() . '/' . $row['slug']) ?>"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="<?= e(Url::to((string) $row['slug'])) ?>"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
               </td>
             </tr>
           <?php endforeach; ?>

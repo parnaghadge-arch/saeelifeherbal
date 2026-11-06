@@ -63,7 +63,7 @@ $bottomNav = [
 ]) ?>
 <link rel="icon" href="<?= e(Url::media((string) Settings::get('favicon', 'assets/images/logo-square.png'))) ?>">
 <link rel="apple-touch-icon" href="<?= e(Url::media((string) Settings::get('logo_pwa', 'assets/images/logo-square.png'))) ?>">
-<link rel="manifest" href="<?= e(Url::base()) ?>/manifest.json">
+<link rel="manifest" href="<?= e(Url::to('manifest.json')) ?>">
 <link rel="stylesheet" href="<?= e(\Saee\Lib\Url::asset('vendor/bootstrap/bootstrap.min.css')) ?>">
 <link rel="stylesheet" href="<?= e(\Saee\Lib\Url::asset('vendor/fontawesome/css/all.min.css')) ?>">
 <link rel="stylesheet" href="<?= e(\Saee\Lib\Url::asset('css/app.css')) ?>?v=<?= APP_VERSION ?>">
@@ -97,7 +97,7 @@ $bottomNav = [
         <?php endforeach; ?>
       <?php endforeach; ?>
       <div class="nav-section">More</div>
-      <a href="<?= e(Url::base()) ?>/"><i class="fa-solid fa-store"></i><span>Visit Website</span></a>
+      <a href="<?= e(Url::to('')) ?>"><i class="fa-solid fa-store"></i><span>Visit Website</span></a>
       <a href="<?= e(\Saee\Lib\Url::member('logout.php')) ?>"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a>
     </nav>
   </aside>

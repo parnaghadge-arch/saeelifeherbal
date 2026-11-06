@@ -199,7 +199,7 @@ final class MemberService
 
         Notification::send('member', $memberId, 'registration_welcome', 'Welcome to Saee Life Herbal',
             'Your partner account ' . $member['member_code'] . ' is active. Your sponsor is ' . ($sponsor['name'] ?? '') . '.',
-            ['member_code' => $member['member_code'], 'sponsor_name' => $sponsor['name'] ?? '', 'referral_link' => Url::base() . '/member/register?ref=' . $member['referral_code']],
+            ['member_code' => $member['member_code'], 'sponsor_name' => $sponsor['name'] ?? '', 'referral_link' => Url::absoluteBase() . '/member/register?ref=' . $member['referral_code']],
             ['link' => 'dashboard', 'type' => 'success', 'icon' => 'fa-hand-sparkles']);
         if ((int) $sponsor['is_company'] !== 1) {
             Notification::send('member', (int) $sponsor['id'], 'new_referral', 'New Team Member Joined',
@@ -246,7 +246,7 @@ final class MemberService
 
     public function referralLink(array $member): string
     {
-        return Url::base() . '/member/register?ref=' . urlencode((string) $member['referral_code']);
+        return Url::absoluteBase() . '/member/register?ref=' . urlencode((string) $member['referral_code']);
     }
 
     /** Admin sponsor correction with a permanent audit trail. */

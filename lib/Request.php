@@ -183,10 +183,25 @@ final class Request
         self::redirect($fallback);
     }
 
+    /**
+     * True when the client used HTTPS. Behind a load balancer, proxy or tunnel the PHP
+     * process itself only sees plain HTTP, so the standard forwarding headers are honoured
+     * (X-Forwarded-Proto may hold a list: "https, http").
+     */
     public static function isSecure(): bool
     {
-        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+        if (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off') {
+            return true;
+        }
+        if ((string) ($_SERVER['SERVER_PORT'] ?? '') === '443') {
+            return true;
+        }
+        $proto = strtolower(trim(explode(',', (string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+        if ($proto === 'https') {
+            return true;
+        }
+        return strtolower((string) ($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '')) === 'on'
+            || str_contains(strtolower((string) ($_SERVER['HTTP_CF_VISITOR'] ?? '')), 'https');
     }
 
     public static function host(): string

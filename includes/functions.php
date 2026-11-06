@@ -277,9 +277,9 @@ function menu_url(string $url): string
     // "home" is the site root; everything else is a clean route (/about-us, /our-products).
     $url = ltrim($url, '/');
     if ($url === 'home' || $url === 'index' || $url === 'index.php') {
-        return Url::base() . '/';
+        return Url::to('');
     }
-    return Url::base() . '/' . Url::pretty($url);
+    return Url::to($url);
 }
 
 function get_page_by_slug(string $slug): ?array
@@ -436,7 +436,7 @@ function share_links(string $url, string $title): array
 /** Points/breadcrumb renderer used by inner pages. */
 function breadcrumbs(array $crumbs): string
 {
-    $html = '<ul class="breadcrumb-saee"><li><a href="' . Url::base() . '/">Home</a></li>';
+    $html = '<ul class="breadcrumb-saee"><li><a href="' . Url::to('') . '">Home</a></li>';
     foreach ($crumbs as $label => $url) {
         $html .= $url ? '<li><a href="' . e(menu_url($url)) . '">' . e($label) . '</a></li>' : '<li>' . e($label) . '</li>';
     }
