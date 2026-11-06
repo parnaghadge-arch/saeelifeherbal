@@ -233,3 +233,5 @@ unilevel with unlimited direct referrals (binary is not supported); commissions 
 | `Database unavailable` page | MySQL is stopped, the database is missing, or `.env` credentials are wrong. `doctor` pinpoints which. |
 | `errno 1824 Failed to open the referenced table` (MySQL) | Table creation order; fixed in 1.0 — `Schema::install()` disables FK checks while creating tables. Ensure you run the bundled code, not the SQL paste. |
 | Re-running install fails on `admin_roles.slug` / `admin_users.username` | Fixed in 1.0: install is idempotent, existing roles/permissions are reused and the admin row is updated. |
+| `SQLSTATE[HY093]: Invalid parameter number` on MySQL | A query reused a named placeholder (`... LIKE :q OR ... LIKE :q`). PDO expands each occurrence to its own slot, so MySQL rejects it while SQLite tolerates it. Fixed in 1.0: the DB layer rewrites repeats to unique names before preparing. |
+| Need to audit SQL binding (development) | `SAEE_STRICT_BIND=1` makes unused/mismatched bind parameters fail loudly, and every incident is appended to `storage/logs/database-error.log`. |

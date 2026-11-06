@@ -122,22 +122,178 @@ final class Database
         return $this->driver;
     }
 
+    /**
+     * Named placeholders used by a statement, in the order they appear.
+     * Placeholders inside quoted SQL literals are ignored so a JSON or text value in the
+     * query cannot be mistaken for a placeholder.
+     *
+     * @return list<array{0:string,1:int,2:int}> [name, offset, length]
+     */
+    private static function placeholderTokens(string $sql): array
+    {
+        // Blank out single/double quoted literals first, keeping byte offsets intact.
+        $masked = preg_replace_callback(
+            ["/'(?:[^'\\\\]|\\\\.)*'/s", '/"(?:[^"\\\\]|\\\\.)*"/s'],
+            static fn (array $m): string => str_repeat(' ', strlen($m[0])),
+            $sql
+        ) ?? $sql;
+
+        $tokens = [];
+        preg_match_all('/(?<![:\w]):([a-zA-Z_][a-zA-Z0-9_]*)/', $masked, $m, PREG_OFFSET_CAPTURE);
+        // Only keep positions where the ':' is not part of a '::' cast.
+        foreach ($m[0] as $index => [$token, $offset]) {
+            $tokens[] = [$m[1][$index][0], $offset, strlen($token)];
+        }
+        return $tokens;
+    }
+
+    /** Unique placeholder names used by a statement. @return list<string> */
+    private static function placeholderNames(string $sql): array
+    {
+        return array_values(array_unique(array_column(self::placeholderTokens($sql), 0)));
+    }
+
+    /**
+     * Give every occurrence of a repeated named placeholder its own name.
+     *
+     * PDO rewrites ":q" to a separate positional "?" for each occurrence, so a query that
+     * reuses a name ("name LIKE :q OR code LIKE :q") binds one slot and leaves the other
+     * empty: MySQL then fails with SQLSTATE[HY093] "Invalid parameter number" while SQLite
+     * tolerates it. Rewriting to ":q_2" makes the statement valid on every driver.
+     *
+     * @return array{0:string,1:list<string>} [rewritten sql, names in binding order]
+     */
+    private static function expandRepeatedPlaceholders(string $sql): array
+    {
+        $tokens = self::placeholderTokens($sql);
+        $seen = [];
+        $needsRewrite = false;
+        foreach ($tokens as [$name]) {
+            $seen[$name] = ($seen[$name] ?? 0) + 1;
+            if ($seen[$name] > 1) {
+                $needsRewrite = true;
+            }
+        }
+        if (!$needsRewrite) {
+            return [$sql, array_keys($seen)];
+        }
+
+        $names = [];
+        $out = '';
+        $cursor = 0;
+        $counter = [];
+        foreach ($tokens as [$name, $offset, $length]) {
+            $counter[$name] = ($counter[$name] ?? 0) + 1;
+            $alias = $counter[$name] === 1 ? $name : $name . '__' . $counter[$name];
+            $out .= substr($sql, $cursor, $offset - $cursor) . ':' . $alias;
+            $cursor = $offset + $length;
+            $names[] = $alias;
+        }
+        $out .= substr($sql, $cursor);
+        return [$out, $names];
+    }
+
+    /**
+     * Bind parameters by name exactly once, using only the placeholders present in the SQL.
+     *
+     * This keeps queries portable: a statement may reference :q twice (PDO allows it on MySQL
+     * and SQLite but not on every driver), and a stray key in the parameter array can no longer
+     * produce the opaque "SQLSTATE[HY093]: Invalid parameter number".
+     */
+    private function bindParams(PDOStatement $stmt, string $sql, array $params, array $aliases = []): void
+    {
+        $hasNamed = str_contains($sql, ':');
+        $names = $aliases !== [] ? $aliases : ($hasNamed ? self::placeholderNames($sql) : []);
+        $provided = [];
+        foreach ($params as $key => $value) {
+            $provided[ltrim((string) $key, ':')] = $value;
+        }
+        if ($aliases !== []) {
+            // Binding order follows the expanded aliases; values are looked up by base name.
+            foreach ($names as $alias) {
+                $base = str_contains($alias, '__') ? substr($alias, 0, (int) strrpos($alias, '__')) : $alias;
+                if (!array_key_exists($base, $provided)) {
+                    throw new RuntimeException('Query is missing value for placeholder :' . $base . ' — SQL: ' . $sql);
+                }
+                $provided[$alias] = $provided[$base];
+            }
+        }
+
+        if ($names === []) {
+            if ($params === []) {
+                return; // nothing to bind
+            }
+            if (!str_contains($sql, '?')) {
+                // The caller passed values but the SQL takes none (e.g. a fixed WHERE clause).
+                $this->logDiagnostic('UNUSED PARAMS (no placeholders in SQL)', $sql, $params);
+                return;
+            }
+            // Positional (?) parameters.
+            $i = 1;
+            foreach (array_values($params) as $value) {
+                $stmt->bindValue($i++, $value, self::paramType($value));
+            }
+            return;
+        }
+
+        $missing = array_values(array_diff($names, array_keys($provided)));
+        if ($missing !== []) {
+            $this->logDiagnostic('MISSING PARAMS ' . implode(', ', $missing), $sql, $params);
+            throw new RuntimeException(
+                'Query is missing value(s) for placeholder(s): :' . implode(', :', $missing) . ' — SQL: ' . $sql
+            );
+        }
+        $unused = array_values(array_diff(array_keys($provided), $names));
+        if ($unused !== []) {
+            // Extra keys are a bug in the caller. Dropping them keeps the query working, but
+            // SAEE_STRICT_BIND=1 turns them into a hard error so tests catch them on any driver.
+            $this->logDiagnostic('UNUSED PARAMS ' . implode(', ', $unused), $sql, $params);
+            if (getenv('SAEE_STRICT_BIND') === '1') {
+                throw new RuntimeException('Unused bind parameter(s) for :' . implode(', :', $unused) . ' — SQL: ' . $sql);
+            }
+        }
+        foreach ($names as $name) {
+            $value = $provided[$name];
+            $stmt->bindValue(':' . $name, $value, self::paramType($value));
+        }
+    }
+
+    private static function paramType(mixed $value): int
+    {
+        return match (true) {
+            is_int($value)  => PDO::PARAM_INT,
+            is_bool($value) => PDO::PARAM_BOOL,
+            is_null($value) => PDO::PARAM_NULL,
+            default         => PDO::PARAM_STR,
+        };
+    }
+
+    private function logDiagnostic(string $label, string $sql, array $params): void
+    {
+        $dir = LOG_PATH;
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        @file_put_contents($dir . DIRECTORY_SEPARATOR . 'database-error.log', sprintf(
+            "[%s] %s | SQL: %s | PARAMS: %s\n",
+            date('c'),
+            $label,
+            $sql,
+            json_encode(array_map(static fn ($v) => is_scalar($v) || $v === null ? $v : '[object]', $params))
+        ), FILE_APPEND);
+    }
+
     private function prepare(string $sql, array $params): PDOStatement
     {
         $start = microtime(true);
+        [$expandedSql, $aliases] = self::expandRepeatedPlaceholders($sql);
         try {
-            $stmt = $this->pdo->prepare($sql);
-            foreach ($params as $key => $value) {
-                $name = is_int($key) ? $key + 1 : (str_starts_with((string) $key, ':') ? $key : ':' . $key);
-                $type = match (true) {
-                    is_int($value)  => PDO::PARAM_INT,
-                    is_bool($value) => PDO::PARAM_BOOL,
-                    is_null($value) => PDO::PARAM_NULL,
-                    default         => PDO::PARAM_STR,
-                };
-                $stmt->bindValue($name, $value, $type);
-            }
+            $stmt = $this->pdo->prepare($expandedSql);
+            $this->bindParams($stmt, $expandedSql, $params, $aliases);
             $stmt->execute();
+        } catch (RuntimeException $e) {
+            $this->logError($sql, $params, $e);
+            throw $e;
         } catch (PDOException $e) {
             $this->logError($sql, $params, $e);
             throw new RuntimeException('Query failed: ' . $e->getMessage(), (int) $e->getCode(), $e);

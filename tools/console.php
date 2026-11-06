@@ -39,7 +39,7 @@ foreach (array_slice($argv, 2) as $arg) {
  */
 $dbConfig = (array) \Saee\Lib\Config::get('database.db');
 $driver = (string) ($dbConfig['driver'] ?? 'sqlite');
-$commands = ['install', 'demo', 'doctor', 'schema:mysql', 'schema:sqlite', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
+$commands = ['install', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
 
 if (!in_array($command, $commands, true)) {
     echo "Saee Life Herbal console\n\n";
@@ -54,7 +54,8 @@ if (!in_array($command, $commands, true)) {
     echo "  royalty:run          evaluate royalty achievements (cron)\n";
     echo "  backups:run          write a database backup into storage/backups (cron)\n";
     echo "  sitemap              regenerate sitemap.xml (cron)\n";
-    echo "  doctor               check PHP version, extensions, folders and database connectivity\n\n";
+    echo "  doctor               check PHP version, extensions, folders and database connectivity\n";
+    echo "  selftest             run a quick query-binding smoke test against the database\n\n";
     echo "Active database driver: " . $driver . PHP_EOL;
     exit(0);
 }
@@ -126,6 +127,11 @@ if ($command === 'doctor') {
     exit($ok ? 0 : 1);
 }
 
+// Development aid: make bind-parameter mismatches fatal so tests catch them.
+if (getenv('SAEE_STRICT_BIND') === '1') {
+    echo 'Strict SQL binding enabled: mismatched placeholders will fail loudly.' . PHP_EOL;
+}
+
 if ($driver === 'mysql' && !in_array('mysql', \PDO::getAvailableDrivers(), true)) {
     fwrite(STDERR, "PDO MySQL driver (pdo_mysql) is not enabled in this PHP build." . PHP_EOL);
     fwrite(STDERR, "Enable it in php.ini: remove the ';' in front of extension=pdo_mysql, then restart." . PHP_EOL);
@@ -154,6 +160,42 @@ try {
 }
 
 switch ($command) {
+    case 'selftest':
+        // Exercises the query layer against the configured database: repeated named
+        // placeholders, positional params, literals containing colons, and error paths.
+        $checks = [];
+        $run = static function (string $label, callable $fn) use (&$checks): void {
+            try {
+                $fn();
+                $checks[] = [true, $label, ''];
+            } catch (Throwable $e) {
+                $checks[] = [false, $label, $e->getMessage()];
+            }
+        };
+        $run('repeated named placeholder', static fn () => $db->value('SELECT :q AS a', ['q' => 'same-value']) === 'same-value' ?: throw new RuntimeException('value mismatch'));
+        $run('placeholder repeated twice binds one value', static function () use ($db) {
+            $v = $db->value("SELECT (:q || '|' || :q) AS v", ['q' => 'ab']);
+            if ($v !== 'ab|ab') { throw new RuntimeException('expected ab|ab, got ' . var_export($v, true)); }
+        });
+        $run('positional parameter', static fn () => $db->value('SELECT ? AS v', ['pos']) === 'pos' ?: throw new RuntimeException('value mismatch'));
+        $run('colon inside a string literal is not a parameter', static fn () => $db->value("SELECT 'x:y' AS v", []) === 'x:y' ?: throw new RuntimeException('value mismatch'));
+        $run('missing parameter is reported clearly', static function () use ($db) {
+            try {
+                $db->value('SELECT :missing AS v', []);
+            } catch (RuntimeException $e) {
+                if (str_contains($e->getMessage(), ':missing')) { return; }
+                throw $e;
+            }
+            throw new RuntimeException('missing parameter was not reported');
+        });
+        $run('schema reachable', static fn () => $db->value('SELECT COUNT(*) FROM settings') !== null ?: throw new RuntimeException('no settings table'));
+        foreach ($checks as [$pass, $label, $detail]) {
+            echo ($pass ? '  [ OK ]   ' : '  [FAIL]  ') . $label . ($detail !== '' ? ' — ' . $detail : '') . PHP_EOL;
+        }
+        $failed = count(array_filter($checks, static fn ($c) => !$c[0]));
+        echo PHP_EOL . ($failed === 0 ? 'Query layer OK on driver "' . $db->driver() . '".' : $failed . ' check(s) failed.') . PHP_EOL;
+        exit($failed === 0 ? 0 : 1);
+
     case 'install':
         $installer = new Installer($db);
         $installer->install([
