@@ -1,0 +1,197 @@
+# Saee Life Herbal — Installation & Deployment Guide
+
+Core PHP 8.x + MySQL 8.x (PDO). No framework, no Composer requirement, no build step.
+
+---
+
+## 1. Requirements
+
+| Component | Minimum |
+| --- | --- |
+| PHP | 8.1+ (8.2/8.3 recommended) |
+| Extensions | `pdo_mysql`, `mbstring`, `openssl`, `fileinfo`, `gd`, `curl`, `json`, `zip`, `bcmath` |
+| MySQL | 8.0+ (MariaDB 10.6+ works) |
+| Web server | Apache 2.4 with `mod_rewrite`, or nginx + php-fpm |
+| HTTPS | Required in production (Razorpay, secure cookies, PWA) |
+
+Local development can use SQLite (`storage/db/app.sqlite`) — no configuration needed.
+
+---
+
+## 2. Upload & permissions
+
+```bash
+# copy the application (excluding .git) to the document root
+sudo chown -R www-data:www-data /var/www/saeelifeherbal
+sudo find /var/www/saeelifeherbal -type d -exec chmod 755 {} \;
+sudo find /var/www/saeelifeherbal -type f -exec chmod 644 {} \;
+sudo chmod -R 775 /var/www/saeelifeherbal/storage
+```
+
+`storage/` must be writable (database, logs, uploads, backups, private KYC documents) and
+must never be served directly — `.htaccess` and the sample nginx config both block it.
+
+---
+
+## 3. Create the database
+
+```sql
+CREATE DATABASE saee_life_herbal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'saee'@'localhost' IDENTIFIED BY 'a-strong-password';
+GRANT ALL PRIVILEGES ON saee_life_herbal.* TO 'saee'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+---
+
+## 4. Configure environment
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Key values:
+
+```ini
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://example.com
+
+DB_DRIVER=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=saee_life_herbal
+DB_USERNAME=saee
+DB_PASSWORD=a-strong-password
+
+APP_KEY=<64 random hex chars>      # php -r "echo bin2hex(random_bytes(32));"
+SESSION_SECURE=true
+
+# Razorpay (leave blank to keep the gateway disabled)
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+RAZORPAY_WEBHOOK_SECRET=
+```
+
+> `APP_KEY` encrypts KYC numbers and bank account numbers with AES-256-GCM. Changing it
+> after data exists will make previously encrypted values unreadable — set it once and
+> back it up with the database.
+
+---
+
+## 5. Install the schema and seed the admin account
+
+```bash
+php tools/console.php install
+```
+
+This creates all 62 tables, the 74 default settings, 42 permissions across 6 roles, the
+royalty slabs, legal pages, navigation and notification templates, and a super admin.
+
+Output includes the generated admin credentials:
+
+```
+Admin username: admin
+Admin password: <printed once>
+```
+
+Change the password at **Admin → My Account** immediately after the first login at
+`https://example.com/admin/login.php`.
+
+Optional (development/testing only — never on production):
+
+```bash
+php tools/console.php demo       # realistic demo members, products, orders, commissions
+```
+
+Other console commands:
+
+| Command | Purpose |
+| --- | --- |
+| `php tools/console.php schema:mysql` | Print the MySQL DDL |
+| `php tools/console.php schema:sqlite` | Print the SQLite DDL |
+| `php tools/console.php commissions:process` | Generate commission for eligible paid orders |
+| `php tools/console.php royalty:run` | Evaluate royalty milestones |
+| `php tools/console.php backups:run` | Create a database backup |
+| `php tools/console.php sitemap` | Regenerate `storage/sitemap.xml` |
+
+---
+
+## 6. Scheduled jobs (cron)
+
+```cron
+*/10 * * * * cd /var/www/saeelifeherbal && php tools/console.php commissions:process >> storage/logs/cron.log 2>&1
+0 1 * * *    cd /var/www/saeelifeherbal && php tools/console.php royalty:run >> storage/logs/cron.log 2>&1
+0 2 * * *    cd /var/www/saeelifeherbal && php tools/console.php backups:run >> storage/logs/cron.log 2>&1
+30 3 * * *   cd /var/www/saeelifeherbal && php tools/console.php sitemap >> storage/logs/cron.log 2>&1
+```
+
+---
+
+## 7. Payment gateway (Razorpay)
+
+1. Admin → **Settings → Payment Gateways** → enter Key ID, Key Secret and Webhook Secret,
+   or set them in `.env`.
+2. Razorpay Dashboard → Settings → Webhooks → add
+   `https://example.com/api/orders/razorpay-webhook.php` with events
+   `payment.captured`, `payment.failed`, `order.paid`.
+3. Webhook signatures are verified server-side; duplicate events are ignored through the
+   `gateway_webhook_events` table, and commission is generated idempotently.
+
+Cash on Delivery, Bank Transfer and UPI (manual verification) are enabled from the same
+screen without any gateway account.
+
+---
+
+## 8. PWA
+
+* Manifest: `/manifest.json` (admin-editable app name, colours, icons in **Settings → PWA**).
+* Service worker: `/service-worker.js` — caches only the public app shell and static
+  assets. It never caches admin/member pages, API responses, KYC, bank or financial data.
+* Offline fallback: `/offline`.
+
+---
+
+## 9. MLM activation checklist
+
+The compensation plan ships **disabled for public display** (`mlm_plan_public = 0`) on
+purpose. Before activating:
+
+- [ ] Written legal opinion on the unilevel plan under the Indian Direct Selling /
+      Prize Chits & Money Circulation Schemes (Banning) Act and state rules.
+- [ ] GST registration and tax treatment of commissions confirmed; TDS section configured
+      in **MLM Settings → Payout policy**.
+- [ ] Commission rates per product approved by the company (Admin → Products → MLM).
+- [ ] Payout bank account, minimum withdrawal, deduction policy and processing SLA set.
+- [ ] Income disclaimer visible on the opportunity page and in the partner agreement.
+- [ ] Enable with **MLM Settings → Compensation plan active** and
+      **Show the business opportunity publicly**.
+
+Per the compliance rules baked into the engine: commissions come only from *paid product
+orders*, never from recruitment or joining fees; the company controls all rates; the plan is
+unilevel with unlimited direct referrals (binary is not supported); commissions are reversed
+(never deleted) on refund/cancellation.
+
+---
+
+## 10. Backups & disaster recovery
+
+* Automated SQL dumps land in `storage/backups/` (excluded from the web root).
+* Copy `storage/backups/`, `storage/uploads/`, `storage/private/`, `.env` and `APP_KEY`
+  off-site daily.
+* Restore procedure: create an empty database → `mysql db < backup.sql` → restore the
+  upload folders → verify `APP_KEY` matches → log in as admin.
+
+---
+
+## 11. Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| 500 on every page | Check `storage/logs/`, set `APP_DEBUG=true` temporarily |
+| "Security token expired" on every form | Session directory not writable; check `session.save_path` |
+| Images not showing | `storage/uploads` permissions, or wrong `APP_URL` |
+| Razorpay callback fails signature | Key secret / webhook secret mismatch |
+| Commission not generated | Order must be **paid**; check cron and `commission_status` |
+| Payout blocked | KYC/bank must be approved when `require_kyc` / `require_verified_bank` are on |

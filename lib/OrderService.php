@@ -1,0 +1,366 @@
+<?php
+/**
+ * Order lifecycle: checkout, payment confirmation, status transitions and commission hooks.
+ * All money affecting writes happen inside database transactions.
+ */
+declare(strict_types=1);
+
+namespace Saee\Lib;
+
+final class OrderService
+{
+    public const ALLOWED_TRANSITIONS = [
+        'pending' => ['payment_pending', 'paid', 'cancelled'],
+        'payment_pending' => ['paid', 'cancelled', 'pending'],
+        'paid' => ['processing', 'shipped', 'cancelled', 'refunded', 'delivered'],
+        'processing' => ['shipped', 'cancelled', 'refunded', 'delivered'],
+        'shipped' => ['delivered', 'refunded'],
+        'delivered' => ['refunded'],
+        'cancelled' => [],
+        'refunded' => [],
+    ];
+
+    public function __construct(private Database $db)
+    {
+    }
+
+    /**
+     * Create an order from the current cart.
+     */
+    public function checkout(array $data): array
+    {
+        $cartService = new Cart($this->db);
+        $cart = $cartService->current(false);
+        $items = $cartService->items();
+        if (!$cart || $items === []) {
+            return ['ok' => false, 'message' => 'Your cart is empty.'];
+        }
+        $totals = $cartService->totals();
+        $customer = CustomerAuth::user();
+        $member = MemberAuth::user();
+
+        $paymentMethod = in_array($data['payment_method'] ?? 'cod', array_keys(PAYMENT_METHODS), true) ? $data['payment_method'] : 'cod';
+        if ($paymentMethod !== 'cod' && !$this->gatewayEnabled($paymentMethod)) {
+            return ['ok' => false, 'message' => 'The selected payment method is not available right now.'];
+        }
+        if ($paymentMethod === 'cod') {
+            $maxCod = (float) Settings::get('cod_max_amount', 0);
+            if ($maxCod > 0 && $totals['grand_total'] > $maxCod) {
+                return ['ok' => false, 'message' => 'Cash on Delivery is not available for orders above ' . money($maxCod) . '.'];
+            }
+        }
+
+        $shipping = $data['shipping'] ?? [];
+        $billing = $data['billing'] ?? $shipping;
+
+        // Resolve the member context used for commission distribution.
+        $memberId = $member['id'] ?? ($customer['member_id'] ?? null);
+        $referralMemberId = null;
+        if (!$memberId) {
+            $ref = Session::get('referral_code') ?: ($_COOKIE['saee_ref'] ?? null);
+            if ($ref) {
+                $referralMemberId = $this->db->value('SELECT id FROM members WHERE referral_code = :r', ['r' => $ref]);
+                $referralMemberId = $referralMemberId ? (int) $referralMemberId : null;
+            }
+        }
+
+        $orderNumber = Sequence::orderNumber();
+        $invoiceNumber = Sequence::invoiceNumber();
+        $paymentStatus = $paymentMethod === 'cod' ? 'unpaid' : 'pending';
+        $status = $paymentMethod === 'cod' ? 'pending' : 'payment_pending';
+
+        $orderId = $this->db->transaction(function (Database $db) use ($totals, $data, $shipping, $billing, $customer, $memberId, $referralMemberId, $paymentMethod, $orderNumber, $invoiceNumber, $paymentStatus, $status) {
+            $now = date('Y-m-d H:i:s');
+            $orderId = $db->insert('orders', [
+                'order_number' => $orderNumber,
+                'customer_id' => CustomerAuth::id(),
+                'member_id' => $memberId,
+                'referral_member_id' => $referralMemberId,
+                'customer_name' => $shipping['full_name'] ?? ($customer['name'] ?? 'Guest'),
+                'customer_email' => $shipping['email'] ?? ($customer['email'] ?? null),
+                'customer_mobile' => $shipping['phone'] ?? ($customer['mobile'] ?? ''),
+                'shipping_address' => json_encode($shipping, JSON_UNESCAPED_UNICODE),
+                'billing_address' => json_encode($billing, JSON_UNESCAPED_UNICODE),
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => 0,
+                'shipping_total' => $totals['shipping'],
+                'tax_total' => $totals['tax'],
+                'grand_total' => $totals['grand_total'],
+                'payment_method' => $paymentMethod,
+                'payment_status' => $paymentStatus,
+                'status' => $status,
+                'notes' => $data['notes'] ?? null,
+                'invoice_number' => $invoiceNumber,
+                'invoice_date' => date('Y-m-d'),
+                'commission_status' => 'none',
+                'ip_address' => Request::ip(),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            foreach ($totals['items'] as $item) {
+                $lineTotal = round((float) $item['unit_price'] * (int) $item['quantity'], 2);
+                $db->insert('order_items', [
+                    'order_id' => $orderId,
+                    'product_id' => (int) $item['product_id'],
+                    'variant_id' => $item['variant_id'] ? (int) $item['variant_id'] : null,
+                    'product_name' => $item['name'] . ($item['variant_name'] ? ' - ' . $item['variant_name'] : ''),
+                    'product_sku' => null,
+                    'pack_size' => $item['pack_size'] ?? null,
+                    'unit_price' => (float) $item['unit_price'],
+                    'quantity' => (int) $item['quantity'],
+                    'line_total' => $lineTotal,
+                    'tax_amount' => MlmCommissionEngine::compute($lineTotal, 'percent', (float) $item['tax_percent']),
+                    // Commission basis excludes tax so tax is never paid out as commission.
+                    'commissionable_amount' => $lineTotal,
+                    'created_at' => $now,
+                ]);
+                // Reduce stock (non-blocking when stock is not tracked).
+                $db->execute(
+                    'UPDATE products SET stock_quantity = CASE WHEN stock_quantity > 0 THEN stock_quantity - :q ELSE stock_quantity END WHERE id = :id',
+                    ['q' => (int) $item['quantity'], 'id' => (int) $item['product_id']]
+                );
+            }
+
+            $db->insert('order_status_history', [
+                'order_id' => $orderId, 'status' => $status,
+                'note' => 'Order placed', 'changed_by_type' => 'customer', 'changed_by_id' => CustomerAuth::id(),
+                'created_at' => $now,
+            ]);
+
+            if ($paymentMethod === 'cod') {
+                $db->insert('order_payments', [
+                    'order_id' => $orderId, 'gateway' => 'cod', 'amount' => $totals['grand_total'],
+                    'status' => 'pending', 'created_at' => $now, 'updated_at' => $now,
+                ]);
+            }
+
+            // Save the address to the customer book for reuse.
+            if (CustomerAuth::check() && !empty($shipping['address_line1'])) {
+                $existing = $db->first(
+                    'SELECT id FROM customer_addresses WHERE customer_id = :c AND address_line1 = :a AND pincode = :p LIMIT 1',
+                    ['c' => CustomerAuth::id(), 'a' => $shipping['address_line1'], 'p' => $shipping['pincode'] ?? '']
+                );
+                if (!$existing) {
+                    $db->insert('customer_addresses', [
+                        'customer_id' => CustomerAuth::id(),
+                        'address_type' => 'shipping',
+                        'full_name' => $shipping['full_name'],
+                        'phone' => $shipping['phone'],
+                        'address_line1' => $shipping['address_line1'],
+                        'address_line2' => $shipping['address_line2'] ?? null,
+                        'city' => $shipping['city'] ?? '',
+                        'district' => $shipping['district'] ?? null,
+                        'state' => $shipping['state'] ?? '',
+                        'pincode' => $shipping['pincode'] ?? '',
+                        'is_default' => 1,
+                        'created_at' => $now, 'updated_at' => $now,
+                    ]);
+                }
+            }
+            return $orderId;
+        });
+
+        $cartService->close();
+
+        Notification::send('customer', (int) (CustomerAuth::id() ?: 0), 'order_placed', 'Order Placed Successfully',
+            'Your order ' . $orderNumber . ' for ' . money($totals['grand_total']) . ' has been received.',
+            ['order_number' => $orderNumber, 'amount' => money($totals['grand_total'])],
+            ['link' => 'orders', 'type' => 'success', 'icon' => 'fa-bag-shopping']);
+        if ($memberId) {
+            Notification::send('member', (int) $memberId, 'order_placed', 'Order Placed Successfully',
+                'Your order ' . $orderNumber . ' for ' . money($totals['grand_total']) . ' has been received.',
+                ['order_number' => $orderNumber, 'amount' => money($totals['grand_total'])],
+                ['link' => 'orders', 'type' => 'success', 'icon' => 'fa-bag-shopping']);
+        }
+        Notification::sendToAdmins('New order received', $orderNumber . ' - ' . money($totals['grand_total']) . ' via ' . strtoupper($paymentMethod), ['template' => 'order_placed', 'link' => 'orders']);
+
+        return ['ok' => true, 'order_id' => $orderId, 'order_number' => $orderNumber, 'payment_method' => $paymentMethod, 'grand_total' => $totals['grand_total']];
+    }
+
+    public function gatewayEnabled(string $method): bool
+    {
+        return match ($method) {
+            'razorpay' => (bool) Settings::get('razorpay_enabled', false),
+            'upi' => (bool) Settings::get('upi_enabled', false),
+            'bank_transfer' => (bool) Settings::get('bank_transfer_enabled', false),
+            'cod' => (bool) Settings::get('cod_enabled', true),
+            default => false,
+        };
+    }
+
+    public function enabledGateways(): array
+    {
+        $out = [];
+        foreach (PAYMENT_METHODS as $key => $label) {
+            if ($this->gatewayEnabled($key)) {
+                $out[$key] = $label;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Mark an order paid (used by gateway webhooks, verification callbacks and admin action).
+     * Idempotent: repeated calls do not duplicate payments or commissions.
+     */
+    public function markPaid(int $orderId, array $payment = []): array
+    {
+        $order = $this->db->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order not found.'];
+        }
+        if ($order['payment_status'] === 'paid' && $order['status'] !== 'pending') {
+            return ['ok' => true, 'message' => 'Order already paid.', 'already' => true];
+        }
+        $gateway = $payment['gateway'] ?? $order['payment_method'];
+        $paymentId = $payment['payment_id'] ?? null;
+
+        if ($paymentId) {
+            $dupe = $this->db->first('SELECT id FROM order_payments WHERE gateway_payment_id = :p', ['p' => $paymentId]);
+            if ($dupe) {
+                return ['ok' => true, 'message' => 'Payment already recorded.', 'already' => true];
+            }
+        }
+
+        $this->db->transaction(function (Database $db) use ($orderId, $order, $gateway, $payment, $paymentId) {
+            $now = date('Y-m-d H:i:s');
+            $db->update('orders', [
+                'payment_status' => 'paid',
+                'status' => 'paid',
+                'paid_at' => $now,
+                'updated_at' => $now,
+            ], 'id = :id', ['id' => $orderId]);
+
+            $existingPayment = $db->first('SELECT id FROM order_payments WHERE order_id = :o AND status = :s', ['o' => $orderId, 's' => 'pending']);
+            $payload = [
+                'gateway' => $gateway,
+                'gateway_payment_id' => $paymentId,
+                'gateway_order_id' => $payment['gateway_order_id'] ?? null,
+                'gateway_signature' => $payment['signature'] ?? null,
+                'amount' => (float) $order['grand_total'],
+                'status' => 'success',
+                'payload' => isset($payment['payload']) ? json_encode($payment['payload']) : null,
+                'paid_at' => $now,
+                'updated_at' => $now,
+            ];
+            if ($existingPayment) {
+                $db->update('order_payments', $payload, 'id = :id', ['id' => $existingPayment['id']]);
+            } else {
+                $payload['order_id'] = $orderId;
+                $payload['idempotency_key'] = 'payment:' . $orderId . ':' . ($paymentId ?: 'manual');
+                $payload['created_at'] = $now;
+                $db->insert('order_payments', $payload);
+            }
+
+            $db->insert('order_status_history', [
+                'order_id' => $orderId, 'status' => 'paid',
+                'note' => 'Payment confirmed via ' . strtoupper((string) $gateway),
+                'changed_by_type' => 'system', 'changed_by_id' => null, 'created_at' => $now,
+            ]);
+        });
+
+        // Commissions are generated after payment, inside their own transaction.
+        $engine = new MlmCommissionEngine($this->db);
+        $result = $engine->processOrder($orderId);
+
+        (new RoyaltyEngine($this->db))->evaluateMember((int) ($order['member_id'] ?? 0));
+
+        Notification::send('member', (int) ($order['member_id'] ?? 0), 'order_status_updated', 'Payment Confirmed',
+            'Payment for order ' . $order['order_number'] . ' has been confirmed.',
+            ['order_number' => $order['order_number'], 'status' => 'Paid'],
+            ['link' => 'orders', 'type' => 'success', 'icon' => 'fa-circle-check']);
+
+        return ['ok' => true, 'message' => 'Payment recorded and commissions processed.', 'commission' => $result];
+    }
+
+    public function updateStatus(int $orderId, string $status, ?string $note = null, string $actorType = 'admin', ?int $actorId = null): array
+    {
+        $order = $this->db->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order not found.'];
+        }
+        if (!array_key_exists($status, ORDER_STATUSES)) {
+            return ['ok' => false, 'message' => 'Unknown order status.'];
+        }
+        if ($status === $order['status']) {
+            return ['ok' => false, 'message' => 'Order is already in that status.'];
+        }
+        $allowed = self::ALLOWED_TRANSITIONS[$order['status']] ?? [];
+        if (!in_array($status, $allowed, true)) {
+            return ['ok' => false, 'message' => 'Cannot move an order from ' . $order['status'] . ' to ' . $status . '.'];
+        }
+
+        $updates = ['status' => $status, 'updated_at' => date('Y-m-d H:i:s')];
+        $now = date('Y-m-d H:i:s');
+        switch ($status) {
+            case 'shipped':
+                $updates['shipped_at'] = $now;
+                break;
+            case 'delivered':
+                $updates['delivered_at'] = $now;
+                if ($order['payment_method'] === 'cod') {
+                    $updates['payment_status'] = 'paid';
+                    $updates['paid_at'] = $now;
+                }
+                break;
+            case 'cancelled':
+                $updates['cancelled_at'] = $now;
+                break;
+            case 'refunded':
+                $updates['refunded_at'] = $now;
+                $updates['payment_status'] = 'refunded';
+                break;
+        }
+        $this->db->update('orders', $updates, 'id = :id', ['id' => $orderId]);
+        $this->db->insert('order_status_history', [
+            'order_id' => $orderId, 'status' => $status, 'note' => $note,
+            'changed_by_type' => $actorType, 'changed_by_id' => $actorId, 'created_at' => $now,
+        ]);
+
+        // Commission side effects
+        if (in_array($status, ['cancelled', 'refunded'], true) && $order['commission_status'] === 'credited') {
+            (new MlmCommissionEngine($this->db))->reverseOrder($orderId, 'Order ' . $status);
+        }
+        if ($status === 'delivered' && $order['payment_status'] === 'paid') {
+            (new MlmCommissionEngine($this->db))->processOrder($orderId);
+        }
+        if ($order['member_id']) {
+            Notification::send('member', (int) $order['member_id'], 'order_status_updated', 'Order Status Updated',
+                'Your order ' . $order['order_number'] . ' is now ' . (ORDER_STATUSES[$status] ?? $status) . '.',
+                ['order_number' => $order['order_number'], 'status' => ORDER_STATUSES[$status] ?? $status],
+                ['link' => 'orders', 'type' => 'info', 'icon' => 'fa-truck-fast']);
+        }
+        Audit::log('order_status_changed', 'ecommerce', sprintf('Order %s: %s -> %s', $order['order_number'], $order['status'], $status), 'order', $orderId);
+        return ['ok' => true, 'message' => 'Order status updated to ' . (ORDER_STATUSES[$status] ?? $status) . '.'];
+    }
+
+    public function stats(): array
+    {
+        $row = $this->db->first(
+            "SELECT COUNT(*) AS total_orders,
+                    COALESCE(SUM(CASE WHEN status IN ('paid','processing','shipped','delivered') THEN grand_total ELSE 0 END),0) AS total_sales,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
+                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                    SUM(CASE WHEN status NOT IN ('cancelled','refunded') THEN 1 ELSE 0 END) AS active_orders
+             FROM orders"
+        ) ?? [];
+        return [
+            'total_orders' => (int) ($row['total_orders'] ?? 0),
+            'total_sales' => (float) ($row['total_sales'] ?? 0),
+            'pending' => (int) ($row['pending'] ?? 0),
+            'delivered' => (int) ($row['delivered'] ?? 0),
+            'cancelled' => (int) ($row['cancelled'] ?? 0),
+            'active_orders' => (int) ($row['active_orders'] ?? 0),
+            'month_sales' => (float) ($this->db->value(
+                "SELECT COALESCE(SUM(grand_total),0) FROM orders WHERE payment_status = 'paid' AND " . $this->db->monthExpression('created_at') . ' = :m',
+                ['m' => date('Y-m')]
+            ) ?? 0),
+            'today_sales' => (float) ($this->db->value(
+                "SELECT COALESCE(SUM(grand_total),0) FROM orders WHERE payment_status = 'paid' AND DATE(created_at) = :d",
+                ['d' => date('Y-m-d')]
+            ) ?? 0),
+        ];
+    }
+}

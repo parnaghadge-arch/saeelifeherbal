@@ -1,0 +1,34 @@
+# Saee Life Herbal — nginx + php-fpm example
+server {
+    listen 80;
+    server_name example.com www.example.com;
+    root /var/www/saeelifeherbal;
+    index index.php;
+
+    client_max_body_size 16M;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # Never expose application internals
+    location ~ ^/(storage|config|lib|includes|database|tools|tests|docs)/ { deny all; return 404; }
+    location ~ /\.(?!well-known) { deny all; return 404; }
+
+    location /assets/ {
+        expires 30d;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        fastcgi_read_timeout 120;
+        fastcgi_hide_header X-Powered-By;
+    }
+}

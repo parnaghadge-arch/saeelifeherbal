@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Saee Life Herbal — Apache configuration (production)
+# ---------------------------------------------------------------------------
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # RewriteBase /
+
+    # Block direct access to application internals
+    RewriteRule ^(storage|vendor-src|database|tools|tests|docs)/ - [F,L]
+    RewriteRule ^(config|lib|includes)/ - [F,L]
+
+    # Real files and directories are served as-is
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # SEO URLs -> router
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+</IfModule>
+
+# Never cache private areas
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 30 days"
+    ExpiresByType application/javascript "access plus 30 days"
+    ExpiresByType image/webp "access plus 30 days"
+    ExpiresByType image/jpeg "access plus 30 days"
+    ExpiresByType image/png "access plus 30 days"
+    ExpiresByType font/woff2 "access plus 30 days"
+</IfModule>
+
+# Upload size (must also be raised in php.ini: upload_max_filesize / post_max_size)
+<IfModule mod_php.c>
+    php_value upload_max_filesize 12M
+    php_value post_max_size 16M
+</IfModule>
+
+<FilesMatch "\.(env|sqlite|sql|log|md|lock|json)$">
+    Require all denied
+</FilesMatch>
