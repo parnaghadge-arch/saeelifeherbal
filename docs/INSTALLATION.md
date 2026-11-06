@@ -228,6 +228,8 @@ unilevel with unlimited direct referrals (binary is not supported); commissions 
 | Razorpay callback fails signature | Key secret / webhook secret mismatch |
 | Commission not generated | Order must be **paid**; check cron and `commission_status` |
 | Payout blocked | KYC/bank must be approved when `require_kyc` / `require_verified_bank` are on |
+| CSS/JS refused: `MIME type ('text/html')`, page renders unstyled | The asset files are missing (usually an incomplete upload or a clone made before assets/vendor was committed), so Apache serves its own 404/403 HTML page for `/assets/...`. Run `php tools/console.php doctor` — the **Front-end assets** block names the missing file. `.htaccess` also forces the correct MIME types via `mod_mime`. |
+| `manifest.json` returns 403 | Fixed: `.htaccess` used to deny every `.json`. Only `composer.json`/`package.json` are blocked now and `manifest.json` is explicitly granted. On Apache, confirm `AllowOverride All` is set for the vhost. |
 | Console prints a "Something went wrong" | Fixed in 1.0: the CLI now prints the real error. Run `php tools/console.php doctor`. |
 | `Unsupported PHP version` page | The server runs PHP < 8.1. Point Apache/CLI at PHP 8.1+ (XAMPP: Config → PHP 8.x). |
 | `Database unavailable` page | MySQL is stopped, the database is missing, or `.env` credentials are wrong. `doctor` pinpoints which. |

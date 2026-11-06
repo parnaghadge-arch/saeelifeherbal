@@ -57,7 +57,7 @@ git clone <repo> saeelifeherbal && cd saeelifeherbal
 # 2. optional .env (copy and edit)
 cp .env.example .env
 
-# 3. check the environment (PHP version, extensions, folders, database) — safe to run any time
+# 3. check the environment (PHP version, extensions, folders, front-end assets, database)
 php tools/console.php doctor
 
 # 4. install schema + seed content (SQLite by default; set DB_* in .env for MySQL)
@@ -80,7 +80,8 @@ For MySQL, create the database, set `DB_DRIVER=mysql` (+ credentials) in `.env`,
 
 | Command | Purpose |
 | --- | --- |
-| `php tools/console.php doctor` | Environment preflight: PHP version, extensions, PDO driver, folder permissions, DB connection |
+| `php tools/console.php doctor` | Environment preflight: PHP version, extensions, PDO driver, folder permissions, front-end assets, DB connection |
+| `php tools/console.php selftest` | Query-binding smoke test against the configured database |
 | `php tools/console.php install` | Create all 62 tables, settings, roles/permissions, first admin (idempotent: safe to re-run, updates the admin password) |
 | `php tools/console.php demo` | Seed demo catalogue, members, orders, commissions |
 | `php tools/console.php schema:mysql` | Print the generated MySQL schema |

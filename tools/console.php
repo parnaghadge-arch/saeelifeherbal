@@ -112,6 +112,24 @@ if ($command === 'doctor') {
         $ok = $ok && $writable;
     }
 
+    echo PHP_EOL . 'Front-end assets:' . PHP_EOL;
+    $assetMap = [
+        'assets/css/app.css' => 'Design system',
+        'assets/js/app.js' => 'Public JavaScript',
+        'assets/vendor/bootstrap/bootstrap.min.css' => 'Bootstrap CSS',
+        'assets/vendor/bootstrap/bootstrap.bundle.min.js' => 'Bootstrap JS',
+        'assets/vendor/fontawesome/css/all.min.css' => 'Font Awesome CSS',
+        'assets/vendor/fontawesome/webfonts/fa-solid-900.woff2' => 'Font Awesome icons',
+        'assets/vendor/jquery/jquery.min.js' => 'jQuery',
+        'assets/vendor/tinymce/tinymce/tinymce.min.js' => 'TinyMCE editor',
+        'assets/images/logo-square.png' => 'Logo',
+    ];
+    foreach ($assetMap as $asset => $label) {
+        $path = APP_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $asset);
+        $line(is_file($path), $asset, is_file($path) ? $label : 'MISSING — the UI will render unstyled; re-clone or restore assets/vendor');
+        $ok = $ok && is_file($path);
+    }
+
     echo PHP_EOL . 'Config: APP_ENV=' . APP_ENV . '  APP_DEBUG=' . (APP_DEBUG ? '1' : '0')
         . '  APP_URL=' . ((string) \Saee\Lib\Config::get('app.url', '') ?: '(auto)') . PHP_EOL;
     echo '.env file: ' . (is_file(APP_ROOT . '/.env') ? 'found' : 'not present (using defaults / real env vars)') . PHP_EOL;
