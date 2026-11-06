@@ -29,3 +29,6 @@ Thumbs.db
 # Tooling artefacts
 node_modules/
 vendor/
+
+# Generated sitemap cache
+/sitemap.xml
