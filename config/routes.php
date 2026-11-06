@@ -22,6 +22,9 @@ return [
     'blog-categories' => '/blogs.php',
     'faqs' => '/faqs.php',
     'contact-us' => '/contact.php',
+    'b2b' => '/b2b.php',
+    'b2b-bulk-orders' => '/b2b.php',
+    'bulk-orders' => '/b2b.php',
     'business-opportunity' => '/business-opportunity.php',
     'mlm-business-opportunity' => '/business-opportunity.php',
 

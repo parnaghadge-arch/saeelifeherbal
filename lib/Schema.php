@@ -332,6 +332,51 @@ final class Schema
                 'timestamps' => ['created_at', 'updated_at'],
             ],
 
+            // ------------------------------------------------- B2B lead pipeline
+            // Bulk / dealer / distributor enquiries from the public B2B page. A lead moves
+            // through the CRM stages below and can be converted into a partner account.
+            'b2b_leads' => [
+                'columns' => [
+                    'id' => 'pk',
+                    'lead_no' => 'string:30|null|unique',
+                    'company_name' => 'string:191|null',
+                    'contact_name' => 'string:120|notnull',
+                    'designation' => 'string:120|null',
+                    'email' => 'string:191|null|index',
+                    'phone' => 'string:20|notnull|index',
+                    'whatsapp' => 'string:20|null',
+                    'business_type' => "enum:retailer,distributor,dealer,fpo,cooperative,exporter,other|null|default:'other'",
+                    'city' => 'string:120|null',
+                    'state' => 'string:120|null',
+                    'pincode' => 'string:10|null',
+                    'gstin' => 'string:20|null',
+                    'annual_turnover' => 'string:60|null',
+                    'product_interest' => 'string:255|null',
+                    'monthly_volume' => 'string:120|null',
+                    'message' => 'text|null',
+                    'source_page' => 'string:120|null',
+                    'assigned_to' => 'fk:admin_users:setnull|null|index',
+                    'status' => "enum:new,contacted,qualified,proposal,negotiation,won,lost,spam|notnull|default:'new'|index",
+                    'priority' => "enum:low,medium,high|notnull|default:'medium'",
+                    'follow_up_at' => 'datetime|null',
+                    'admin_note' => 'text|null',
+                    'ip_address' => 'string:45|null',
+                ],
+                'timestamps' => ['created_at', 'updated_at'],
+            ],
+            'b2b_lead_activities' => [
+                'columns' => [
+                    'id' => 'pk',
+                    'lead_id' => 'fk:b2b_leads:cascade|notnull|index',
+                    'admin_id' => 'fk:admin_users:setnull|null|index',
+                    'type' => "enum:note,call,email,whatsapp,meeting,status|notnull|default:'note'",
+                    'body' => 'text|notnull',
+                    'old_status' => 'string:20|null',
+                    'new_status' => 'string:20|null',
+                ],
+                'timestamps' => ['created_at'],
+            ],
+
             // ---------------------------------------------------- e-commerce
             'product_categories' => [
                 'columns' => [
@@ -1406,7 +1451,14 @@ final class Schema
             case str_starts_with($type, 'enum:'):
                 $values = explode(',', substr($type, 5));
                 $quoted = implode(',', array_map(fn ($v) => "'" . str_replace("'", "''", $v) . "'", $values));
-                $typeSql = $driver === 'mysql' ? "ENUM($quoted)" : 'TEXT';
+                if ($driver === 'mysql') {
+                    $typeSql = "ENUM($quoted)";
+                } else {
+                    // Mirror MySQL's enum behaviour on SQLite with a CHECK constraint: an
+                    // out-of-range value must fail in development too, otherwise bugs like
+                    // "Data truncated for column X" only appear on the production MySQL box.
+                    $typeSql = 'TEXT CHECK (' . self::ident($driver, $name) . ' IN (' . $quoted . '))';
+                }
                 break;
             default:
                 $typeSql = $driver === 'mysql' ? 'VARCHAR(191)' : 'TEXT';

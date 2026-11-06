@@ -37,22 +37,39 @@ if (is_post()) {
     $group = (string) Request::input('group', 'general');
     $rows = $db->select('SELECT * FROM settings WHERE setting_group = :g', ['g' => $group]);
     $saved = 0;
+    $imageKeys = ['logo_header', 'logo_footer', 'logo_admin', 'logo_pwa', 'favicon', 'og_default_image'];
     foreach ($rows as $row) {
         $key = (string) $row['setting_key'];
         $type = (string) $row['setting_type'];
         if (!array_key_exists($key, $_POST) && !isset($_FILES[$key])) {
             continue;
         }
-        if (isset($_FILES[$key]) && ($_FILES[$key]['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        $isImageSetting = in_array($type, ['image', 'file'], true) || in_array($key, $imageKeys, true);
+        if ($isImageSetting) {
+            $fileError = $_FILES[$key]['error'] ?? UPLOAD_ERR_NO_FILE;
+            if ($fileError === UPLOAD_ERR_NO_FILE) {
+                // Nothing chosen in the picker: keep the logo/favicon already stored instead of
+                // overwriting it with an empty path (file inputs never post a value).
+                continue;
+            }
+            if ($fileError !== UPLOAD_ERR_OK) {
+                Session::error($key . ': the image could not be uploaded (error code ' . (int) $fileError . '). The previous file was kept.');
+                continue;
+            }
             $up = Uploader::store($_FILES[$key], 'branding');
             if ($up['ok']) {
                 Settings::set($key, $up['path'], $type);
                 $saved++;
+            } else {
+                Session::error($key . ': ' . $up['message'] . ' The previous file was kept.');
             }
             continue;
         }
+        if (!array_key_exists($key, $_POST)) {
+            continue;
+        }
         $value = $_POST[$key];
-        if ($type === 'boolean') {
+        if ($type === 'bool' || $type === 'boolean') {
             $value = $value === '1' ? '1' : '0';
         }
         if (is_array($value)) {
@@ -63,7 +80,9 @@ if (is_post()) {
     }
     Audit::log('update', 'settings', 'Updated ' . $saved . ' setting(s) in group ' . $group, 'settings');
     Settings::flush();
-    Session::success($saved . ' setting(s) saved.');
+    if ($saved > 0) {
+        Session::success($saved . ' setting(s) updated successfully.');
+    }
     Request::redirect('settings.php?group=' . $group);
 }
 
@@ -100,7 +119,7 @@ require __DIR__ . '/includes/layout.php';
           <?php if ($isImage): ?>
             <?php if ($value !== ''): ?><div class="mb-1"><img class="crud-thumb" src="<?= e(Url::media($value)) ?>" alt=""></div><?php endif; ?>
             <input type="file" class="form-control form-control-sm" id="s_<?= e($key) ?>" name="<?= e($key) ?>" accept="image/*">
-          <?php elseif ($type === 'boolean'): ?>
+          <?php elseif ($type === 'bool' || $type === 'boolean'): ?>
             <select class="form-select form-select-sm" id="s_<?= e($key) ?>" name="<?= e($key) ?>">
               <option value="1" <?= $value === '1' ? 'selected' : '' ?>>Enabled</option>
               <option value="0" <?= $value === '0' ? 'selected' : '' ?>>Disabled</option>

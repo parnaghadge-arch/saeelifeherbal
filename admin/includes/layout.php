@@ -29,6 +29,7 @@ $menu = [
     ['label' => 'Categories', 'icon' => 'fa-layer-group', 'href' => 'categories.php', 'key' => 'categories', 'perm' => 'categories.manage'],
     ['label' => 'Orders', 'icon' => 'fa-bag-shopping', 'href' => 'orders.php', 'key' => 'orders', 'perm' => 'orders.view'],
     ['label' => 'Enquiries', 'icon' => 'fa-envelope-open-text', 'href' => 'enquiries.php', 'key' => 'enquiries', 'perm' => 'enquiries.view'],
+    ['label' => 'B2B Leads', 'icon' => 'fa-handshake', 'href' => 'b2b-leads.php', 'key' => 'b2b-leads', 'perm' => 'b2b.view'],
     ['label' => 'Pages', 'icon' => 'fa-file-lines', 'href' => 'pages.php', 'key' => 'pages', 'perm' => 'cms.pages'],
     ['label' => 'Sliders', 'icon' => 'fa-images', 'href' => 'sliders.php', 'key' => 'sliders', 'perm' => 'cms.sliders'],
     ['label' => 'Blogs', 'icon' => 'fa-newspaper', 'href' => 'blogs.php', 'key' => 'blogs', 'perm' => 'cms.blogs'],

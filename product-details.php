@@ -47,16 +47,38 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
   <div class="container">
     <div class="row g-4 g-lg-5">
       <div class="col-lg-6">
-        <div class="gallery-main">
-          <img data-gallery-main src="<?= e(Url::media($images[0]['image_path'] ?? '')) ?>" alt="<?= e($product['name']) ?>" fetchpriority="high">
+        <div class="gallery-main" data-gallery-stage>
+          <img data-gallery-main src="<?= e(Url::media($images[0]['image_path'] ?? '')) ?>"
+               alt="<?= e($product['name']) ?>" fetchpriority="high">
+          <?php if (count($images) > 1): ?>
+            <button type="button" class="gallery-nav gallery-prev" data-gallery-prev aria-label="Previous image">
+              <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="gallery-nav gallery-next" data-gallery-next aria-label="Next image">
+              <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+            </button>
+            <span class="gallery-counter" data-gallery-counter>1 / <?= count($images) ?></span>
+          <?php endif; ?>
         </div>
         <?php if (count($images) > 1): ?>
-          <div class="gallery-thumbs">
-            <?php foreach ($images as $i => $img): ?>
-              <button type="button" class="<?= $i === 0 ? 'active' : '' ?>" data-gallery-thumb="<?= e(Url::media($img['image_path'])) ?>" aria-label="View image <?= $i + 1 ?>">
-                <img src="<?= e(Url::media($img['image_path'])) ?>" alt="<?= e($img['alt_text'] ?: $product['name']) ?>" loading="lazy">
-              </button>
-            <?php endforeach; ?>
+          <?php // Thumbnail strip: auto-scrolls, has its own prev/next arrows, and supports
+                // wheel/trackpad, mouse-drag and finger-swipe scrolling. ?>
+          <div class="gallery-thumbs-wrap" data-gallery-wrap>
+            <button type="button" class="thumb-nav thumb-prev" data-thumb-prev aria-label="Scroll thumbnails left">
+              <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+            </button>
+            <div class="gallery-thumbs" data-gallery-thumbs role="tablist" aria-label="Product images">
+              <?php foreach ($images as $i => $img): ?>
+                <button type="button" role="tab" class="<?= $i === 0 ? 'active' : '' ?>" aria-selected="<?= $i === 0 ? 'true' : 'false' ?>"
+                        data-gallery-thumb="<?= e(Url::media($img['image_path'])) ?>"
+                        data-gallery-index="<?= (int) $i ?>" aria-label="View image <?= $i + 1 ?>">
+                  <img src="<?= e(Url::media($img['image_path'])) ?>" alt="<?= e($img['alt_text'] ?: $product['name']) ?>" loading="lazy">
+                </button>
+              <?php endforeach; ?>
+            </div>
+            <button type="button" class="thumb-nav thumb-next" data-thumb-next aria-label="Scroll thumbnails right">
+              <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+            </button>
           </div>
         <?php endif; ?>
         <?php if ($videos !== []): ?>
@@ -101,17 +123,18 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
           <span><i class="fa-solid fa-truck-fast"></i>Dispatch in 1-2 days</span>
         </div>
 
-        <div class="d-flex gap-2 flex-wrap align-items-center mb-3">
-          <div class="input-group qty-input">
-            <button class="btn btn-outline-secondary" type="button" data-qty-step="down" aria-label="Decrease quantity"><i class="fa-solid fa-minus"></i></button>
-            <input type="number" class="form-control text-center" value="<?= max(1, (int) $product['min_order_qty']) ?>" min="<?= max(1, (int) $product['min_order_qty']) ?>" data-qty-input aria-label="Quantity">
-            <button class="btn btn-outline-secondary" type="button" data-qty-step="up" aria-label="Increase quantity"><i class="fa-solid fa-plus"></i></button>
+        <div class="buy-box mb-3">
+          <div class="qty-input">
+            <button class="qty-btn" type="button" data-qty-step="down" aria-label="Decrease quantity"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
+            <input type="number" class="qty-field" value="<?= max(1, (int) $product['min_order_qty']) ?>" min="<?= max(1, (int) $product['min_order_qty']) ?>" step="1" inputmode="numeric" data-qty-input aria-label="Quantity">
+            <button class="qty-btn" type="button" data-qty-step="up" aria-label="Increase quantity"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
           </div>
-          <button class="btn btn-primary" data-add-to-cart="<?= (int) $product['id'] ?>" <?= $stock === 0 ? 'disabled' : '' ?>>
-            <i class="fa-solid fa-cart-plus me-2"></i><?= $stock === 0 ? 'Out of stock' : 'Add to cart' ?>
+          <button class="btn btn-primary btn-cart" data-add-to-cart="<?= (int) $product['id'] ?>" <?= $stock === 0 ? 'disabled' : '' ?>>
+            <i class="fa-solid fa-cart-plus" aria-hidden="true"></i><span data-btn-label><?= $stock === 0 ? 'Out of stock' : 'Add to cart' ?></span>
           </button>
-          <button class="btn btn-outline-primary <?= $inWishlist ? 'active' : '' ?>" data-wishlist="<?= (int) $product['id'] ?>">
-            <i class="<?= $inWishlist ? 'fa-solid' : 'fa-regular' ?> fa-heart me-1"></i>Wishlist
+          <button class="btn btn-wishlist <?= $inWishlist ? 'is-active' : '' ?>" data-wishlist="<?= (int) $product['id'] ?>" aria-pressed="<?= $inWishlist ? 'true' : 'false' ?>">
+            <i class="<?= $inWishlist ? 'fa-solid' : 'fa-regular' ?> fa-heart" aria-hidden="true"></i>
+            <span data-wishlist-label><?= $inWishlist ? 'Saved' : 'Wishlist' ?></span>
           </button>
         </div>
 
@@ -143,48 +166,56 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
       </div>
     </div>
 
-    <div class="mt-5">
-      <ul class="nav nav-tabs" role="tablist">
-        <?php
-        $tabs = [
-            'description' => 'Description',
-            'benefits' => 'Benefits',
-            'application' => 'Application & Dosage',
-            'specs' => 'Specifications',
-            'precautions' => 'Precautions',
-        ];
-        $first = true;
-        foreach ($tabs as $key => $label):
-            $content = match ($key) {
-                'description' => $product['description'],
-                'benefits' => $product['benefits'],
-                'application' => trim(($product['application_instructions'] ?? '') . ($product['dosage'] ? '<p><strong>Dosage:</strong> ' . e($product['dosage']) . '</p>' : '')),
-                'specs' => $product['technical_specifications'],
-                'precautions' => $product['precautions'],
-            };
-            if (trim((string) $content) === '') { continue; }
-            ?>
+    <?php
+    // Build the tab list once, dropping the ones this product has no content for.
+    $tabDefs = [
+        'description' => ['Description', 'fa-solid fa-align-left'],
+        'benefits' => ['Benefits', 'fa-solid fa-circle-check'],
+        'application' => ['Application & Dosage', 'fa-solid fa-spray-can-sparkles'],
+        'specs' => ['Specifications', 'fa-solid fa-list-check'],
+        'precautions' => ['Precautions', 'fa-solid fa-triangle-exclamation'],
+    ];
+    $tabContent = [];
+    foreach ($tabDefs as $key => $meta) {
+        $content = match ($key) {
+            'description' => $product['description'],
+            'benefits' => $product['benefits'],
+            'application' => trim(($product['application_instructions'] ?? '') . ($product['dosage'] ? '<p><strong>Dosage:</strong> ' . e($product['dosage']) . '</p>' : '')),
+            'specs' => $product['technical_specifications'],
+            'precautions' => $product['precautions'],
+        };
+        if (trim((string) $content) === '') {
+            continue;
+        }
+        $tabContent[$key] = $content;
+    }
+    ?>
+    <?php if ($tabContent !== []): ?>
+    <?php // Sticky tab rail: the tab list (left on desktop, a scrollable pill row on phones)
+          // stays pinned while only the active panel scrolls, so the user never loses the tabs. ?>
+    <div class="product-tabs mt-5" data-product-tabs>
+      <ul class="nav product-tab-rail" role="tablist" aria-orientation="vertical">
+        <?php $first = true; foreach ($tabContent as $key => $content): ?>
           <li class="nav-item" role="presentation">
-            <button class="nav-link <?= $first ? 'active' : '' ?>" data-bs-toggle="tab" data-bs-target="#tab-<?= $key ?>" type="button" role="tab"><?= e($label) ?></button>
+            <button class="nav-link <?= $first ? 'active' : '' ?>" id="tab-btn-<?= $key ?>"
+                    data-bs-toggle="tab" data-bs-target="#tab-<?= $key ?>" type="button" role="tab"
+                    aria-controls="tab-<?= $key ?>" aria-selected="<?= $first ? 'true' : 'false' ?>">
+              <i class="<?= $tabDefs[$key][1] ?>" aria-hidden="true"></i>
+              <span><?= e($tabDefs[$key][0]) ?></span>
+            </button>
           </li>
         <?php $first = false; endforeach; ?>
       </ul>
-      <div class="tab-content panel p-4" style="border-top-left-radius:0">
-        <?php $first = true; foreach ($tabs as $key => $label):
-            $content = match ($key) {
-                'description' => $product['description'],
-                'benefits' => $product['benefits'],
-                'application' => trim(($product['application_instructions'] ?? '') . ($product['dosage'] ? '<p><strong>Dosage:</strong> ' . e($product['dosage']) . '</p>' : '')),
-                'specs' => $product['technical_specifications'],
-                'precautions' => $product['precautions'],
-            };
-            if (trim((string) $content) === '') { continue; } ?>
-          <div class="tab-pane fade <?= $first ? 'show active' : '' ?>" id="tab-<?= $key ?>" role="tabpanel">
+      <div class="tab-content product-tab-panel">
+        <?php $first = true; foreach ($tabContent as $key => $content): ?>
+          <div class="tab-pane fade <?= $first ? 'show active' : '' ?>" id="tab-<?= $key ?>" role="tabpanel"
+               aria-labelledby="tab-btn-<?= $key ?>" tabindex="0">
             <div class="prose mb-0"><?= \Saee\Lib\Security::cleanHtml($content) ?></div>
           </div>
         <?php $first = false; endforeach; ?>
       </div>
     </div>
+    <?php endif; ?>
 
     <?php if ($related !== []): ?>
       <div class="mt-5">

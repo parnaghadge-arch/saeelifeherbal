@@ -1,5 +1,5 @@
 -- Saee Life Herbal - MySQL 8 schema
--- Generated 2026-11-06 13:07:33
+-- Generated 2026-11-06 23:08:23
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -288,6 +288,32 @@ CREATE TABLE IF NOT EXISTS `testimonials` (
   `updated_at` DATETIME NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+DROP TABLE IF EXISTS `team_members`;
+CREATE TABLE IF NOT EXISTS `team_members` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `name` VARCHAR(120) NOT NULL,
+  `designation` VARCHAR(120) NULL,
+  `role_type` VARCHAR(40) NOT NULL DEFAULT 'team',
+  `bio` TEXT NULL,
+  `photo` VARCHAR(255) NULL,
+  `email` VARCHAR(191) NULL,
+  `phone` VARCHAR(20) NULL,
+  `linkedin_url` VARCHAR(255) NULL,
+  `facebook_url` VARCHAR(255) NULL,
+  `instagram_url` VARCHAR(255) NULL,
+  `x_url` VARCHAR(255) NULL,
+  `highlight` VARCHAR(60) NULL,
+  `quote` TEXT NULL,
+  `show_on_home` TINYINT(1) NULL DEFAULT 1,
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `status` TINYINT(1) NULL DEFAULT 1,
+  `created_at` DATETIME NULL DEFAULT NULL,
+  `updated_at` DATETIME NULL DEFAULT NULL,
+  KEY `idx_team_members_role_type` (`role_type`),
+  KEY `idx_team_members_show_on_home` (`show_on_home`),
+  KEY `idx_team_members_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 DROP TABLE IF EXISTS `faqs`;
 CREATE TABLE IF NOT EXISTS `faqs` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -329,6 +355,58 @@ CREATE TABLE IF NOT EXISTS `newsletter_subscribers` (
   `created_at` DATETIME NULL DEFAULT NULL,
   `updated_at` DATETIME NULL DEFAULT NULL,
   UNIQUE KEY `uq_newsletter_subscribers_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `b2b_leads`;
+CREATE TABLE IF NOT EXISTS `b2b_leads` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `lead_no` VARCHAR(30) NULL,
+  `company_name` VARCHAR(191) NULL,
+  `contact_name` VARCHAR(120) NOT NULL,
+  `designation` VARCHAR(120) NULL,
+  `email` VARCHAR(191) NULL,
+  `phone` VARCHAR(20) NOT NULL,
+  `whatsapp` VARCHAR(20) NULL,
+  `business_type` ENUM('retailer','distributor','dealer','fpo','cooperative','exporter','other') NULL DEFAULT 'other',
+  `city` VARCHAR(120) NULL,
+  `state` VARCHAR(120) NULL,
+  `pincode` VARCHAR(10) NULL,
+  `gstin` VARCHAR(20) NULL,
+  `annual_turnover` VARCHAR(60) NULL,
+  `product_interest` VARCHAR(255) NULL,
+  `monthly_volume` VARCHAR(120) NULL,
+  `message` TEXT NULL,
+  `source_page` VARCHAR(120) NULL,
+  `assigned_to` BIGINT UNSIGNED NULL,
+  `status` ENUM('new','contacted','qualified','proposal','negotiation','won','lost','spam') NOT NULL DEFAULT 'new',
+  `priority` ENUM('low','medium','high') NOT NULL DEFAULT 'medium',
+  `follow_up_at` DATETIME NULL,
+  `admin_note` TEXT NULL,
+  `ip_address` VARCHAR(45) NULL,
+  `created_at` DATETIME NULL DEFAULT NULL,
+  `updated_at` DATETIME NULL DEFAULT NULL,
+  CONSTRAINT fk_b2b_leads_assigned_to FOREIGN KEY (`assigned_to`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
+  UNIQUE KEY `uq_b2b_leads_lead_no` (`lead_no`),
+  KEY `idx_b2b_leads_email` (`email`),
+  KEY `idx_b2b_leads_phone` (`phone`),
+  KEY `idx_b2b_leads_assigned_to` (`assigned_to`),
+  KEY `idx_b2b_leads_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `b2b_lead_activities`;
+CREATE TABLE IF NOT EXISTS `b2b_lead_activities` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `lead_id` BIGINT UNSIGNED NOT NULL,
+  `admin_id` BIGINT UNSIGNED NULL,
+  `type` ENUM('note','call','email','whatsapp','meeting','status') NOT NULL DEFAULT 'note',
+  `body` TEXT NOT NULL,
+  `old_status` VARCHAR(20) NULL,
+  `new_status` VARCHAR(20) NULL,
+  `created_at` DATETIME NULL DEFAULT NULL,
+  CONSTRAINT fk_b2b_lead_activities_lead_id FOREIGN KEY (`lead_id`) REFERENCES `b2b_leads`(id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_b2b_lead_activities_admin_id FOREIGN KEY (`admin_id`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
+  KEY `idx_b2b_lead_activities_lead_id` (`lead_id`),
+  KEY `idx_b2b_lead_activities_admin_id` (`admin_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 DROP TABLE IF EXISTS `product_categories`;

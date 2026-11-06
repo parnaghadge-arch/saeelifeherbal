@@ -155,6 +155,9 @@ if (!function_exists('status_badge')) {
             'rejected' => 'danger', 'cancelled' => 'danger', 'failed' => 'danger', 'suspended' => 'danger',
             'reversed' => 'dark', 'refunded' => 'secondary', 'inactive' => 'secondary', 'draft' => 'secondary',
             'not_submitted' => 'secondary', 'new' => 'primary', 'spam' => 'dark', 'resubmission_required' => 'warning',
+            // B2B / CRM pipeline stages
+            'contacted' => 'info', 'qualified' => 'primary', 'proposal' => 'warning',
+            'negotiation' => 'warning', 'won' => 'success', 'lost' => 'danger',
         ];
         $label = ucwords(str_replace('_', ' ', (string) ($status ?: 'unknown')));
         $class = $map[$status ?? ''] ?? 'secondary';

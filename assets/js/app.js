@@ -226,18 +226,30 @@
       var productId = btn.dataset.addToCart;
       var qtyInput = document.querySelector('[data-qty-input]');
       var qty = btn.dataset.qty || (qtyInput ? qtyInput.value : 1);
-      btn.disabled = true;
+      // `disabled` would fade the button (Bootstrap's :disabled opacity) — block repeat
+      // clicks with a class instead so the confirmation stays full-contrast.
+      btn.classList.add('is-busy');
       var original = btn.innerHTML;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>';
       SAEE.post(SAEE.routes.cartAdd, { product_id: productId, quantity: qty }, function (res) {
         SAEE.toast(res.message, 'success');
         if (res.data && res.data.count !== undefined) { updateCartCount(res.data.count); }
-        btn.innerHTML = '<i class="fa-solid fa-check me-1"></i>Added';
-        setTimeout(function () { btn.innerHTML = original; btn.disabled = false; }, 1400);
+        // keep the button's own markup shape (icon + label) and just show a confirmed state
+        var label = btn.querySelector('[data-btn-label]');
+        if (label) {
+          label.textContent = 'Added to cart';
+        } else {
+          btn.innerHTML = '<i class="fa-solid fa-check me-2" aria-hidden="true"></i>Added to cart';
+        }
+        btn.classList.add('is-added');
+        setTimeout(function () {
+          btn.innerHTML = original;
+          btn.classList.remove('is-added', 'is-busy');
+        }, 1600);
       }, function (err) {
         SAEE.toast(err.message || 'Could not add to cart.', 'danger');
         btn.innerHTML = original;
-        btn.disabled = false;
+        btn.classList.remove('is-busy');
       });
     });
   }
@@ -249,10 +261,14 @@
       e.preventDefault();
       SAEE.post(SAEE.routes.wishlistToggle, { product_id: btn.dataset.wishlist }, function (res) {
         btn.classList.toggle('active', !!res.data.added);
+        btn.classList.toggle('is-active', !!res.data.added);
+        btn.setAttribute('aria-pressed', res.data.added ? 'true' : 'false');
         var icon = btn.querySelector('i');
         if (icon) {
           icon.className = res.data.added ? 'fa-solid fa-heart' : 'fa-regular fa-heart';
         }
+        var label = btn.querySelector('[data-wishlist-label]');
+        if (label) { label.textContent = res.data.added ? 'Saved' : 'Wishlist'; }
         SAEE.toast(res.message, 'success');
       }, function (err) { SAEE.toast(err.message, 'danger'); });
     });
@@ -353,13 +369,147 @@
   function initProductGallery() {
     var main = document.querySelector('[data-gallery-main]');
     if (!main) { return; }
-    document.querySelectorAll('[data-gallery-thumb]').forEach(function (thumb) {
-      thumb.addEventListener('click', function () {
+    var thumbs = Array.prototype.slice.call(document.querySelectorAll('[data-gallery-thumb]'));
+    var stage = document.querySelector('[data-gallery-stage]');
+    var counter = document.querySelector('[data-gallery-counter]');
+    var strip = document.querySelector('[data-gallery-thumbs]');
+    var current = 0;
+
+    function show(index) {
+      if (!thumbs.length) { return; }
+      current = (index + thumbs.length) % thumbs.length;
+      var thumb = thumbs[current];
+      main.style.opacity = '0';
+      var next = new Image();
+      next.onload = next.onerror = function () {
         main.src = thumb.dataset.galleryThumb;
-        document.querySelectorAll('[data-gallery-thumb]').forEach(function (t) { t.classList.remove('active'); });
-        thumb.classList.add('active');
+        main.style.opacity = '1';
+      };
+      next.src = thumb.dataset.galleryThumb;
+      thumbs.forEach(function (t, i) {
+        t.classList.toggle('active', i === current);
+        t.setAttribute('aria-selected', i === current ? 'true' : 'false');
       });
+      if (counter) { counter.textContent = (current + 1) + ' / ' + thumbs.length; }
+      // keep the active thumb visible inside the strip
+      if (strip) {
+        var t = thumbs[current];
+        var left = t.offsetLeft - strip.offsetLeft;
+        if (left < strip.scrollLeft || left + t.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+          strip.scrollTo({ left: left - strip.clientWidth / 2 + t.offsetWidth / 2, behavior: 'smooth' });
+        }
+      }
+    }
+
+    thumbs.forEach(function (thumb, i) {
+      thumb.addEventListener('click', function () { show(i); });
     });
+
+    var prevImg = document.querySelector('[data-gallery-prev]');
+    var nextImg = document.querySelector('[data-gallery-next]');
+    if (prevImg) { prevImg.addEventListener('click', function () { show(current - 1); }); }
+    if (nextImg) { nextImg.addEventListener('click', function () { show(current + 1); }); }
+    if (stage) {
+      stage.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowRight') { show(current + 1); }
+        if (e.key === 'ArrowLeft') { show(current - 1); }
+      });
+      // finger swipe over the main image on touch devices
+      var sx = null, sy = null;
+      stage.addEventListener('touchstart', function (e) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+      stage.addEventListener('touchend', function (e) {
+        if (sx === null) { return; }
+        var dx = e.changedTouches[0].clientX - sx;
+        var dy = e.changedTouches[0].clientY - sy;
+        if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) { show(dx < 0 ? current + 1 : current - 1); }
+        sx = sy = null;
+      }, { passive: true });
+    }
+
+    /* Thumbnail strip -------------------------------------------------------
+       Auto-scrolls gently, pauses on interaction, and accepts wheel, mouse drag
+       and touch scrolling. The arrow buttons page it left/right. */
+    if (strip) {
+      var scrolling = null;
+      function step() { return Math.max(80, Math.round(strip.clientWidth * 0.7)); }
+      function page(dir) {
+        strip.scrollBy({ left: dir * step(), behavior: 'smooth' });
+        pauseAuto();
+      }
+      var prevBtn = document.querySelector('[data-thumb-prev]');
+      var nextBtn = document.querySelector('[data-thumb-next]');
+      if (prevBtn) { prevBtn.addEventListener('click', function () { page(-1); }); }
+      if (nextBtn) { nextBtn.addEventListener('click', function () { page(1); }); }
+
+      var wrap = document.querySelector('[data-gallery-wrap]');
+      function syncArrows() {
+        if (!prevBtn || !nextBtn) { return; }
+        var max = strip.scrollWidth - strip.clientWidth - 2;
+        var fits = max <= 0;
+        if (wrap) { wrap.classList.toggle('is-scrollable', !fits); }
+        prevBtn.disabled = strip.scrollLeft <= 2;
+        nextBtn.disabled = strip.scrollLeft >= max;
+      }
+      strip.addEventListener('scroll', syncArrows, { passive: true });
+      window.addEventListener('resize', syncArrows);
+
+      // vertical wheel / trackpad gestures scroll the strip horizontally
+      strip.addEventListener('wheel', function (e) {
+        var delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (!delta) { return; }
+        var max = strip.scrollWidth - strip.clientWidth;
+        if ((strip.scrollLeft <= 0 && delta < 0) || (strip.scrollLeft >= max && delta > 0)) { return; }
+        e.preventDefault();
+        strip.scrollLeft += delta;
+        pauseAuto();
+      }, { passive: false });
+
+      // mouse drag (pointer events cover pen + touch as well)
+      var dragging = false, startX = 0, startScroll = 0, moved = 0;
+      strip.addEventListener('pointerdown', function (e) {
+        if (e.pointerType === 'touch') { return; } // native touch scrolling is better
+        dragging = true; moved = 0; startX = e.clientX; startScroll = strip.scrollLeft;
+        strip.classList.add('is-dragging');
+        pauseAuto();
+      });
+      strip.addEventListener('pointermove', function (e) {
+        if (!dragging) { return; }
+        var dx = e.clientX - startX;
+        moved = Math.abs(dx);
+        strip.scrollLeft = startScroll - dx;
+        if (moved > 6) { e.preventDefault(); }
+      });
+      function endDrag() {
+        if (!dragging) { return; }
+        dragging = false;
+        strip.classList.remove('is-dragging');
+        // swallow the click that follows a real drag so the image does not change
+        if (moved > 8) {
+          strip.addEventListener('click', function stop(e) { e.stopPropagation(); e.preventDefault(); strip.removeEventListener('click', stop, true); }, true);
+        }
+      }
+      strip.addEventListener('pointerup', endDrag);
+      strip.addEventListener('pointerleave', endDrag);
+      strip.addEventListener('pointercancel', endDrag);
+      strip.addEventListener('mouseenter', pauseAuto);
+      strip.addEventListener('touchstart', pauseAuto, { passive: true });
+
+      var autoTimer = null, autoDir = 1, pausedUntil = 0;
+      function pauseAuto() { pausedUntil = Date.now() + 4500; }
+      function startAuto() {
+        window.clearInterval(autoTimer);
+        autoTimer = window.setInterval(function () {
+          if (document.hidden || Date.now() < pausedUntil) { return; }
+          var max = strip.scrollWidth - strip.clientWidth;
+          if (max <= 0) { return; }
+          if (strip.scrollLeft >= max - 2) { autoDir = -1; }
+          if (strip.scrollLeft <= 2) { autoDir = 1; }
+          strip.scrollLeft += autoDir * 1; // 1px per tick = a slow, non-distracting drift
+        }, 40);
+      }
+      startAuto();
+      syncArrows();
+    }
   }
 
   /* ------------------------------------------------------ qty + price calc */
@@ -474,127 +624,159 @@
     });
   }
 
-  /* -------------------------------------------------- testimonial carousel */
-  function initTestimonialCarousel() {
-    var root = document.querySelector('[data-testimonial-carousel]');
+  /* ------------------------------------------------------- carousels */
+  /**
+   * Generic horizontal carousel used by the home page categories and the testimonials.
+   * Tracks the visible card width so it works with any number of cards per breakpoint:
+   * phones swipe (native momentum + snap), tablets/desktop use the arrow buttons and dots.
+   */
+  function initCarousel(opts) {
+    var root = document.querySelector(opts.root);
     if (!root) { return; }
-    var track = root.querySelector('[data-track]');
-    var slides = Array.prototype.slice.call(root.querySelectorAll('.testimonial-slide'));
+    var track = root.querySelector(opts.track);
+    var slides = Array.prototype.slice.call(root.querySelectorAll(opts.slide));
     if (!track || slides.length < 2) { return; }
 
-    var dotsWrap = root.querySelector('[data-t-dots]');
+    var dotsWrap = root.querySelector(opts.dots);
+    var prevBtn = root.querySelector(opts.prev);
+    var nextBtn = root.querySelector(opts.next);
+    var controls = root.querySelector(opts.controls);
     var index = 0;
-    var touchStartX = null;
-    var touchStartY = null;
+    var built = false;
 
-    function perView() {
-      var w = window.innerWidth;
-      if (w < 768) { return 1; }
-      if (w < 992) { return 2; }
-      return 3;
-    }
-    var last = function () { return Math.max(0, slides.length - perView()); };
+    function perView() { return opts.perView(window.innerWidth); }
+    function last() { return Math.max(0, slides.length - perView()); }
+    function single() { return perView() === 1; }
 
-    function render() {
-      index = Math.min(index, last());
-      var slide = slides[0].getBoundingClientRect().width;
-      var gap = parseFloat(getComputedStyle(track).columnGap || getComputedStyle(track).gap || '0') || 0;
-      if (perView() === 1) {
-        // one card per window on phones: let the browser handle momentum scrolling
-        track.style.transform = '';
-        root.scrollLeft = index * (slide + gap);
-      } else {
-        track.style.transform = 'translate3d(' + (-index * (slide + gap)) + 'px,0,0)';
-      }
-      slides.forEach(function (s, i) {
-        var visible = i >= index && i < index + perView();
-        s.setAttribute('aria-hidden', visible ? 'false' : 'true');
-      });
-      if (dotsWrap) {
-        Array.prototype.forEach.call(dotsWrap.children, function (dot, i) {
-          var active = i === index;
-          dot.classList.toggle('active', active);
-          dot.setAttribute('aria-selected', active ? 'true' : 'false');
-        });
-      }
+    function metrics() {
+      var w = slides[0].getBoundingClientRect().width;
+      var cs = getComputedStyle(track);
+      var gap = parseFloat(cs.columnGap || cs.gap || '0') || 0;
+      return { step: w + gap };
     }
 
-    function go(i) {
-      index = i < 0 ? last() : (i > last() ? 0 : i);
-      render();
-      syncControls();
-    }
-
-    var dotsBuilt = false;
-    if (dotsWrap) {
+    function buildDots() {
+      if (!dotsWrap || built) { return; }
+      built = true;
       var count = last() + 1;
-      dotsBuilt = count > 1;
-      if (!dotsBuilt) { dotsWrap.style.display = 'none'; }
       for (var i = 0; i < count; i++) {
         (function (n) {
           var b = document.createElement('button');
           b.type = 'button';
           b.setAttribute('role', 'tab');
-          b.setAttribute('aria-label', 'Testimonial ' + (n + 1));
+          b.setAttribute('aria-label', (opts.label || 'Item') + ' ' + (n + 1));
           b.addEventListener('click', function () { go(n); });
           dotsWrap.appendChild(b);
         })(i);
       }
     }
 
-    var prevBtn = root.querySelector('[data-t-prev]');
-    var nextBtn = root.querySelector('[data-t-next]');
-    if (prevBtn) { prevBtn.addEventListener('click', function () { go(index - 1); }); }
-    if (nextBtn) { nextBtn.addEventListener('click', function () { go(index + 1); }); }
-    // When every card already fits (e.g. 3 testimonials on a desktop row) the arrows and
-    // dots would do nothing — hide them instead of showing dead controls. At the ends the
-    // matching arrow is disabled rather than wrapped around.
-    var controls = root.querySelector('.t-controls');
-    var syncControls = function () {
+    function render() {
+      index = Math.min(index, last());
+      if (single()) {
+        track.style.transform = '';
+        root.scrollLeft = index * metrics().step;
+      } else {
+        track.style.transform = 'translate3d(' + (-index * metrics().step) + 'px,0,0)';
+      }
+      slides.forEach(function (s, i) {
+        s.setAttribute('aria-hidden', i >= index && i < index + perView() ? 'false' : 'true');
+      });
+      if (dotsWrap) {
+        Array.prototype.forEach.call(dotsWrap.children, function (dot, i) {
+          var on = i === index;
+          dot.classList.toggle('active', on);
+          dot.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+      }
       var needed = last() > 0;
       if (controls) { controls.style.display = needed ? '' : 'none'; }
-      if (!needed) { return; }
       if (prevBtn) { prevBtn.disabled = index <= 0; }
       if (nextBtn) { nextBtn.disabled = index >= last(); }
-    };
+    }
 
+    function go(i) {
+      index = i < 0 ? last() : (i > last() ? 0 : i);
+      render();
+    }
+
+    buildDots();
+    if (prevBtn) { prevBtn.addEventListener('click', function () { go(index - 1); }); }
+    if (nextBtn) { nextBtn.addEventListener('click', function () { go(index + 1); }); }
     root.addEventListener('keydown', function (e) {
       if (e.key === 'ArrowRight') { go(index + 1); e.preventDefault(); }
       if (e.key === 'ArrowLeft') { go(index - 1); e.preventDefault(); }
     });
 
-    // Swipe (phones): native horizontal scrolling, snap index kept in sync.
-    if (perView() === 1) {
-      root.style.overflowX = 'auto';
-      root.style.scrollSnapType = 'x mandatory';
-      root.style.webkitOverflowScrolling = 'touch';
-      root.style.scrollbarWidth = 'none';
-      slides.forEach(function (s) { s.style.scrollSnapAlign = 'start'; });
-      var sync = function () {
-        var slide = slides[0].getBoundingClientRect().width;
-        var gap = parseFloat(getComputedStyle(track).columnGap || '0') || 0;
-        var next = Math.round(root.scrollLeft / (slide + gap));
-        if (next !== index) { index = Math.min(next, last()); render(); }
-      };
-      root.addEventListener('scroll', function () { window.clearTimeout(root._snapT); root._snapT = window.setTimeout(sync, 90); }, { passive: true });
-      root.addEventListener('touchstart', function (e) {
-        touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
-      }, { passive: true });
-      root.addEventListener('touchend', function (e) {
-        if (touchStartX === null) { return; }
-        var dx = e.changedTouches[0].clientX - touchStartX;
-        var dy = e.changedTouches[0].clientY - touchStartY;
-        if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { go(dx < 0 ? index + 1 : index - 1); }
-        touchStartX = touchStartY = null;
-      }, { passive: true });
-    }
+    // Touch: native scroll + scroll-snap. Works with or without a snap support.
+    root.style.overflowX = 'auto';
+    root.style.scrollSnapType = 'x mandatory';
+    root.classList.add('is-swipeable');
+    slides.forEach(function (s) { s.style.scrollSnapAlign = 'start'; });
+    var syncTimer = null;
+    root.addEventListener('scroll', function () {
+      window.clearTimeout(syncTimer);
+      syncTimer = window.setTimeout(function () {
+        if (!single()) { return; }
+        var step = metrics().step;
+        if (step <= 0) { return; }
+        var nth = Math.round(root.scrollLeft / step);
+        if (nth !== index && nth >= 0 && nth <= last()) { index = nth; render(); }
+      }, 90);
+    }, { passive: true });
 
-    window.addEventListener('resize', function () { render(); syncControls(); });
+    // Mouse drag / finger swipe fallback (for browsers without scroll-snap).
+    var startX = null, startY = null;
+    root.addEventListener('touchstart', function (e) { startX = e.touches[0].clientX; startY = e.touches[0].clientY; }, { passive: true });
+    root.addEventListener('touchend', function (e) {
+      if (startX === null) { return; }
+      var dx = e.changedTouches[0].clientX - startX;
+      var dy = e.changedTouches[0].clientY - startY;
+      if (single() && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { go(dx < 0 ? index + 1 : index - 1); }
+      startX = startY = null;
+    }, { passive: true });
+
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(function () {
+        // Dots depend on how many cards fit per view, so rebuild them on breakpoint changes.
+        if (dotsWrap) { dotsWrap.innerHTML = ''; built = false; buildDots(); }
+        render();
+      }, 150);
+    });
     render();
-    syncControls();
   }
 
-  /* ---------------------------------------------------------------- PWA */
+  function initTestimonialCarousel() {
+    initCarousel({
+      root: '[data-testimonial-carousel]',
+      track: '[data-track]',
+      slide: '.testimonial-slide',
+      dots: '[data-t-dots]',
+      prev: '[data-t-prev]',
+      next: '[data-t-next]',
+      controls: '.t-controls',
+      label: 'Testimonial',
+      perView: function (w) { return w < 768 ? 1 : (w < 992 ? 2 : 3); }
+    });
+  }
+
+  function initCategoryCarousel() {
+    initCarousel({
+      root: '[data-cat-carousel]',
+      track: '[data-cat-track]',
+      slide: '.cat-slide',
+      dots: '[data-cat-dots]',
+      prev: '[data-cat-prev]',
+      next: '[data-cat-next]',
+      controls: '.cat-controls',
+      label: 'Category',
+      perView: function (w) { return w < 768 ? 1 : (w < 992 ? 2 : 3); }
+    });
+  }
+
+  /* ---------------------------------------------------------------- PWA */  /* ---------------------------------------------------------------- PWA */
   function initPWA() {
     if (!('serviceWorker' in navigator)) { return; }
     window.addEventListener('load', function () {
@@ -658,6 +840,7 @@
     initBackToTop();
     initMobileShell();
     initTestimonialCarousel();
+    initCategoryCarousel();
     initPWA();
     initInstallPrompt();
 

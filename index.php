@@ -28,7 +28,7 @@ use Saee\Lib\Settings;
 use Saee\Lib\Url;
 
 $sliders = get_sliders();
-$categories = get_categories(true, 6);
+$categories = get_categories(true, 12);
 $featured = get_featured_products(8);
 $newProducts = get_products(['limit' => 4, 'sort' => 'newest']);
 $testimonials = get_testimonials(6);
@@ -128,18 +128,30 @@ require INCLUDES_PATH . '/header.php';
       <h2 class="section-title">Solutions for every crop stage</h2>
       <p class="section-subtitle">From soil preparation to harvest protection, Saee Life Herbal covers the complete crop nutrition and protection cycle.</p>
     </div>
-    <div class="row g-4">
-      <?php foreach ($categories as $category): ?>
-        <div class="col-md-6 col-lg-4 reveal">
-          <a class="category-tile" href="<?= e(Url::to('products.php?category=' . urlencode((string) $category['slug']))) ?>">
-            <img src="<?= e(Url::media($category['image'])) ?>" alt="<?= e($category['name']) ?>" loading="lazy">
-            <div class="tile-body">
-              <h3><?= e($category['name']) ?></h3>
-              <p><?= (int) $category['product_count'] ?> products</p>
-            </div>
-          </a>
+    <?php // Carousel: 3 tiles on desktop, 2 on tablet, 1 on phones. Swipeable on touch, arrow
+          // buttons and dots elsewhere. ?>
+    <div class="category-carousel" data-cat-carousel tabindex="0" role="group"
+         aria-roledescription="carousel" aria-label="Product categories">
+      <div class="cat-track" data-cat-track>
+        <?php foreach ($categories as $i => $category): ?>
+          <div class="cat-slide" role="group" aria-roledescription="slide" aria-label="<?= (int) $i + 1 ?> of <?= count($categories) ?>">
+            <a class="category-tile" href="<?= e(Url::to('products.php?category=' . urlencode((string) $category['slug']))) ?>">
+              <img src="<?= e(Url::media($category['image'])) ?>" alt="<?= e($category['name']) ?>" loading="lazy">
+              <div class="tile-body">
+                <h3><?= e($category['name']) ?></h3>
+                <p><?= (int) $category['product_count'] ?> products</p>
+              </div>
+            </a>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <?php if (count($categories) > 1): ?>
+        <div class="cat-controls">
+          <button type="button" class="t-nav cat-prev" data-cat-prev aria-label="Previous categories"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+          <div class="t-dots" data-cat-dots role="tablist" aria-label="Choose categories"></div>
+          <button type="button" class="t-nav cat-next" data-cat-next aria-label="Next categories"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
         </div>
-      <?php endforeach; ?>
+      <?php endif; ?>
     </div>
     <div class="text-center mt-4">
       <a href="<?= e(Url::to('product-categories.php')) ?>" class="btn btn-outline-primary">View all categories <i class="fa-solid fa-arrow-right ms-1"></i></a>

@@ -154,21 +154,32 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
         </div>
       </form>
     </div>
-    <ul class="list-unstyled mb-0">
+    <ul class="list-unstyled mb-0 mnav-list">
       <?php foreach ($menu as $item): ?>
+        <?php $hasChildren = !empty($item['children']); ?>
         <li class="border-bottom">
-          <a class="d-flex justify-content-between align-items-center px-3 py-3 text-decoration-none text-dark fw-medium" href="<?= e(menu_url($item['url'])) ?>" <?= !empty($item['children']) ? 'data-bs-toggle="collapse" data-bs-target="#mnav' . (int) $item['id'] . '" role="button"' : '' ?>>
-            <span><?= e($item['label']) ?></span>
-            <?php if (!empty($item['children'])): ?><i class="fa-solid fa-chevron-down small text-muted" aria-hidden="true"></i><?php endif; ?>
-          </a>
-          <?php if (!empty($item['children'])): ?>
-            <div class="collapse" id="mnav<?= (int) $item['id'] ?>">
-              <ul class="list-unstyled ps-4 pb-2">
+          <?php if ($hasChildren): ?>
+            <?php // A parent with a submenu only expands/collapses the list: it never navigates
+                  // and never closes the drawer, so the submenu stays visible until it is tapped
+                  // again. The parent page itself is reachable from the first submenu entry. ?>
+            <button type="button" class="mnav-toggle d-flex justify-content-between align-items-center w-100 px-3 py-3 text-start border-0 bg-transparent text-dark fw-medium"
+                    data-bs-toggle="collapse" data-bs-target="#mnav<?= (int) $item['id'] ?>"
+                    aria-expanded="false" aria-controls="mnav<?= (int) $item['id'] ?>">
+              <span><?= e($item['label']) ?></span>
+              <i class="fa-solid fa-chevron-down small text-muted" aria-hidden="true"></i>
+            </button>
+            <div class="collapse mnav-sub" id="mnav<?= (int) $item['id'] ?>">
+              <ul class="list-unstyled ps-3 pb-2 mb-0">
                 <?php foreach ($item['children'] as $child): ?>
                   <li><a class="d-block py-2 text-secondary small" href="<?= e(menu_url($child['url'])) ?>"><?= e($child['label']) ?></a></li>
                 <?php endforeach; ?>
+                <li class="mt-1"><a class="d-block py-2 small fw-semibold text-primary" href="<?= e(menu_url($item['url'])) ?>">All <?= e($item['label']) ?></a></li>
               </ul>
             </div>
+          <?php else: ?>
+            <a class="d-flex justify-content-between align-items-center px-3 py-3 text-decoration-none text-dark fw-medium" href="<?= e(menu_url($item['url'])) ?>">
+              <span><?= e($item['label']) ?></span>
+            </a>
           <?php endif; ?>
         </li>
       <?php endforeach; ?>

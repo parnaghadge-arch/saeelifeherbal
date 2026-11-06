@@ -215,6 +215,8 @@ final class Installer
             ['Manage Media Library', 'cms.media', 'cms'],
             ['View Enquiries', 'enquiries.view', 'support'],
             ['Manage Enquiries', 'enquiries.manage', 'support'],
+            ['View B2B Leads', 'b2b.view', 'support'],
+            ['Manage B2B Leads', 'b2b.manage', 'support'],
             ['View Reports', 'reports.view', 'reports'],
             ['Manage Settings', 'settings.manage', 'settings'],
             ['Manage Payment Gateways', 'settings.payments', 'settings'],
@@ -239,8 +241,8 @@ final class Installer
             'administrator' => array_values(array_diff(array_keys($permIds), ['roles.manage', 'backups.manage'])),
             'finance-manager' => ['dashboard.view', 'members.view', 'mlm.tree', 'mlm.process', 'mlm.reverse', 'mlm.commission_rules', 'royalty.manage', 'royalty.approve', 'wallets.view', 'wallets.adjust', 'payouts.approve', 'payouts.pay', 'payouts.reports', 'reports.view', 'members.export'],
             'kyc-verifier' => ['dashboard.view', 'members.view', 'kyc.view', 'kyc.verify', 'bank.view', 'bank.verify'],
-            'content-editor' => ['dashboard.view', 'products.manage', 'categories.manage', 'cms.pages', 'cms.sliders', 'cms.blogs', 'cms.gallery', 'cms.content', 'cms.navigation', 'cms.media', 'enquiries.view', 'settings.manage'],
-            'support-executive' => ['dashboard.view', 'members.view', 'orders.view', 'orders.update', 'enquiries.view', 'enquiries.manage', 'payouts.request'],
+            'content-editor' => ['dashboard.view', 'products.manage', 'categories.manage', 'cms.pages', 'cms.sliders', 'cms.blogs', 'cms.gallery', 'cms.content', 'cms.navigation', 'cms.media', 'enquiries.view', 'b2b.view', 'settings.manage'],
+            'support-executive' => ['dashboard.view', 'members.view', 'orders.view', 'orders.update', 'enquiries.view', 'enquiries.manage', 'b2b.view', 'b2b.manage', 'payouts.request'],
         ];
         foreach ($map as $roleSlug => $perms) {
             foreach ($perms as $permSlug) {
@@ -411,6 +413,7 @@ final class Installer
             ['Business Opportunity', 'mlm-business-opportunity', 0, 5],
             ['Knowledge Hub', 'blogs', 0, 6],
             ['Contact', 'contact-us', 0, 7],
+            ['B2B / Bulk', 'b2b', 0, 8],
         ];
         $ids = [];
         foreach ($items as [$label, $url, $parent, $order]) {
@@ -476,6 +479,7 @@ final class Installer
             ['payout_rejected', 'Payout Rejected', 'Your payout request {{request_code}} was rejected. Reason: {{reason}}.', 'request_code,reason'],
             ['payout_completed', 'Payout Completed', 'Your payout {{request_code}} of {{amount}} was paid. UTR: {{utr}}.', 'request_code,amount,utr'],
             ['enquiry_received', 'We received your message', 'Thank you for contacting Saee Life Herbal. Our team will respond within one business day.', ''],
+            ['b2b_lead_received', 'New B2B lead received', 'A new B2B enquiry from {{contact_name}} ({{business_type}}) is waiting in the B2B Leads pipeline.', 'contact_name,business_type'],
         ];
         foreach ($templates as [$code, $subject, $body, $vars]) {
             $this->db->insertIgnore('notification_templates', [
