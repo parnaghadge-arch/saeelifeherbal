@@ -474,6 +474,126 @@
     });
   }
 
+  /* -------------------------------------------------- testimonial carousel */
+  function initTestimonialCarousel() {
+    var root = document.querySelector('[data-testimonial-carousel]');
+    if (!root) { return; }
+    var track = root.querySelector('[data-track]');
+    var slides = Array.prototype.slice.call(root.querySelectorAll('.testimonial-slide'));
+    if (!track || slides.length < 2) { return; }
+
+    var dotsWrap = root.querySelector('[data-t-dots]');
+    var index = 0;
+    var touchStartX = null;
+    var touchStartY = null;
+
+    function perView() {
+      var w = window.innerWidth;
+      if (w < 768) { return 1; }
+      if (w < 992) { return 2; }
+      return 3;
+    }
+    var last = function () { return Math.max(0, slides.length - perView()); };
+
+    function render() {
+      index = Math.min(index, last());
+      var slide = slides[0].getBoundingClientRect().width;
+      var gap = parseFloat(getComputedStyle(track).columnGap || getComputedStyle(track).gap || '0') || 0;
+      if (perView() === 1) {
+        // one card per window on phones: let the browser handle momentum scrolling
+        track.style.transform = '';
+        root.scrollLeft = index * (slide + gap);
+      } else {
+        track.style.transform = 'translate3d(' + (-index * (slide + gap)) + 'px,0,0)';
+      }
+      slides.forEach(function (s, i) {
+        var visible = i >= index && i < index + perView();
+        s.setAttribute('aria-hidden', visible ? 'false' : 'true');
+      });
+      if (dotsWrap) {
+        Array.prototype.forEach.call(dotsWrap.children, function (dot, i) {
+          var active = i === index;
+          dot.classList.toggle('active', active);
+          dot.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+      }
+    }
+
+    function go(i) {
+      index = i < 0 ? last() : (i > last() ? 0 : i);
+      render();
+      syncControls();
+    }
+
+    var dotsBuilt = false;
+    if (dotsWrap) {
+      var count = last() + 1;
+      dotsBuilt = count > 1;
+      if (!dotsBuilt) { dotsWrap.style.display = 'none'; }
+      for (var i = 0; i < count; i++) {
+        (function (n) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('role', 'tab');
+          b.setAttribute('aria-label', 'Testimonial ' + (n + 1));
+          b.addEventListener('click', function () { go(n); });
+          dotsWrap.appendChild(b);
+        })(i);
+      }
+    }
+
+    var prevBtn = root.querySelector('[data-t-prev]');
+    var nextBtn = root.querySelector('[data-t-next]');
+    if (prevBtn) { prevBtn.addEventListener('click', function () { go(index - 1); }); }
+    if (nextBtn) { nextBtn.addEventListener('click', function () { go(index + 1); }); }
+    // When every card already fits (e.g. 3 testimonials on a desktop row) the arrows and
+    // dots would do nothing — hide them instead of showing dead controls. At the ends the
+    // matching arrow is disabled rather than wrapped around.
+    var controls = root.querySelector('.t-controls');
+    var syncControls = function () {
+      var needed = last() > 0;
+      if (controls) { controls.style.display = needed ? '' : 'none'; }
+      if (!needed) { return; }
+      if (prevBtn) { prevBtn.disabled = index <= 0; }
+      if (nextBtn) { nextBtn.disabled = index >= last(); }
+    };
+
+    root.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowRight') { go(index + 1); e.preventDefault(); }
+      if (e.key === 'ArrowLeft') { go(index - 1); e.preventDefault(); }
+    });
+
+    // Swipe (phones): native horizontal scrolling, snap index kept in sync.
+    if (perView() === 1) {
+      root.style.overflowX = 'auto';
+      root.style.scrollSnapType = 'x mandatory';
+      root.style.webkitOverflowScrolling = 'touch';
+      root.style.scrollbarWidth = 'none';
+      slides.forEach(function (s) { s.style.scrollSnapAlign = 'start'; });
+      var sync = function () {
+        var slide = slides[0].getBoundingClientRect().width;
+        var gap = parseFloat(getComputedStyle(track).columnGap || '0') || 0;
+        var next = Math.round(root.scrollLeft / (slide + gap));
+        if (next !== index) { index = Math.min(next, last()); render(); }
+      };
+      root.addEventListener('scroll', function () { window.clearTimeout(root._snapT); root._snapT = window.setTimeout(sync, 90); }, { passive: true });
+      root.addEventListener('touchstart', function (e) {
+        touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+      root.addEventListener('touchend', function (e) {
+        if (touchStartX === null) { return; }
+        var dx = e.changedTouches[0].clientX - touchStartX;
+        var dy = e.changedTouches[0].clientY - touchStartY;
+        if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { go(dx < 0 ? index + 1 : index - 1); }
+        touchStartX = touchStartY = null;
+      }, { passive: true });
+    }
+
+    window.addEventListener('resize', function () { render(); syncControls(); });
+    render();
+    syncControls();
+  }
+
   /* ---------------------------------------------------------------- PWA */
   function initPWA() {
     if (!('serviceWorker' in navigator)) { return; }
@@ -537,6 +657,7 @@
     initCopy();
     initBackToTop();
     initMobileShell();
+    initTestimonialCarousel();
     initPWA();
     initInstallPrompt();
 

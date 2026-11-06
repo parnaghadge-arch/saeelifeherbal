@@ -209,6 +209,23 @@ if (!function_exists('crud_page')) {
                 if (($field['type'] ?? '') === 'number' || ($field['type'] ?? '') === 'money') {
                     $value = $value === '' || $value === null ? ($field['default'] ?? 0) : (float) $value;
                 }
+                // Date/time inputs send an empty string when the admin leaves them blank, and
+                // datetime-local sends "Y-m-dTH:i" — MySQL rejects both ('1292 Incorrect datetime
+                // value'). Normalise here once for every CRUD screen: blank becomes NULL.
+                if (in_array($type, ['date', 'datetime'], true)) {
+                    if ($value === '' || $value === null) {
+                        $data[$name] = null;
+                        continue;
+                    }
+                    $stamp = strtotime(str_replace('T', ' ', (string) $value));
+                    if ($stamp === false) {
+                        $errors[$name] = [$label . ': enter a valid ' . ($type === 'date' ? 'date' : 'date and time') . '.'];
+                        $data[$name] = null;
+                    } else {
+                        $data[$name] = date($type === 'date' ? 'Y-m-d' : 'Y-m-d H:i:s', $stamp);
+                    }
+                    continue;
+                }
                 if (($field['type'] ?? '') === 'json' && is_string($value) && $value !== '') {
                     json_decode($value);
                     if (json_last_error() !== JSON_ERROR_NONE) {

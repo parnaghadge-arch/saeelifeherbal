@@ -270,6 +270,8 @@ final class DemoSeeder
             ['Ramesh Patil', 'Cotton Farmer', 'Yavatmal, Maharashtra', 'The neem based spray reduced my pest pressure without harming beneficial insects. Yield improved by nearly 15% last season.', 5],
             ['Sunita Deshmukh', 'Farmer Partner', 'Amravati, Maharashtra', 'I started sharing products with farmers in my village. The commission statement is transparent and I can see exactly which sale paid what.', 5],
             ['Imran Shaikh', 'Agri Distributor', 'Akola, Maharashtra', 'Delivery is reliable and the agronomy desk actually answers calls. That matters during pest outbreaks.', 4],
+            ['Vaishali Jadhav', 'Farmer Partner', 'Wardha, Maharashtra', 'Field officers visit our village every month and explain the dosage in Marathi. Very helpful for small farms.', 5],
+            ['Ganesh More', 'Cotton Farmer', 'Nagpur, Maharashtra', 'Used the bio fertilizer on 3 acres. Soil condition improved and the crop stood better in dry spells.', 4],
         ];
         foreach ($rows as $i => [$name, $role, $loc, $msg, $rating]) {
             $this->db->insert('testimonials', [

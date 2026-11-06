@@ -31,7 +31,7 @@ $sliders = get_sliders();
 $categories = get_categories(true, 6);
 $featured = get_featured_products(8);
 $newProducts = get_products(['limit' => 4, 'sort' => 'newest']);
-$testimonials = get_testimonials(3);
+$testimonials = get_testimonials(6);
 $blogs = get_blogs(['limit' => 3]);
 $stats = site_stats();
 $homePage = get_page_by_slug('home');
@@ -280,29 +280,49 @@ require INCLUDES_PATH . '/header.php';
 
 <!-- ------------------------------------------------------ testimonials -->
 <?php if ($testimonials !== []): ?>
-<section class="section bg-white">
+<section class="section bg-white testimonial-section">
   <div class="container">
     <div class="text-center reveal">
       <span class="eyebrow">Farmer voices</span>
       <h2 class="section-title">Trusted in the field</h2>
+      <p class="section-subtitle">Real feedback from farmers and partners using our products.</p>
     </div>
-    <div class="row g-4">
-      <?php foreach ($testimonials as $t): ?>
-        <div class="col-md-4 reveal">
-          <div class="testimonial-card">
-            <i class="fa-solid fa-quote-right quote-mark"></i>
-            <div class="stars mb-2"><?= str_repeat('<i class="fa-solid fa-star"></i>', (int) $t['rating']) ?></div>
-            <p class="mb-0"><?= e($t['message']) ?></p>
-            <div class="testimonial-author">
-              <div class="avatar-circle"><?= e(initials((string) $t['name'])) ?></div>
-              <div>
-                <div class="fw-semibold small"><?= e($t['name']) ?></div>
-                <div class="text-muted" style="font-size:.78rem"><?= e(trim(($t['designation'] ?? '') . ($t['location'] ? ' · ' . $t['location'] : ''), ' ·')) ?></div>
+
+    <?php // One card per view on phones, three on desktop — the rest stay off-canvas instead of
+          // stacking into a long column that buries the page. ?>
+    <div class="testimonial-carousel" data-testimonial-carousel tabindex="0" role="group"
+         aria-roledescription="carousel" aria-label="Farmer testimonials">
+      <div class="testimonial-track" data-track>
+        <?php foreach ($testimonials as $i => $t): ?>
+          <div class="testimonial-slide" role="group" aria-roledescription="slide"
+               aria-label="<?= (int) $i + 1 ?> of <?= count($testimonials) ?>">
+            <div class="testimonial-card">
+              <i class="fa-solid fa-quote-right quote-mark" aria-hidden="true"></i>
+              <div class="stars mb-2" aria-label="<?= (int) $t['rating'] ?> out of 5"><?= str_repeat('<i class="fa-solid fa-star" aria-hidden="true"></i>', (int) $t['rating']) ?></div>
+              <p class="mb-0"><?= e($t['message']) ?></p>
+              <div class="testimonial-author">
+                <div class="avatar-circle"><?= e(initials((string) $t['name'])) ?></div>
+                <div>
+                  <div class="fw-semibold small"><?= e($t['name']) ?></div>
+                  <div class="text-muted" style="font-size:.78rem"><?= e(trim(($t['designation'] ?? '') . ($t['location'] ? ' · ' . $t['location'] : ''), ' ·')) ?></div>
+                </div>
               </div>
             </div>
           </div>
+        <?php endforeach; ?>
+      </div>
+
+      <?php if (count($testimonials) > 1): ?>
+        <div class="t-controls">
+          <button type="button" class="t-nav t-prev" data-t-prev aria-label="Previous testimonial">
+            <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+          </button>
+          <div class="t-dots" data-t-dots role="tablist" aria-label="Choose testimonial"></div>
+          <button type="button" class="t-nav t-next" data-t-next aria-label="Next testimonial">
+            <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+          </button>
         </div>
-      <?php endforeach; ?>
+      <?php endif; ?>
     </div>
   </div>
 </section>

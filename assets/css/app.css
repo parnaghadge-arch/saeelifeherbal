@@ -35,6 +35,9 @@
   --saee-radius: 16px;
   --saee-radius-sm: 10px;
   --saee-radius-pill: 999px;
+  /* The bundled Font Awesome is v7, so any hard-coded "Font Awesome 6 Free" in a
+     ::before rule silently renders nothing. Always use this stack for icon glyphs. */
+  --saee-icon-font: 'Font Awesome 7 Free', 'Font Awesome 6 Free', 'Font Awesome 5 Free', 'Font Awesome Free';
   --saee-font-heading: 'Poppins', 'Segoe UI', sans-serif;
   --saee-font-body: 'Roboto', 'Segoe UI', Arial, sans-serif;
   --saee-transition: .28s cubic-bezier(.4, 0, .2, 1);
@@ -355,6 +358,43 @@ a:hover { color: var(--saee-dark); }
 .testimonial-card .quote-mark { font-size: 2.4rem; color: var(--saee-light); line-height: 1; position: absolute; top: 1rem; right: 1.3rem; }
 .testimonial-card p { color: var(--saee-muted); font-style: italic; }
 .testimonial-author { display: flex; align-items: center; gap: .75rem; margin-top: 1.25rem; }
+
+/* testimonial carousel — 3 cards on desktop, 1 card per view on phones */
+.testimonial-carousel { position: relative; margin-top: 2rem; overflow: hidden; }
+.testimonial-carousel:focus-visible { outline: 2px solid var(--saee-primary); outline-offset: 6px; border-radius: var(--saee-radius); }
+.testimonial-track {
+  display: flex; gap: 1rem;
+  transition: transform .45s cubic-bezier(.33, .8, .3, 1);
+  will-change: transform;
+}
+.testimonial-slide { flex: 0 0 calc((100% - 2rem) / 3); min-width: 0; }
+.testimonial-slide .testimonial-card { height: 100%; }
+/* controls sit under the track so they can never overlap a card or each other */
+.t-controls { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1.3rem; }
+.t-nav {
+  width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto;
+  border: 1px solid var(--saee-border); background: #fff; color: var(--saee-dark);
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: var(--saee-shadow-sm); transition: var(--saee-transition);
+}
+.t-nav:hover { background: var(--saee-primary); border-color: var(--saee-primary); color: #fff; }
+.t-nav[disabled] { opacity: .4; pointer-events: none; }
+.t-dots { display: flex; align-items: center; justify-content: center; gap: .4rem; height: 40px; }
+.t-dots button {
+  width: 9px; height: 9px; padding: 0; border: none; border-radius: 50%;
+  background: var(--saee-border); transition: var(--saee-transition);
+}
+.t-dots button.active { width: 26px; border-radius: 6px; background: var(--saee-primary); }
+@media (max-width: 991.98px) {
+  .testimonial-slide { flex-basis: calc((100% - 1rem) / 2); }
+}
+@media (max-width: 767.98px) {
+  /* phones: exactly one card per window, swipeable */
+  .testimonial-track { gap: .8rem; transform: none !important; }
+  .testimonial-slide { flex-basis: 100%; }
+  .t-controls .t-nav { display: none; }
+  .t-controls { margin-top: .9rem; }
+}
 .avatar-circle { width: 46px; height: 46px; border-radius: 50%; background: var(--saee-light); color: var(--saee-primary); display: flex; align-items: center; justify-content: center; font-family: var(--saee-font-heading); font-weight: 700; }
 .stars { color: #F5A623; font-size: .82rem; letter-spacing: .1em; }
 
@@ -448,7 +488,7 @@ a:hover { color: var(--saee-dark); }
 .shadow-saee { box-shadow: var(--saee-shadow) !important; }
 .list-check { list-style: none; padding: 0; }
 .list-check li { position: relative; padding-left: 1.9rem; margin-bottom: .6rem; }
-.list-check li::before { content: '\f00c'; font-family: 'Font Awesome 6 Free'; font-weight: 900; position: absolute; left: 0; top: .12rem; color: var(--saee-primary); font-size: .8rem; background: var(--saee-light); width: 1.3rem; height: 1.3rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.list-check li::before { content: '\f00c'; font-family: var(--saee-icon-font); font-weight: 900; position: absolute; left: 0; top: .12rem; color: var(--saee-primary); font-size: .8rem; background: var(--saee-light); width: 1.3rem; height: 1.3rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
 
 /* product detail */
 .gallery-main { border-radius: var(--saee-radius); overflow: hidden; background: #fff; border: 1px solid var(--saee-border); aspect-ratio: 1/1; }
@@ -481,7 +521,7 @@ a:hover { color: var(--saee-dark); }
 /* gallery & video */
 .gallery-item { position: relative; border-radius: var(--saee-radius); overflow: hidden; display: block; }
 .gallery-item img { width: 100%; height: 220px; object-fit: cover; transition: transform .5s ease; }
-.gallery-item::after { content: '\f00e'; font-family: 'Font Awesome 6 Free'; font-weight: 900; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.4rem; background: rgba(20, 83, 45, .55); opacity: 0; transition: var(--saee-transition); }
+.gallery-item::after { content: '\f00e'; font-family: var(--saee-icon-font); font-weight: 900; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.4rem; background: rgba(20, 83, 45, .55); opacity: 0; transition: var(--saee-transition); }
 .gallery-item:hover::after { opacity: 1; }
 .gallery-item:hover img { transform: scale(1.05); }
 .video-card { background: #fff; border: 1px solid var(--saee-border); border-radius: var(--saee-radius); overflow: hidden; }
@@ -867,13 +907,11 @@ a:hover { color: var(--saee-dark); }
   /* product grid: two comfortable columns */
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
   .product-body { padding: .8rem .85rem 1rem; }
-  .product-actions { flex-wrap: wrap; }
-  .product-actions .btn { min-width: 0; padding-left: .6rem; padding-right: .6rem; }
+  /* In a two-column mobile grid there is no room for two pill buttons side by side —
+     stacking them full width keeps every label on one line (no broken words). */
+  .product-actions { flex-direction: column; gap: .35rem; }
+  .product-actions .btn { width: 100%; padding: .45rem .5rem; font-size: .78rem; white-space: nowrap; }
 }
-
-@media (max-width: 359.98px) {
-  .product-actions { flex-direction: column; }
-  .product-actions .btn { width: 100%; }
 }
 
 /* Installable-app niceties */
