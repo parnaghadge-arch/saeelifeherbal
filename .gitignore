@@ -26,9 +26,10 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Tooling artefacts
+# Tooling artefacts (PHP/Composer packages only — the front-end vendor bundle is
+# committed on purpose so a git clone renders correctly without a build step)
 node_modules/
-vendor/
+/vendor/
 
 # Generated sitemap cache
 /sitemap.xml

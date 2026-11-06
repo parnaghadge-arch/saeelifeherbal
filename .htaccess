@@ -34,6 +34,22 @@ DirectoryIndex index.php
     Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
 </IfModule>
 
+# Correct MIME types for the bundled assets. Without these a server whose mime.types is
+# incomplete can serve CSS/JS as text/html, and browsers refuse stylesheets and scripts
+# ("Refused to apply style ... MIME type ('text/html')").
+<IfModule mod_mime.c>
+    AddType text/css .css
+    AddType application/javascript .js .mjs
+    AddType application/manifest+json .webmanifest
+    AddType image/svg+xml .svg
+    AddType font/woff2 .woff2
+    AddType application/font-woff .woff
+    AddType image/webp .webp
+    AddType image/avif .avif
+    AddType video/mp4 .mp4
+    AddType application/pdf .pdf
+</IfModule>
+
 # Never cache private areas
 <IfModule mod_expires.c>
     ExpiresActive On
@@ -51,6 +67,16 @@ DirectoryIndex index.php
     php_value post_max_size 16M
 </IfModule>
 
-<FilesMatch "\.(env|sqlite|sql|log|md|lock|json)$">
+# Never serve secrets, dumps or logs.
+<FilesMatch "\.(env|sqlite|sqlite3|db|sql|log|md|lock|ini|bak|dist|example)$">
     Require all denied
 </FilesMatch>
+
+# composer.json / package.json style files are safe to block, but the PWA manifest must load.
+<FilesMatch "^(composer|package|package-lock)\.json$">
+    Require all denied
+</FilesMatch>
+
+<Files "manifest.json">
+    Require all granted
+</Files>
