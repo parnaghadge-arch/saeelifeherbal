@@ -29,6 +29,31 @@ if ($uri !== '/' && is_dir($path) && is_file($path . '/index.php')) {
     return true;
 }
 
+// Member portal pretty URLs: /member/login -> member/login.php, /member/wallets -> member/wallet.php
+if (preg_match('#^/member/([a-z0-9-]+)/?$#', $uri, $m)) {
+    $candidates = [
+        $root . '/member/' . $m[1] . '.php',
+        $root . '/member/' . str_replace('-', '_', $m[1]) . '.php',
+        $root . '/member/' . rtrim($m[1], 's') . '.php',
+    ];
+    foreach ($candidates as $candidate) {
+        if (!is_file($candidate)) {
+            continue;
+        }
+        $base = basename($candidate);
+        $redirects = [
+            'index.php' => 'dashboard.php',
+            'commissions.php' => 'commissions.php',
+            'wallets.php' => 'wallet.php',
+        ];
+        if (isset($redirects[$base]) && $redirects[$base] !== $base) {
+            \Saee\Lib\Request::redirect('member/' . $redirects[$base], 301);
+        }
+        require $candidate;
+        return true;
+    }
+}
+
 // SEO friendly routes
 $slug = trim($uri, '/');
 if ($slug === '') {

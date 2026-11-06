@@ -20,6 +20,11 @@ server {
         try_files $uri =404;
     }
 
+    # Member portal pretty URLs: /member/login -> /member/login.php
+    location ~ ^/member/([a-z0-9-]+)/?$ {
+        try_files /member/$1.php /member/$1/index.php /index.php?$query_string;
+    }
+
     location / {
         try_files $uri $uri/ /index.php?$query_string;
     }

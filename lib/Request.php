@@ -147,6 +147,10 @@ final class Request
             return $url;
         }
         $base = Url::base();
+        // Inside a sub-application the target may name its own folder ("member/login").
+        if (preg_match('#^(admin|member|api|pwa|ajax)/#', $url)) {
+            return $base . '/' . $url;
+        }
         if (!str_contains($url, '/')) {
             $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
             $dir = rtrim(dirname($script), '/');
