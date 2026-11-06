@@ -435,8 +435,18 @@
     // App-like behaviour: hide the tab bar while scrolling down, reveal on scroll up.
     var lastY = window.scrollY;
     var hidden = false;
+    var atBottom = function () {
+      return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 90;
+    };
     window.addEventListener('scroll', function () {
       var y = window.scrollY;
+      if (atBottom()) {
+        // Never hide the navigation at the very end of the page — that is where people
+        // are most likely to want the next tap.
+        if (hidden) { tabbar.style.transform = 'translateY(0)'; hidden = false; }
+        lastY = y;
+        return;
+      }
       if (y > lastY + 8 && y > 140 && !hidden) {
         tabbar.style.transform = 'translateY(110%)';
         hidden = true;
