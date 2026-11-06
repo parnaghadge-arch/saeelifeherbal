@@ -1,5 +1,5 @@
 -- Saee Life Herbal - MySQL 8 schema
--- Generated 2026-11-06 11:23:31
+-- Generated 2026-11-06 13:07:33
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;

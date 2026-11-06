@@ -72,18 +72,49 @@ final class Database
             } else {
                 $c = $this->config;
                 $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=%s', $c['host'], (int) $c['port'], $c['database'], $c['charset'] ?? 'utf8mb4');
-                $this->pdo = new PDO($dsn, $c['username'], $c['password'], $options);
+                try {
+                    $this->pdo = new PDO($dsn, $c['username'], $c['password'], $options);
+                } catch (PDOException $e) {
+                    // 1049 = unknown database. A fresh XAMPP user usually has not created it yet,
+                    // so create it once (utf8mb4) and reconnect instead of failing the install.
+                    if ((int) $e->getCode() === 1049 || str_contains($e->getMessage(), 'Unknown database')) {
+                        $serverDsn = sprintf('mysql:host=%s;port=%d;charset=%s', $c['host'], (int) $c['port'], $c['charset'] ?? 'utf8mb4');
+                        $server = new PDO($serverDsn, $c['username'], $c['password'], $options);
+                        $name = str_replace('`', '', (string) $c['database']);
+                        $server->exec('CREATE DATABASE IF NOT EXISTS `' . $name . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+                        $this->pdo = new PDO($dsn, $c['username'], $c['password'], $options);
+                    } else {
+                        throw $e;
+                    }
+                }
                 $this->pdo->exec("SET sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION'");
                 $this->pdo->exec("SET time_zone = '+05:30'");
             }
         } catch (PDOException $e) {
-            throw new RuntimeException('Database connection failed: ' . $e->getMessage(), 0, $e);
+            throw new RuntimeException(self::explainConnectionError($e, $this->driver), 0, $e);
         }
     }
 
     public function pdo(): PDO
     {
         return $this->pdo;
+    }
+
+    /** Turn a raw PDO connection error into something an operator can act on. */
+    private static function explainConnectionError(PDOException $e, string $driver): string
+    {
+        $raw = $e->getMessage();
+        if ($driver !== 'mysql') {
+            return 'Database connection failed: ' . $raw;
+        }
+        $hint = match (true) {
+            (int) $e->getCode() === 1045 || str_contains($raw, 'Access denied') => 'MySQL rejected the username/password. On XAMPP the default is user "root" with an empty password.',
+            (int) $e->getCode() === 2002 || str_contains($raw, 'No such file or directory') || str_contains($raw, 'refused') => 'MySQL is not running or is listening on another port (usually 3306). Start MySQL in the XAMPP control panel.',
+            (int) $e->getCode() === 1049 => 'The database does not exist and could not be created. Create it in phpMyAdmin (utf8mb4) or use an account allowed to CREATE DATABASE.',
+            str_contains($raw, 'could not find driver') => 'The pdo_mysql extension is disabled. Uncomment extension=pdo_mysql in php.ini and restart.',
+            default => '',
+        };
+        return 'Database connection failed: ' . $raw . ($hint !== '' ? ' — ' . $hint : '');
     }
 
     public function driver(): string

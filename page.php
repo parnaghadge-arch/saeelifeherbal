@@ -14,13 +14,8 @@ $slug = (string) (\Saee\Lib\Request::query('slug') ?? '');
 $page = $slug !== '' ? get_page_by_slug($slug) : null;
 
 if (!$page) {
-    http_response_code(404);
-    $pageTitle = 'Page not found';
-    require INCLUDES_PATH . '/header.php';
-    echo '<section class="section"><div class="container text-center py-5"><h1 class="display-5">404</h1>'
-        . '<p class="text-muted">The page you are looking for does not exist or has been unpublished.</p>'
-        . '<a class="btn btn-primary" href="' . e(Url::base()) . '/">Back to home</a></div></section>';
-    require INCLUDES_PATH . '/footer.php';
+    // Use the branded 404 (kept in one place) and never return a soft 404.
+    require APP_ROOT . '/errors/404.php';
     exit;
 }
 

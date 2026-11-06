@@ -32,7 +32,126 @@ foreach (array_slice($argv, 2) as $arg) {
     }
 }
 
-$db = Database::instance();
+/**
+ * Preflight: tell the operator exactly what is wrong before touching the schema.
+ * A silent "Something went wrong" on a fresh Windows/XAMPP checkout is the most
+ * common support question, so every failure below is spelled out.
+ */
+$dbConfig = (array) \Saee\Lib\Config::get('database.db');
+$driver = (string) ($dbConfig['driver'] ?? 'sqlite');
+$commands = ['install', 'demo', 'doctor', 'schema:mysql', 'schema:sqlite', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
+
+if (!in_array($command, $commands, true)) {
+    echo "Saee Life Herbal console\n\n";
+    echo "Usage: php tools/console.php <command> [options]\n\n";
+    echo "  install              create all tables, settings, roles and the first admin\n";
+    echo "      --admin-user=admin --admin-pass='Admin@12345'\n";
+    echo "      --admin-email=a@b.com --admin-name='Name' --no-fresh\n";
+    echo "  demo                 seed demo catalogue, members, orders and commissions\n";
+    echo "  schema:mysql         write database/schema.sql from the schema definition\n";
+    echo "  schema:sqlite        write database/schema.sqlite.sql\n";
+    echo "  commissions:process  release matured commission holds (cron)\n";
+    echo "  royalty:run          evaluate royalty achievements (cron)\n";
+    echo "  backups:run          write a database backup into storage/backups (cron)\n";
+    echo "  sitemap              regenerate sitemap.xml (cron)\n";
+    echo "  doctor               check PHP version, extensions, folders and database connectivity\n\n";
+    echo "Active database driver: " . $driver . PHP_EOL;
+    exit(0);
+}
+
+if ($command === 'doctor') {
+    $ok = true;
+    $line = static function (bool $pass, string $label, string $detail = ''): void {
+        echo ($pass ? '  [ OK ]   ' : '  [FAIL]  ') . $label . ($detail !== '' ? ' — ' . $detail : '') . PHP_EOL;
+    };
+
+    echo "Saee Life Herbal — environment check" . PHP_EOL . PHP_EOL;
+
+    $phpOk = PHP_VERSION_ID >= 80100;
+    $line($phpOk, 'PHP version', PHP_VERSION . ($phpOk ? '' : ' (8.1+ required — upgrade XAMPP/PHP)'));
+
+    foreach (['pdo' => 'PDO', 'mbstring' => 'mbstring', 'openssl' => 'OpenSSL', 'fileinfo' => 'fileinfo', 'json' => 'JSON', 'gd' => 'GD (image resize)', 'zip' => 'Zip (backups)'] as $ext => $label) {
+        $loaded = extension_loaded($ext);
+        $line($loaded, 'Extension ' . $label, $loaded ? '' : 'enable extension=' . $ext . ' in php.ini');
+        $ok = $ok && ($loaded || in_array($ext, ['gd', 'zip'], true));
+    }
+
+    $drivers = \PDO::getAvailableDrivers();
+    $line(in_array($driver, $drivers, true), 'PDO driver "' . $driver . '"', 'available: ' . implode(', ', $drivers));
+    $ok = $ok && in_array($driver, $drivers, true);
+
+    echo PHP_EOL . "Database target: " . $driver . PHP_EOL;
+    if ($driver === 'mysql') {
+        echo '  host=' . ($dbConfig['host'] ?? '') . '  port=' . ($dbConfig['port'] ?? '') . '  database=' . ($dbConfig['database'] ?? '') . '  user=' . ($dbConfig['username'] ?? '') . PHP_EOL;
+    } else {
+        echo '  file=' . ($dbConfig['sqlite_path'] ?? '') . PHP_EOL;
+    }
+
+    try {
+        $probe = Database::instance();
+        $probe->value('SELECT 1');
+        $version = 'connected';
+        try {
+            $version = (string) ($probe->driver() === 'mysql' ? $probe->value('SELECT VERSION()') : 'SQLite ' . \SQLite3::version()['versionString']);
+        } catch (Throwable) {
+        }
+        $line(true, 'Database connection', $version);
+    } catch (Throwable $e) {
+        $line(false, 'Database connection', $e->getMessage());
+        echo PHP_EOL . '  Fix the connection first (MySQL running? database created? .env correct?).' . PHP_EOL;
+        $ok = false;
+    }
+
+    echo PHP_EOL . "Writable folders:" . PHP_EOL;
+    foreach (['storage', 'storage/db', 'storage/logs', 'storage/sessions', 'storage/private', 'storage/backups', 'uploads', 'database'] as $dir) {
+        $path = APP_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $dir);
+        $exists = is_dir($path);
+        $writable = $exists && is_writable($path);
+        $line($writable, $dir, $exists ? ($writable ? '' : 'not writable — give the web server write permission') : 'missing — create it');
+        $ok = $ok && $writable;
+    }
+
+    echo PHP_EOL . 'Config: APP_ENV=' . APP_ENV . '  APP_DEBUG=' . (APP_DEBUG ? '1' : '0')
+        . '  APP_URL=' . ((string) \Saee\Lib\Config::get('app.url', '') ?: '(auto)') . PHP_EOL;
+    echo '.env file: ' . (is_file(APP_ROOT . '/.env') ? 'found' : 'not present (using defaults / real env vars)') . PHP_EOL;
+
+    try {
+        $tableCount = (int) Database::instance()->value("SELECT COUNT(*) FROM settings");
+        echo 'Tables installed: ' . ($tableCount > 0 ? 'yes (settings seeded)' : 'schema present but empty — run: php tools/console.php install') . PHP_EOL;
+    } catch (Throwable) {
+        echo 'Tables installed: no — run: php tools/console.php install' . PHP_EOL;
+    }
+
+    echo PHP_EOL . ($ok ? 'Everything looks good.' : 'Fix the [FAIL] lines above, then run install again.') . PHP_EOL;
+    exit($ok ? 0 : 1);
+}
+
+if ($driver === 'mysql' && !in_array('mysql', \PDO::getAvailableDrivers(), true)) {
+    fwrite(STDERR, "PDO MySQL driver (pdo_mysql) is not enabled in this PHP build." . PHP_EOL);
+    fwrite(STDERR, "Enable it in php.ini: remove the ';' in front of extension=pdo_mysql, then restart." . PHP_EOL);
+    fwrite(STDERR, "Or set DB_DRIVER=sqlite in .env to install on SQLite for now." . PHP_EOL);
+    exit(1);
+}
+
+try {
+    $db = Database::instance();
+} catch (Throwable $e) {
+    fwrite(STDERR, "Cannot connect to the database (" . $driver . ")." . PHP_EOL);
+    fwrite(STDERR, "Reason: " . $e->getMessage() . PHP_EOL . PHP_EOL);
+    if ($driver === 'mysql') {
+        fwrite(STDERR, "Checklist for XAMPP/MySQL:" . PHP_EOL);
+        fwrite(STDERR, "  1. Start MySQL in the XAMPP control panel." . PHP_EOL);
+        fwrite(STDERR, "  2. Create the database (phpMyAdmin -> New, e.g. saee_life_herbal, utf8mb4)." . PHP_EOL);
+        fwrite(STDERR, "  3. Put the details in .env:  DB_DRIVER=mysql, DB_DATABASE=..., DB_USERNAME=root, DB_PASSWORD= (blank on XAMPP by default)." . PHP_EOL);
+        fwrite(STDERR, "  4. Make sure extension=pdo_mysql is enabled in php.ini." . PHP_EOL);
+    } else {
+        fwrite(STDERR, "Checklist for SQLite:" . PHP_EOL);
+        fwrite(STDERR, "  1. extension=pdo_sqlite must be enabled in php.ini." . PHP_EOL);
+        fwrite(STDERR, "  2. The storage/db folder must be writable by PHP." . PHP_EOL);
+    }
+    fwrite(STDERR, PHP_EOL . "Run 'php tools/console.php' with no arguments to see all commands and the active driver." . PHP_EOL);
+    exit(1);
+}
 
 switch ($command) {
     case 'install':
@@ -82,6 +201,4 @@ switch ($command) {
         echo "Sitemap generated." . PHP_EOL;
         break;
 
-    default:
-        echo "Saee Life Herbal console\n\nCommands:\n  install, demo, schema:mysql, schema:sqlite, commissions:process, royalty:run, backups:run, sitemap\n";
 }

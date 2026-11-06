@@ -44,10 +44,10 @@ final class Response
         // BOM keeps Excel happy with UTF-8
         fwrite($out, "\xEF\xBB\xBF");
         if ($headers !== []) {
-            fputcsv($out, $headers);
+            fputcsv($out, $headers, ',', '"', '');
         }
         foreach ($rows as $row) {
-            fputcsv($out, array_map([self::class, 'csvCell'], $row));
+            fputcsv($out, array_map([self::class, 'csvCell'], $row), ',', '"', '');
         }
         fclose($out);
         exit;

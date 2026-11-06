@@ -35,6 +35,9 @@ must never be served directly — `.htaccess` and the sample nginx config both b
 
 ## 3. Create the database
 
+If the database does not exist yet, the installer creates it automatically (the MySQL user
+must have the `CREATE` privilege — `root` on XAMPP does). Otherwise create it manually:
+
 ```sql
 CREATE DATABASE saee_life_herbal CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'saee'@'localhost' IDENTIFIED BY 'a-strong-password';
@@ -82,7 +85,36 @@ RAZORPAY_WEBHOOK_SECRET=
 
 ## 5. Install the schema and seed the admin account
 
+### Windows / XAMPP quick path
+
+```powershell
+cd C:\xampp\htdocs\saeelifeherbal
+copy .env.example .env
+# edit .env -> DB_PASSWORD= (blank on XAMPP), DB_DATABASE=saeelifeherbal
+C:\xampp\php\php.exe tools\console.php doctor
+C:\xampp\php\php.exe tools\console.php install --admin-user=admin --admin-pass="Admin@12345"
+```
+
+`doctor` prints one line per check (PHP version, extensions, PDO driver, folder permissions,
+database connectivity) so a failure is never a blank "Something went wrong":
+
+```
+  [ OK ]   PHP version — 8.2.12
+  [ OK ]   Extension pdo_mysql
+  [FAIL]  Database connection — MySQL is not running … start MySQL in the XAMPP panel
+```
+
+Then open `http://localhost/saeelifeherbal/` and `http://localhost/saeelifeherbal/admin/login.php`.
+
+> PHP **8.1 or newer** is required — XAMPP bundles older PHP in some installers. The app shows an
+> explicit "Unsupported PHP version" page (and a CLI message) instead of a generic 500.
+> Any database error on the web front now renders a "Database unavailable" page that names the
+> driver and the check to perform; set `SAEE_DEBUG=1` in `.env` to see the raw error.
+
+### Linux / macOS / production with MySQL
+
 ```bash
+php tools/console.php doctor      # verify environment + connection first
 php tools/console.php install
 ```
 
@@ -109,6 +141,7 @@ Other console commands:
 
 | Command | Purpose |
 | --- | --- |
+| `php tools/console.php doctor` | Environment/database/folder preflight, safe to run any time |
 | `php tools/console.php schema:mysql` | Print the MySQL DDL |
 | `php tools/console.php schema:sqlite` | Print the SQLite DDL |
 | `php tools/console.php commissions:process` | Generate commission for eligible paid orders |
@@ -195,3 +228,8 @@ unilevel with unlimited direct referrals (binary is not supported); commissions 
 | Razorpay callback fails signature | Key secret / webhook secret mismatch |
 | Commission not generated | Order must be **paid**; check cron and `commission_status` |
 | Payout blocked | KYC/bank must be approved when `require_kyc` / `require_verified_bank` are on |
+| Console prints a "Something went wrong" | Fixed in 1.0: the CLI now prints the real error. Run `php tools/console.php doctor`. |
+| `Unsupported PHP version` page | The server runs PHP < 8.1. Point Apache/CLI at PHP 8.1+ (XAMPP: Config → PHP 8.x). |
+| `Database unavailable` page | MySQL is stopped, the database is missing, or `.env` credentials are wrong. `doctor` pinpoints which. |
+| `errno 1824 Failed to open the referenced table` (MySQL) | Table creation order; fixed in 1.0 — `Schema::install()` disables FK checks while creating tables. Ensure you run the bundled code, not the SQL paste. |
+| Re-running install fails on `admin_roles.slug` / `admin_users.username` | Fixed in 1.0: install is idempotent, existing roles/permissions are reused and the admin row is updated. |

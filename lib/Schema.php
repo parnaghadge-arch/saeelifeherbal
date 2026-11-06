@@ -1070,8 +1070,22 @@ final class Schema
     /** Tables that must be dropped first (children last created are dropped first). */
     public static function install(Database $db): void
     {
-        foreach (self::tables() as $table => $definition) {
-            $db->statement(self::createTableSql($db->driver(), $table, $definition));
+        // Tables are created in registry order and children frequently reference parents that
+        // come later (e.g. website_pages -> admin_users). SQLite allows forward references,
+        // MySQL does not: without this it fails with errno 1824 "Failed to open the
+        // referenced table". Foreign key checks are restored immediately afterwards.
+        $mysql = $db->driver() === 'mysql';
+        if ($mysql) {
+            $db->statement('SET FOREIGN_KEY_CHECKS = 0');
+        }
+        try {
+            foreach (self::tables() as $table => $definition) {
+                $db->statement(self::createTableSql($db->driver(), $table, $definition));
+            }
+        } finally {
+            if ($mysql) {
+                $db->statement('SET FOREIGN_KEY_CHECKS = 1');
+            }
         }
     }
 

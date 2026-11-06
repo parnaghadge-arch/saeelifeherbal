@@ -170,10 +170,13 @@ final class Installer
         ];
         $roleIds = [];
         foreach ($roles as [$name, $slug, $desc, $isSuper]) {
-            $roleIds[$slug] = $this->db->insert('admin_roles', [
+            // Idempotent: re-running install (or install --no-fresh) must not collide with
+            // the UNIQUE slug, so existing rows are reused instead of inserted again.
+            $this->db->insertIgnore('admin_roles', [
                 'name' => $name, 'slug' => $slug, 'description' => $desc, 'is_super' => $isSuper,
                 'status' => 1, 'created_at' => $now, 'updated_at' => $now,
             ]);
+            $roleIds[$slug] = (int) $this->db->value('SELECT id FROM admin_roles WHERE slug = :s', ['s' => $slug]);
         }
 
         $permissions = [
@@ -222,10 +225,11 @@ final class Installer
         ];
         $permIds = [];
         foreach ($permissions as [$name, $slug, $group]) {
-            $permIds[$slug] = $this->db->insert('admin_permissions', [
+            $this->db->insertIgnore('admin_permissions', [
                 'name' => $name, 'slug' => $slug, 'group_name' => $group,
                 'description' => null, 'created_at' => $now,
             ]);
+            $permIds[$slug] = (int) $this->db->value('SELECT id FROM admin_permissions WHERE slug = :s', ['s' => $slug]);
         }
 
         // Super admin role implicitly has everything; still map for transparency.
@@ -251,7 +255,7 @@ final class Installer
     private function seedAdminUser(array $admin, string $now): void
     {
         $roleId = (int) $this->db->value('SELECT id FROM admin_roles WHERE slug = :s', ['s' => 'super-admin']);
-        $this->db->insert('admin_users', [
+        $payload = [
             'name' => $admin['name'] ?? 'Administrator',
             'email' => strtolower($admin['email'] ?? 'admin@saeelifeherbal.com'),
             'username' => $admin['username'] ?? 'admin',
@@ -259,9 +263,21 @@ final class Installer
             'role_id' => $roleId,
             'status' => 'active',
             'must_change_password' => !empty($admin['must_change_password']) ? 1 : 0,
-            'created_at' => $now,
             'updated_at' => $now,
-        ]);
+        ];
+
+        // Re-running install (for example to reset the password) updates the existing
+        // super admin instead of failing on the unique username/email.
+        $existing = $this->db->first(
+            'SELECT id FROM admin_users WHERE username = :u OR LOWER(email) = :e LIMIT 1',
+            ['u' => $payload['username'], 'e' => $payload['email']]
+        );
+        if ($existing) {
+            $this->db->update('admin_users', $payload, 'id = :id', ['id' => (int) $existing['id']]);
+            return;
+        }
+        $payload['created_at'] = $now;
+        $this->db->insert('admin_users', $payload);
     }
 
     private function seedMlmAndPayoutSettings(string $now): void

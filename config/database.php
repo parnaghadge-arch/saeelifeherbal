@@ -20,8 +20,18 @@ $env = static function (string $key, ?string $default = null): ?string {
     return ($value === false || $value === '') ? $default : $value;
 };
 
+/**
+ * Driver default: the bundled SQLite file keeps the site runnable without any setup,
+ * but on a typical XAMPP/WAMP/LAMP box the developer typed DB details in .env and
+ * expects MySQL. If DB_DRIVER is not set but MySQL credentials are, use MySQL.
+ */
+$defaultDriver = 'sqlite';
+if ($env('DB_DRIVER') === null && ($env('DB_DATABASE') !== null || $env('DB_USERNAME') !== null)) {
+    $defaultDriver = 'mysql';
+}
+
 $db = array_merge([
-    'driver'   => 'sqlite',
+    'driver'   => $defaultDriver,
     'host'     => '127.0.0.1',
     'port'     => 3306,
     'database' => 'saee_life_herbal',
