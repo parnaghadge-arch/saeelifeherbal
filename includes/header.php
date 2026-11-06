@@ -159,7 +159,7 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
         <li class="border-bottom">
           <a class="d-flex justify-content-between align-items-center px-3 py-3 text-decoration-none text-dark fw-medium" href="<?= e(menu_url($item['url'])) ?>" <?= !empty($item['children']) ? 'data-bs-toggle="collapse" data-bs-target="#mnav' . (int) $item['id'] . '" role="button"' : '' ?>>
             <span><?= e($item['label']) ?></span>
-            <?php if (!empty($item['children'])): ?><i class="fa-solid fa-chevron-down small text-muted"></i><?php endif; ?>
+            <?php if (!empty($item['children'])): ?><i class="fa-solid fa-chevron-down small text-muted" aria-hidden="true"></i><?php endif; ?>
           </a>
           <?php if (!empty($item['children'])): ?>
             <div class="collapse" id="mnav<?= (int) $item['id'] ?>">

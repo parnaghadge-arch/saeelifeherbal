@@ -272,6 +272,28 @@ final class Schema
                 ],
                 'timestamps' => ['created_at', 'updated_at'],
             ],
+            'team_members' => [
+                'columns' => [
+                    'id' => 'pk',
+                    'name' => 'string:120|notnull',
+                    'designation' => 'string:120|null',
+                    'role_type' => "string:40|notnull|default:'team'|index",
+                    'bio' => 'text|null',
+                    'photo' => 'string:255|null',
+                    'email' => 'string:191|null',
+                    'phone' => 'string:20|null',
+                    'linkedin_url' => 'string:255|null',
+                    'facebook_url' => 'string:255|null',
+                    'instagram_url' => 'string:255|null',
+                    'x_url' => 'string:255|null',
+                    'highlight' => "string:60|null",
+                    'quote' => 'text|null',
+                    'show_on_home' => 'bool|default:1|index',
+                    'sort_order' => 'int|notnull|default:0',
+                    'status' => 'bool|default:1|index',
+                ],
+                'timestamps' => ['created_at', 'updated_at'],
+            ],
             'faqs' => [
                 'columns' => [
                     'id' => 'pk',
@@ -1087,6 +1109,50 @@ final class Schema
                 $db->statement('SET FOREIGN_KEY_CHECKS = 1');
             }
         }
+    }
+
+    /**
+     * Create any table that is missing from an existing installation (idempotent upgrade).
+     * Used by the installer and by "php tools/console.php upgrade" so a site that was set up
+     * before a module existed (e.g. the team/founder section) picks it up without a reinstall.
+     *
+     * @return list<string> tables that were created
+     */
+    public static function ensureTables(Database $db): array
+    {
+        $created = [];
+        $mysql = $db->driver() === 'mysql';
+        $existing = [];
+        try {
+            if ($mysql) {
+                foreach ($db->select('SHOW TABLES') as $row) {
+                    $existing[] = (string) array_values($row)[0];
+                }
+            } else {
+                foreach ($db->select("SELECT name FROM sqlite_master WHERE type = 'table'") as $row) {
+                    $existing[] = (string) $row['name'];
+                }
+            }
+        } catch (Throwable) {
+            return [];
+        }
+        if ($mysql) {
+            $db->statement('SET FOREIGN_KEY_CHECKS = 0');
+        }
+        try {
+            foreach (self::tables() as $table => $definition) {
+                if (in_array($table, $existing, true)) {
+                    continue;
+                }
+                $db->statement(self::createTableSql($db->driver(), $table, $definition));
+                $created[] = $table;
+            }
+        } finally {
+            if ($mysql) {
+                $db->statement('SET FOREIGN_KEY_CHECKS = 1');
+            }
+        }
+        return $created;
     }
 
     public static function dropAll(Database $db): void

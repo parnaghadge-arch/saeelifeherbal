@@ -195,7 +195,7 @@ require __DIR__ . '/includes/layout.php';
 <?php endif; ?>
 <?php
 $chartData = ['labels' => $labels, 'revenue' => $revenue, 'orders' => $ordersSeries];
-$extraScripts = '<script src="' . e(Url::asset('vendor/chart.js/chart.umd.js')) . '"></script>
+$extraScripts = '<script src="' . e(Url::asset('vendor/chartjs/chart.umd.js')) . '"></script>
 <script>
 window.addEventListener("load", function () {
   var data = ' . json_encode($chartData, JSON_THROW_ON_ERROR) . ';

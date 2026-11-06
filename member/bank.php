@@ -105,7 +105,7 @@ require __DIR__ . '/includes/layout.php';
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="delete">
                   <input type="hidden" name="id" value="<?= (int) $account['id'] ?>">
-                  <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="Remove"><i class="fa-regular fa-trash-can"></i></button>
+                  <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="Remove"><i class="fa-solid fa-trash-can"></i></button>
                 </form>
               <?php endif; ?>
             </div>

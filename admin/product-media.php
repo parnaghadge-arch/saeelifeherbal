@@ -89,7 +89,7 @@ require __DIR__ . '/includes/layout.php';
               <?= csrf_field() ?>
               <input type="hidden" name="action" value="delete">
               <input type="hidden" name="video_id" value="<?= (int) $video['id'] ?>">
-              <button class="btn btn-sm btn-outline-danger"><i class="fa-regular fa-trash-can"></i></button>
+              <button class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash-can"></i></button>
             </form>
           </div>
         <?php endforeach; ?>

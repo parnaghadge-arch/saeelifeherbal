@@ -39,7 +39,7 @@ foreach (array_slice($argv, 2) as $arg) {
  */
 $dbConfig = (array) \Saee\Lib\Config::get('database.db');
 $driver = (string) ($dbConfig['driver'] ?? 'sqlite');
-$commands = ['install', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
+$commands = ['install', 'upgrade', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
 
 if (!in_array($command, $commands, true)) {
     echo "Saee Life Herbal console\n\n";
@@ -47,6 +47,7 @@ if (!in_array($command, $commands, true)) {
     echo "  install              create all tables, settings, roles and the first admin\n";
     echo "      --admin-user=admin --admin-pass='Admin@12345'\n";
     echo "      --admin-email=a@b.com --admin-name='Name' --no-fresh\n";
+    echo "  upgrade              create tables added by newer versions (safe to re-run)\n";
     echo "  demo                 seed demo catalogue, members, orders and commissions\n";
     echo "  schema:mysql         write database/schema.sql from the schema definition\n";
     echo "  schema:sqlite        write database/schema.sqlite.sql\n";
@@ -244,6 +245,15 @@ switch ($command) {
         ], !isset($opts['no-fresh']));
         echo "Installed schema on driver: " . $db->driver() . PHP_EOL;
         echo "Admin login: " . ($opts['admin-user'] ?? 'admin') . " / " . ($opts['admin-pass'] ?? 'Admin@12345') . PHP_EOL;
+        break;
+
+    case 'upgrade':
+        $created = \Saee\Lib\Schema::ensureTables($db);
+        if ($created === []) {
+            echo "Schema already up to date — no missing tables." . PHP_EOL;
+        } else {
+            echo "Created " . count($created) . " table(s): " . implode(', ', $created) . PHP_EOL;
+        }
         break;
 
     case 'demo':

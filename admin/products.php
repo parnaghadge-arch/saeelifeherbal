@@ -25,9 +25,47 @@ if (is_post()) {
     if ($action === 'delete') {
         $target = $db->first('SELECT * FROM products WHERE id = :id', ['id' => Request::int('id')]);
         if ($target) {
+            try {
+                // Detach every reference that is not covered by ON DELETE CASCADE/SET NULL so the
+                // delete cannot fail with a foreign-key error on MySQL, then remove the product.
+                // Past orders keep their own copy of name/price (order_items), so history and
+                // invoices stay intact even after the catalogue row is gone.
+                $db->execute('UPDATE order_items SET product_id = NULL WHERE product_id = :id', ['id' => (int) $target['id']]);
+                $db->execute('DELETE FROM cart_items WHERE product_id = :id', ['id' => (int) $target['id']]);
+                $db->execute('DELETE FROM wishlists WHERE product_id = :id', ['id' => (int) $target['id']]);
+                $db->execute('UPDATE commission_transactions SET product_id = NULL WHERE product_id = :id', ['id' => (int) $target['id']]);
+                $db->execute('DELETE FROM product_images WHERE product_id = :id', ['id' => (int) $target['id']]);
+                $db->execute('DELETE FROM product_videos WHERE product_id = :id', ['id' => (int) $target['id']]);
+                $db->execute('DELETE FROM product_variants WHERE product_id = :id', ['id' => (int) $target['id']]);
+                $db->delete('products', 'id = :id', ['id' => (int) $target['id']]);
+                if (!empty($target['featured_image'])) {
+                    Uploader::delete((string) $target['featured_image']);
+                }
+                Audit::log('delete', 'products', 'Deleted product ' . $target['name'], 'products', (int) $target['id']);
+                Session::success('Product deleted. Past orders keep their own copy of the price.');
+            } catch (Throwable $e) {
+                Session::error('Could not delete the product: ' . e($e->getMessage()));
+            }
+        }
+        Request::redirect('products.php');
+    }
+
+    if ($action === 'deactivate') {
+        $target = $db->first('SELECT * FROM products WHERE id = :id', ['id' => Request::int('id')]);
+        if ($target) {
             $db->update('products', ['status' => 'inactive', 'updated_at' => date('Y-m-d H:i:s')], 'id = :id', ['id' => (int) $target['id']]);
             Audit::log('deactivate', 'products', 'Deactivated product ' . $target['name'], 'products', (int) $target['id']);
-            Session::success('Product deactivated (order history is preserved).');
+            Session::success('Product deactivated (still listed here, hidden from the shop).');
+        }
+        Request::redirect('products.php');
+    }
+
+    if ($action === 'activate') {
+        $target = $db->first('SELECT * FROM products WHERE id = :id', ['id' => Request::int('id')]);
+        if ($target) {
+            $db->update('products', ['status' => 'active', 'updated_at' => date('Y-m-d H:i:s')], 'id = :id', ['id' => (int) $target['id']]);
+            Audit::log('activate', 'products', 'Re-activated product ' . $target['name'], 'products', (int) $target['id']);
+            Session::success('Product activated (visible in the shop again).');
         }
         Request::redirect('products.php');
     }
@@ -168,7 +206,17 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="h6 mb-0"><?= $product ? 'Edit product' : 'Add product' ?></h2>
+        <div class="d-flex gap-2">
+        <?php if ($product): ?>
+          <form method="post" class="d-inline" data-confirm="Delete this product permanently? Past orders keep their prices.">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="id" value="<?= (int) $product['id'] ?>">
+            <button class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash-can me-1"></i>Delete</button>
+          </form>
+        <?php endif; ?>
         <?php if ($product): ?><a class="btn btn-sm btn-outline-secondary" href="products.php">New product</a><?php endif; ?>
+      </div>
       </div>
       <?php if (!empty($errors['_general'])): ?><div class="alert alert-danger small"><?= e($errors['_general'][0]) ?></div><?php endif; ?>
       <?php if (!empty($errors)): ?><div class="alert alert-danger small">Please correct the highlighted fields.</div><?php endif; ?>
@@ -271,11 +319,11 @@ require __DIR__ . '/includes/layout.php';
       <?php if ($product): ?>
         <div class="d-flex gap-2 mt-2">
           <a class="btn btn-sm btn-outline-secondary flex-grow-1" target="_blank" rel="noopener" href="<?= e(product_url((string) $product['slug'])) ?>">View on site</a>
-          <form method="post" class="flex-grow-1" data-confirm="Deactivate this product?">
+          <form method="post" class="flex-grow-1" data-confirm="<?= (string) $product['status'] === 'active' ? 'Deactivate' : 'Activate' ?> this product?">
             <?= csrf_field() ?>
-            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="action" value="<?= (string) $product['status'] === 'active' ? 'deactivate' : 'activate' ?>">
             <input type="hidden" name="id" value="<?= (int) $product['id'] ?>">
-            <button class="btn btn-sm btn-outline-danger w-100">Deactivate</button>
+            <button class="btn btn-sm <?= (string) $product['status'] === 'active' ? 'btn-outline-danger' : 'btn-outline-success' ?> w-100"><?= (string) $product['status'] === 'active' ? 'Deactivate' : 'Activate' ?></button>
           </form>
         </div>
 
@@ -322,7 +370,32 @@ require __DIR__ . '/includes/layout.php';
               </td>
               <td data-label="Price" class="text-end small"><?= money((float) $row['price']) ?><?php if ((float) $row['mrp'] > (float) $row['price']): ?><div class="text-muted text-decoration-line-through"><?= money((float) $row['mrp']) ?></div><?php endif; ?></td>
               <td data-label="Status"><?= status_badge((string) $row['status']) ?></td>
-              <td class="text-end"><a class="btn btn-sm btn-light-green" href="?id=<?= (int) $row['id'] ?>"><i class="fa-solid fa-pen"></i></a></td>
+              <td class="text-end">
+                <div class="table-tools justify-content-end">
+                  <a class="btn btn-sm btn-light-green" href="?id=<?= (int) $row['id'] ?>" title="Edit"><i class="fa-solid fa-pen"></i></a>
+                  <?php if ((string) $row['status'] === 'active'): ?>
+                    <form method="post" class="d-inline" data-confirm="Hide this product from the shop?">
+                      <?= csrf_field() ?>
+                      <input type="hidden" name="action" value="deactivate">
+                      <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                      <button class="btn btn-sm btn-outline-secondary" title="Deactivate"><i class="fa-solid fa-eye-slash"></i></button>
+                    </form>
+                  <?php else: ?>
+                    <form method="post" class="d-inline" data-confirm="Show this product in the shop again?">
+                      <?= csrf_field() ?>
+                      <input type="hidden" name="action" value="activate">
+                      <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                      <button class="btn btn-sm btn-outline-success" title="Activate"><i class="fa-solid fa-eye"></i></button>
+                    </form>
+                  <?php endif; ?>
+                  <form method="post" class="d-inline" data-confirm="Delete this product permanently?">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                    <button class="btn btn-sm btn-outline-danger" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+                  </form>
+                </div>
+              </td>
             </tr>
           <?php endforeach; ?>
           </tbody>
@@ -336,13 +409,5 @@ require __DIR__ . '/includes/layout.php';
   </div>
 </div>
 <?php
-$extraScripts = '<script src="' . e(Url::asset('vendor/tinymce/tinymce/tinymce.min.js')) . '"></script>
-<script>
-if (window.tinymce) {
-  tinymce.init({ selector: "textarea.richtext", height: 320, menubar: false, promotion: false,
-    plugins: "lists link table code", toolbar: "undo redo | bold italic | bullist numlist | link table | code",
-    skin_url: "' . e(Url::asset('vendor/tinymce/tinymce/skins/ui/oxide')) . '",
-    content_css: "' . e(Url::asset('vendor/tinymce/tinymce/skins/content/default/content.min.css')) . '" });
-}
-</script>';
+$extraScripts = richtext_scripts('textarea.richtext', 380);
 require __DIR__ . '/includes/layout-end.php';

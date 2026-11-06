@@ -344,6 +344,16 @@ require INCLUDES_PATH . '/header.php';
 </section>
 <?php endif; ?>
 
+<?php
+// Founder & team — populated from Admin → Founder & Team (skipped when empty).
+$teamRole = null;
+$teamHome = true;
+$teamEyebrow = 'Leadership';
+$teamTitle = 'Meet the founder and our team';
+$teamLead = 'The people who formulate, field-test and stand behind every Saee Life Herbal product.';
+require INCLUDES_PATH . '/team-section.php';
+?>
+
 <!-- --------------------------------------------------------------- CTA -->
 <section class="section-sm">
   <div class="container">

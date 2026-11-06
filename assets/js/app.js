@@ -49,8 +49,16 @@
     var header = document.querySelector('.site-header');
     if (!header || header.dataset.sticky !== '1') { return; }
     // Below 992px the header is already sticky through CSS (mobile app shell); adding the
-    // fixed/spacer behaviour there would double the offset and jump the layout.
-    if (window.matchMedia('(max-width: 991.98px)').matches) { return; }
+    // fixed/spacer behaviour there would double the offset and jump the layout. Mobile only
+    // gets a compact shadow/hairline state so the sticky bar reads as "floating" above content.
+    if (window.matchMedia('(max-width: 991.98px)').matches) {
+      var mobileScroll = function () {
+        header.classList.toggle('is-condensed', window.scrollY > 12);
+      };
+      window.addEventListener('scroll', mobileScroll, { passive: true });
+      mobileScroll();
+      return;
+    }
     var spacer = document.createElement('div');
     spacer.style.display = 'none';
     header.parentNode.insertBefore(spacer, header);

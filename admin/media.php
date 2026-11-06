@@ -113,7 +113,7 @@ require __DIR__ . '/includes/layout.php';
               <div class="small text-muted"><?= e((string) $row['folder']) ?> · <?= number_format((int) $row['file_size'] / 1024, 0) ?> KB</div>
               <div class="d-flex gap-1 mt-1">
                 <button class="btn btn-sm btn-outline-secondary flex-grow-1" type="button" data-copy-text="<?= e((string) $row['file_path']) ?>">Copy path</button>
-                <form method="post" data-confirm="Delete this file?"><?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int) $row['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="fa-regular fa-trash-can"></i></button></form>
+                <form method="post" data-confirm="Delete this file?"><?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int) $row['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash-can"></i></button></form>
               </div>
             </div>
           </div>

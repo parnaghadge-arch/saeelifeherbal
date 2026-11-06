@@ -142,7 +142,7 @@ require __DIR__ . '/includes/layout.php';
                 <a class="btn btn-sm btn-light-green" href="?id=<?= (int) $row['id'] ?>"><i class="fa-solid fa-pen"></i></a>
                 <?php if ((int) $row['id'] !== (int) $adminUser['id']): ?>
                   <form method="post" class="d-inline"><?= csrf_field() ?><input type="hidden" name="action" value="status"><input type="hidden" name="id" value="<?= (int) $row['id'] ?>"><button class="btn btn-sm btn-outline-secondary" title="Toggle status"><i class="fa-solid fa-power-off"></i></button></form>
-                  <form method="post" class="d-inline" data-confirm="Delete this admin user?"><?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int) $row['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="fa-regular fa-trash-can"></i></button></form>
+                  <form method="post" class="d-inline" data-confirm="Delete this admin user?"><?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int) $row['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash-can"></i></button></form>
                 <?php endif; ?>
               </td>
             </tr>

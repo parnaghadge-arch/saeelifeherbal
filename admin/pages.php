@@ -232,7 +232,7 @@ require __DIR__ . '/includes/layout.php';
               <div class="col-3"><button class="btn btn-sm btn-outline-secondary w-100">Save</button></div>
               <div class="col-12"><input class="form-control form-control-sm" name="section_title" value="<?= e((string) $section['title']) ?>" placeholder="Section title"></div>
               <div class="col-12"><input class="form-control form-control-sm" name="section_subtitle" value="<?= e((string) $section['subtitle']) ?>" placeholder="Subtitle"></div>
-              <div class="col-12"><textarea class="form-control form-control-sm" name="section_content" rows="3" placeholder="Content"><?= e((string) $section['content']) ?></textarea></div>
+              <div class="col-12"><textarea class="form-control form-control-sm richtext" name="section_content" rows="6" placeholder="Content"><?= e((string) $section['content']) ?></textarea></div>
               <div class="col-12"><input type="file" name="section_image" class="form-control form-control-sm" accept="image/*"></div>
             </div>
           </form>
@@ -255,7 +255,7 @@ require __DIR__ . '/includes/layout.php';
             <div class="col-6"><input class="form-control form-control-sm" type="number" name="section_sort" value="<?= count($sections) + 1 ?>"></div>
             <div class="col-12"><input class="form-control form-control-sm" name="section_title" placeholder="Title"></div>
             <div class="col-12"><input class="form-control form-control-sm" name="section_subtitle" placeholder="Subtitle"></div>
-            <div class="col-12"><textarea class="form-control form-control-sm" name="section_content" rows="3" placeholder="Content (HTML allowed)"></textarea></div>
+            <div class="col-12"><textarea class="form-control form-control-sm richtext" name="section_content" rows="6" placeholder="Content"></textarea></div>
             <div class="col-12"><input type="file" name="section_image" class="form-control form-control-sm" accept="image/*"></div>
             <div class="col-12"><button class="btn btn-sm btn-primary w-100">Add section</button></div>
           </div>
@@ -297,16 +297,5 @@ require __DIR__ . '/includes/layout.php';
   </div>
 </div>
 <?php
-$extraScripts = '<script src="' . e(Url::asset('vendor/tinymce/tinymce/tinymce.min.js')) . '"></script>
-<script>
-if (window.tinymce) {
-  tinymce.init({
-    selector: "textarea.richtext", height: 420, menubar: false, promotion: false,
-    plugins: "lists link table code image autoresize",
-    toolbar: "undo redo | bold italic underline | bullist numlist | link image table | code",
-    skin_url: "' . e(Url::asset('vendor/tinymce/tinymce/skins/ui/oxide')) . '",
-    content_css: "' . e(Url::asset('vendor/tinymce/tinymce/skins/content/default/content.min.css')) . '"
-  });
-}
-</script>';
+$extraScripts = richtext_scripts('textarea.richtext', 460);
 require __DIR__ . '/includes/layout-end.php';

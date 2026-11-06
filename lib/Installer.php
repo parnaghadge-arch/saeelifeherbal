@@ -24,6 +24,7 @@ final class Installer
             Schema::dropAll($this->db);
         }
         Schema::install($this->db);
+        Schema::ensureTables($this->db); // idempotent: adds tables introduced after the first install
         if ($this->db->driver() === 'sqlite') {
             foreach (Schema::postCreateIndexes('sqlite') as $sql) {
                 $this->db->statement($sql);

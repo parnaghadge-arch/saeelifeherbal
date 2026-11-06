@@ -141,7 +141,7 @@ require __DIR__ . '/includes/layout.php';
 </div>
 <?php
 $chart = ['labels' => array_map(static fn ($m) => (string) $m['m'], $monthly), 'revenue' => array_map(static fn ($m) => (float) $m['revenue'], $monthly)];
-$extraScripts = '<script src="' . e(Url::asset('vendor/chart.js/chart.umd.js')) . '"></script>
+$extraScripts = '<script src="' . e(Url::asset('vendor/chartjs/chart.umd.js')) . '"></script>
 <script>
 window.addEventListener("load", function () {
   var ctx = document.getElementById("reportChart");

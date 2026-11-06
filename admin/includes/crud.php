@@ -17,6 +17,67 @@ use Saee\Lib\Session;
 use Saee\Lib\Uploader;
 use Saee\Lib\Url;
 
+require_once dirname(__DIR__, 2) . '/includes/richtext.php';
+
+if (!function_exists('friendlyDbError')) {
+    /** Turn a PDO/constraint exception into something an admin can act on. */
+    function friendlyDbError(Throwable $e): string
+    {
+        $message = $e->getMessage();
+        if (stripos($message, '1452') !== false || stripos($message, 'foreign key constraint fails') !== false) {
+            return 'a linked record is missing or still in use (foreign key constraint). '
+                . 'For a category, choose "no parent" or delete its sub-categories first; '
+                . 'for a product, make sure the category still exists.';
+        }
+        if (stripos($message, '1451') !== false || stripos($message, 'Cannot delete or update a parent row') !== false) {
+            return 'this record is still used by other records — remove those links first.';
+        }
+        if (stripos($message, '1062') !== false || stripos($message, 'UNIQUE constraint failed') !== false) {
+            return 'that value must be unique — a record with the same slug or name already exists.';
+        }
+        if (stripos($message, '1406') !== false || stripos($message, 'too long') !== false) {
+            return 'one of the values is too long for its field.';
+        }
+        return $message;
+    }
+}
+
+if (!function_exists('self_referencing')) {
+    /** Does this table have a self-referencing foreign key on $column (MySQL only)? */
+    function self_referencing(\Saee\Lib\Database $db, string $table, string $column): bool
+    {
+        if ($db->driver() !== 'mysql') {
+            return false;
+        }
+        try {
+            $row = $db->first(
+                "SELECT 1 AS x FROM information_schema.KEY_COLUMN_USAGE
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c
+                   AND REFERENCED_TABLE_NAME = :t2 LIMIT 1",
+                ['t' => $table, 'c' => $column, 't2' => $table]
+            );
+            return (bool) $row;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('delete_descendants')) {
+    /** Recursively delete children before their parent, deepest level first. */
+    function delete_descendants(\Saee\Lib\Database $db, string $table, string $column, int $id, int $depth = 0): void
+    {
+        if ($depth > 25) {
+            return;
+        }
+        $children = $db->select("SELECT id FROM $table WHERE $column = :id", ['id' => $id]);
+        foreach ($children as $child) {
+            delete_descendants($db, $table, $column, (int) $child['id'], $depth + 1);
+            $db->delete($table, 'id = :id', ['id' => (int) $child['id']]);
+        }
+    }
+}
+
 if (!function_exists('crud_page')) {
     function crud_page(array $config): void
     {
@@ -30,6 +91,7 @@ if (!function_exists('crud_page')) {
         $searchColumns = $config['search'] ?? [];
         $perPage = $config['per_page'] ?? 20;
         $listColumns = $config['list'] ?? array_slice(array_keys($fields), 0, 5);
+        $optionsSource = $config['options'] ?? [];
         $listRoute = $config['route'] ?? basename((string) ($_SERVER['SCRIPT_NAME'] ?? 'index.php'));
         $intro = $config['intro'] ?? '';
 
@@ -45,14 +107,32 @@ if (!function_exists('crud_page')) {
                 $id = Request::int('id');
                 $row = $db->first("SELECT * FROM $table WHERE id = :id", ['id' => $id]);
                 if ($row) {
-                    foreach ($fields as $name => $field) {
-                        if (in_array($field['type'] ?? 'text', ['image', 'file'], true) && !empty($row[$name])) {
-                            Uploader::delete((string) $row[$name], !str_starts_with((string) $row[$name], 'private:'));
+                    $deleted = true;
+                    try {
+                        // Children that reference this row by a self-referencing FK are removed
+                        // first: InnoDB rejects "ON DELETE CASCADE" self references (error 1452),
+                        // and SQLite needs the same order. Products pointing at a category are
+                        // detached by the FK (ON DELETE SET NULL) or here, explicitly.
+                        if (array_key_exists('parent_id', $row)) {
+                            delete_descendants($db, $table, 'parent_id', $id);
                         }
+                        if ($table === 'product_categories') {
+                            $db->execute('UPDATE products SET category_id = NULL WHERE category_id = :id', ['id' => $id]);
+                        }
+                        $db->delete($table, 'id = :id', ['id' => $id]);
+                    } catch (\Throwable $e) {
+                        $deleted = false;
+                        Session::error('Could not delete this ' . strtolower($singular) . ': ' . friendlyDbError($e));
                     }
-                    $db->delete($table, 'id = :id', ['id' => $id]);
-                    Audit::log('delete', $module, 'Deleted ' . $singular . ' #' . $id, $table, $id);
-                    Session::success($singular . ' deleted.');
+                    if ($deleted) {
+                        foreach ($fields as $name => $field) {
+                            if (in_array($field['type'] ?? 'text', ['image', 'file'], true) && !empty($row[$name])) {
+                                Uploader::delete((string) $row[$name], !str_starts_with((string) $row[$name], 'private:'));
+                            }
+                        }
+                        Audit::log('delete', $module, 'Deleted ' . $singular . ' #' . $id, $table, $id);
+                        Session::success($singular . ' deleted.');
+                    }
                 }
                 Request::redirect($listRoute);
             }
@@ -167,7 +247,7 @@ if (!function_exists('crud_page')) {
                     }
                     Request::redirect($listRoute . '?id=' . $newId . '&saved=1');
                 } catch (\Throwable $e) {
-                    $errors['_general'] = ['Could not save: ' . $e->getMessage()];
+                    $errors['_general'] = ['Could not save: ' . friendlyDbError($e)];
                 }
             } else {
                 Session::set('_old_input', array_map(static fn ($v) => is_array($v) ? '' : (string) $v, $_POST));
@@ -226,9 +306,17 @@ if (!function_exists('crud_page')) {
                       <textarea id="f_<?= e($name) ?>" name="<?= e($name) ?>" rows="<?= (int) ($field['rows'] ?? 3) ?>" class="form-control<?= invalid_class($errors, $name) ?>" maxlength="<?= (int) ($field['max'] ?? 5000) ?>"><?= e((string) $value) ?></textarea>
                     <?php elseif ($type === 'richtext'): ?>
                       <textarea id="f_<?= e($name) ?>" name="<?= e($name) ?>" rows="10" class="form-control richtext<?= invalid_class($errors, $name) ?>"><?= e((string) $value) ?></textarea>
-                    <?php elseif ($type === 'select'): ?>
+                    <?php elseif ($type === 'select' || $type === 'select_from'): ?>
+                      <?php
+                        $options = $field['options'] ?? [];
+                        if ($type === 'select_from' && isset($config[$field['source'] ?? ''])) {
+                            $options = $config[$field['source']];
+                        } elseif ($type === 'select_from' && isset($optionsSource[$field['source'] ?? ''])) {
+                            $options = $optionsSource[$field['source']];
+                        }
+                      ?>
                       <select id="f_<?= e($name) ?>" name="<?= e($name) ?>" class="form-select<?= invalid_class($errors, $name) ?>">
-                        <?php foreach (($field['options'] ?? []) as $optValue => $optLabel): ?>
+                        <?php foreach ($options as $optValue => $optLabel): ?>
                           <option value="<?= e((string) $optValue) ?>" <?= (string) $value === (string) $optValue ? 'selected' : '' ?>><?= e((string) $optLabel) ?></option>
                         <?php endforeach; ?>
                       </select>
@@ -323,7 +411,7 @@ if (!function_exists('crud_page')) {
                             <?= csrf_field() ?>
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
-                            <button class="btn btn-sm btn-outline-danger"><i class="fa-regular fa-trash-can"></i></button>
+                            <button class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash-can"></i></button>
                           </form>
                         </td>
                       </tr>
@@ -341,16 +429,7 @@ if (!function_exists('crud_page')) {
         </div>
         <?php
         $needsEditor = (bool) array_filter($fields, static fn ($f) => ($f['type'] ?? '') === 'richtext');
-        $extraScripts = $needsEditor ? '<script src="' . e(Url::asset('vendor/tinymce/tinymce/tinymce.min.js')) . '"></script><script>
-        if (window.tinymce) {
-          tinymce.init({
-            selector: "textarea.richtext", height: 380, menubar: false, promotion: false,
-            plugins: "lists link table code image autoresize", toolbar: "undo redo | bold italic | bullist numlist | link image table | code",
-            skin_url: "' . e(Url::asset('vendor/tinymce/tinymce/skins/ui/oxide')) . '",
-            content_css: "' . e(Url::asset('vendor/tinymce/tinymce/skins/content/default/content.min.css')) . '"
-          });
-        }
-        </script>' : '';
+        $extraScripts = $needsEditor ? richtext_scripts('textarea.richtext', 420) : '';
         require dirname(__DIR__) . '/includes/layout-end.php';
     }
 }

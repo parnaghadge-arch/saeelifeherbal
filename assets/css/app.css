@@ -782,12 +782,18 @@ a:hover { color: var(--saee-dark); }
   /* leave room for the tab bar so the footer/last content is never covered */
   body.site-public { padding-bottom: calc(var(--saee-tabbar-height) + var(--saee-safe-bottom)); }
 
-  .site-header { position: sticky; top: 0; padding-top: var(--saee-safe-top); background: rgba(255, 255, 255, .96); backdrop-filter: saturate(180%) blur(12px); }
+  .site-header { position: sticky; top: 0; padding-top: var(--saee-safe-top); background: rgba(255, 255, 255, .96); backdrop-filter: saturate(180%) blur(12px); z-index: 1040; }
   .site-header.sticky-active { position: sticky; animation: none; }
+  /* condensed state on scroll — a hairline plus a soft shadow separates the bar from content */
+  .site-header.is-condensed { box-shadow: 0 6px 20px rgba(20, 83, 45, .10); border-bottom: 1px solid var(--saee-border); }
+  .site-header.is-condensed .brand-logo { max-height: 42px; }
 
   /* floating action buttons sit above the tab bar */
   .float-wa { bottom: calc(var(--saee-tabbar-height) + var(--saee-safe-bottom) + 16px); right: 14px; width: 48px; height: 48px; }
-  .back-to-top { bottom: calc(var(--saee-tabbar-height) + var(--saee-safe-bottom) + 12px); right: 12px; }
+  /* One floating control only: the sticky header plus the Home tab already offer
+     "back to top", so on phones we drop that button instead of stacking two bubbles
+     on top of each other and over the content. */
+  .back-to-top { display: none !important; }
 }
 
 /* the public tab bar (footer include) */
@@ -830,6 +836,9 @@ a:hover { color: var(--saee-dark); }
 .offcanvas-mobile .offcanvas-body { padding-bottom: calc(1.25rem + var(--saee-safe-bottom)) !important; }
 .offcanvas-mobile .offcanvas-body > ul.list-unstyled > li > a { font-size: .95rem; }
 .offcanvas-mobile .btn { padding: .7rem 1rem; }
+/* the chevron tells the drawer item is expandable and rotates while open */
+.offcanvas-mobile [data-bs-toggle="collapse"][aria-expanded="true"] .fa-chevron-down { transform: rotate(180deg); }
+.offcanvas-mobile .fa-chevron-down { transition: transform .25s ease; }
 
 @media (max-width: 767.98px) {
   /* app-like typography and rhythm */
@@ -837,10 +846,14 @@ a:hover { color: var(--saee-dark); }
   h1, .h1 { font-size: clamp(1.55rem, 7vw, 2rem); }
   h2, .h2 { font-size: clamp(1.3rem, 5.6vw, 1.7rem); }
   h3, .h3 { font-size: clamp(1.12rem, 4.6vw, 1.35rem); }
-  .container, .container-fluid { padding-left: .9rem; padding-right: .9rem; }
+  /* padding must never be smaller than half the row gutter, or rows with
+     negative margins (g-4/g-5) push content past the viewport edge */
+  .container, .container-fluid { padding-left: 1rem; padding-right: 1rem; }
+  .row.g-5, .row.gx-5 { --bs-gutter-x: 1.5rem; --bs-gutter-y: 1.5rem; }
 
-  /* sections breathe like app cards rather than wide web pages */
+  /* sections breathe like app cards rather than wide web pages (the hero manages its own space) */
   section { padding-top: 2.2rem !important; padding-bottom: 2.2rem !important; }
+  section.hero-slider, section.hero-slider.hero-full { padding-top: 0 !important; padding-bottom: 0 !important; }
   .card-saee .card-body, .feature-card { padding: 1.1rem; }
 
   /* full-width, thumb-friendly buttons in forms and CTAs */
@@ -853,6 +866,14 @@ a:hover { color: var(--saee-dark); }
 
   /* product grid: two comfortable columns */
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+  .product-body { padding: .8rem .85rem 1rem; }
+  .product-actions { flex-wrap: wrap; }
+  .product-actions .btn { min-width: 0; padding-left: .6rem; padding-right: .6rem; }
+}
+
+@media (max-width: 359.98px) {
+  .product-actions { flex-direction: column; }
+  .product-actions .btn { width: 100%; }
 }
 
 /* Installable-app niceties */
@@ -862,4 +883,57 @@ a:hover { color: var(--saee-dark); }
 @media (display-mode: standalone) {
   .site-footer { padding-bottom: 1rem; }
   .float-wa { display: none; }
+}
+
+/* ---------------------------------------------------------- founder & team */
+.team-section { position: relative; }
+.team-founder { background: var(--saee-light); border-radius: var(--saee-radius); padding: 1.5rem; }
+.team-photo-wrap { position: relative; }
+.team-photo,
+.team-card-img {
+  width: 100%; object-fit: cover; display: block;
+  border-radius: var(--saee-radius); aspect-ratio: 4 / 5;
+  background: #fff;
+}
+.team-initials {
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--saee-font-heading); font-weight: 700; letter-spacing: .04em;
+  font-size: clamp(1.5rem, 5.5vw, 2.4rem); color: var(--saee-primary);
+  background: radial-gradient(circle at 30% 20%, #ffffff 0%, #eef8ee 55%, #dcefdd 100%);
+  box-shadow: inset 0 0 0 1px rgba(36, 122, 60, .12);
+}
+.team-quote {
+  font-family: var(--saee-font-heading); font-style: italic; font-size: 1.02rem;
+  color: var(--saee-dark); border-left: 3px solid var(--saee-accent);
+  padding: .2rem 0 .2rem .9rem; margin: 0 0 1rem;
+}
+.team-card {
+  background: #fff; border: 1px solid var(--saee-border); border-radius: var(--saee-radius);
+  overflow: hidden; box-shadow: var(--saee-shadow-sm); height: 100%;
+  transition: transform var(--saee-transition), box-shadow var(--saee-transition);
+}
+.team-card:hover { transform: translateY(-4px); box-shadow: var(--saee-shadow); }
+.team-card-photo { background: var(--saee-light); }
+.team-card-img { aspect-ratio: 1 / 1; border-radius: 0; }
+.team-card-body { padding: .9rem 1rem 1rem; }
+.team-role { font-size: .78rem; color: var(--saee-primary); font-weight: 500; }
+.team-bio { font-size: .82rem; color: var(--saee-muted); margin: .4rem 0 0; }
+.team-social { display: flex; gap: .35rem; margin-top: .6rem; flex-wrap: wrap; }
+.team-social a {
+  width: 30px; height: 30px; border-radius: 50%; background: var(--saee-light);
+  color: var(--saee-dark); display: inline-flex; align-items: center; justify-content: center;
+  font-size: .78rem; transition: var(--saee-transition);
+}
+.team-social a:hover { background: var(--saee-primary); color: #fff; }
+@media (max-width: 767.98px) {
+  /* a portrait crop is too tall on a phone — show a square avatar instead */
+  .team-photo { aspect-ratio: 1 / 1; max-width: 220px; margin: 0 auto; border-radius: 50%; }
+  .team-photo.team-initials { border-radius: 50%; }
+  .team-founder .team-quote { text-align: left; }
+}
+@media (max-width: 575.98px) {
+  .team-founder { padding: 1rem; text-align: center; }
+  .team-founder .team-social { justify-content: center; }
+  .team-card-body { padding: .7rem .75rem .85rem; }
+  .team-bio { display: none; }
 }

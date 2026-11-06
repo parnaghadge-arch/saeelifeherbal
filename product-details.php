@@ -133,7 +133,7 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
         <?php endif; ?>
 
         <?php $share = share_links(product_url((string) $product['slug']), $product['name']); ?>
-        <div class="d-flex align-items-center gap-2 small text-muted">
+        <div class="d-flex flex-wrap align-items-center gap-2 small text-muted">
           <span>Share:</span>
           <a class="btn btn-sm btn-light-green" href="<?= e($share['whatsapp']) ?>" target="_blank" rel="noopener" aria-label="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>
           <a class="btn btn-sm btn-light-green" href="<?= e($share['facebook']) ?>" target="_blank" rel="noopener" aria-label="Share on Facebook"><i class="fab fa-facebook-f"></i></a>

@@ -27,6 +27,7 @@ final class DemoSeeder
         $this->seedBlogs($now);
         $this->seedGalleryAndVideos($now);
         $this->seedTestimonials($now);
+        $this->seedFounderTeam($now);
         $this->seedTeam($companyId, $now);
         $this->seedOrders($now);
         $this->seedActivity($now);
@@ -276,6 +277,45 @@ final class DemoSeeder
                 'message' => $msg, 'rating' => $rating, 'sort_order' => $i, 'status' => 1,
                 'created_at' => $now, 'updated_at' => $now,
             ]);
+        }
+    }
+
+    /** Founder and public team profiles (Admin → Founder & Team). */
+    private function seedFounderTeam(string $now): void
+    {
+        if ((int) $this->db->value('SELECT COUNT(*) FROM team_members') > 0) {
+            return;
+        }
+        $rows = [
+            [
+                'name' => 'Dr. Sunil Deshmukh', 'designation' => 'Founder & Managing Director', 'role_type' => 'founder',
+                'bio' => 'An agronomist with two decades of field experience across the Vidarbha cotton and soybean belts, Sunil started Saee Life Herbal to make safe, effective crop care affordable for smallholders.',
+                'quote' => 'We started Saee Life Herbal with one belief: farmers deserve inputs that are safe for their soil and reliable in the field.',
+                'highlight' => '20+ years in agri-inputs', 'show_on_home' => 1, 'sort_order' => 1,
+            ],
+            [
+                'name' => 'Anjali Wankhede', 'designation' => 'Director – Operations', 'role_type' => 'team',
+                'bio' => 'Leads procurement, warehousing and pan-India dispatch so every order reaches the farm gate on time.',
+                'highlight' => 'Pan-India logistics', 'show_on_home' => 1, 'sort_order' => 2,
+            ],
+            [
+                'name' => 'Rahul Kale', 'designation' => 'Head of Agronomy', 'role_type' => 'team',
+                'bio' => 'Runs farmer field demonstrations, soil testing camps and crop advisory across Maharashtra.',
+                'highlight' => '400+ field demos', 'show_on_home' => 1, 'sort_order' => 3,
+            ],
+            [
+                'name' => 'Pooja Bhosale', 'designation' => 'Quality & Compliance', 'role_type' => 'team',
+                'bio' => 'Oversees product registration, batch testing and label compliance for every formulation we sell.',
+                'highlight' => 'ISO-aligned QA', 'show_on_home' => 1, 'sort_order' => 4,
+            ],
+            [
+                'name' => 'Vasantrao Patil', 'designation' => 'Agronomy Advisor', 'role_type' => 'advisor',
+                'bio' => 'Retired agriculture officer advising on soil health and integrated pest management.',
+                'highlight' => '30 years advisory', 'show_on_home' => 0, 'sort_order' => 5,
+            ],
+        ];
+        foreach ($rows as $row) {
+            $this->db->insert('team_members', $row + ['status' => 1, 'created_at' => $now, 'updated_at' => $now]);
         }
     }
 

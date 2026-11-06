@@ -48,7 +48,7 @@ echo page_hero('Shopping Cart', $totals['item_count'] . ' item(s) in your cart',
                     </div>
                     <div class="d-flex align-items-center gap-2 mt-2">
                       <input type="number" class="form-control form-control-sm" style="max-width:90px" min="1" value="<?= (int) $item['quantity'] ?>" data-cart-qty="<?= (int) $item['id'] ?>" aria-label="Quantity">
-                      <button class="btn btn-sm btn-outline-secondary" data-cart-remove="<?= (int) $item['id'] ?>"><i class="fa-regular fa-trash-can me-1"></i>Remove</button>
+                      <button class="btn btn-sm btn-outline-secondary" data-cart-remove="<?= (int) $item['id'] ?>"><i class="fa-solid fa-trash-can me-1"></i>Remove</button>
                     </div>
                   </div>
                 </div>

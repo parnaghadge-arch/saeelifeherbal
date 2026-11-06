@@ -100,4 +100,14 @@ echo page_hero('About Saee Life Herbal', 'Farmer first. Herbal always. Building 
     </div>
   </div>
 </section>
+<?php
+// Founder & full team — managed in Admin → Founder & Team.
+$teamRole = null;
+$teamHome = false;
+$teamEyebrow = 'Our people';
+$teamTitle = 'Founder and team';
+$teamLead = 'Field agronomists, formulation chemists and farmer support staff working for Indian farms.';
+require INCLUDES_PATH . '/team-section.php';
+?>
+
 <?php require INCLUDES_PATH . '/footer.php'; ?>

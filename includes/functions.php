@@ -223,6 +223,32 @@ function get_testimonials(int $limit = 6): array
     return db()->select('SELECT * FROM testimonials WHERE status = 1 ORDER BY sort_order, id DESC LIMIT ' . (int) $limit);
 }
 
+/**
+ * Founder / team profiles managed in Admin → Founder & Team.
+ *
+ * @param string|null $role  'founder', 'team', 'advisor' or null for all
+ * @param int|null    $home  1 = only profiles flagged for the home page
+ */
+function get_team_members(?string $role = null, ?int $home = null, int $limit = 24): array
+{
+    $sql = 'SELECT * FROM team_members WHERE status = 1';
+    $params = [];
+    if ($role !== null && $role !== '') {
+        $sql .= ' AND role_type = :r';
+        $params['r'] = $role;
+    }
+    if ($home !== null) {
+        $sql .= ' AND show_on_home = :h';
+        $params['h'] = $home;
+    }
+    $sql .= ' ORDER BY sort_order ASC, id ASC LIMIT ' . (int) $limit;
+    try {
+        return db()->select($sql, $params);
+    } catch (Throwable) {
+        return []; // older installs without the table simply show no section
+    }
+}
+
 function get_faqs(?string $category = null): array
 {
     $sql = 'SELECT * FROM faqs WHERE status = 1';
