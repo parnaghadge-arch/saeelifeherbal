@@ -38,7 +38,7 @@ $pageTitle = $product['meta_title'] ?: $product['name'];
 $pageDescription = $product['meta_description'] ?: truncate_text($product['short_description'] ?: $product['description'], 160);
 $pageImage = $product['featured_image'];
 $extraScripts = (new SeoService(db()))->productSchema($product, ['name' => $product['category_name'] ?? ''])
-    . (new SeoService(db()))->breadcrumbSchema(['Home' => Url::base() . '/', 'Products' => Url::to('our-products'), $product['name'] => Url::to('product-details.php?slug=' . $product['slug'])]);
+    . (new SeoService(db()))->breadcrumbSchema(['Home' => Url::base() . '/', 'Products' => Url::to('our-products'), $product['name'] => product_url((string) $product['slug'])]);
 
 require INCLUDES_PATH . '/header.php';
 echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' => 'our-products', ($product['category_name'] ?? 'Category') => 'products.php?category=' . urlencode((string) ($product['category_slug'] ?? '')), $product['name'] => '']);
@@ -132,13 +132,13 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
           </div>
         <?php endif; ?>
 
-        <?php $share = share_links(Url::to('product-details.php?slug=' . $product['slug']), $product['name']); ?>
+        <?php $share = share_links(product_url((string) $product['slug']), $product['name']); ?>
         <div class="d-flex align-items-center gap-2 small text-muted">
           <span>Share:</span>
           <a class="btn btn-sm btn-light-green" href="<?= e($share['whatsapp']) ?>" target="_blank" rel="noopener" aria-label="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>
           <a class="btn btn-sm btn-light-green" href="<?= e($share['facebook']) ?>" target="_blank" rel="noopener" aria-label="Share on Facebook"><i class="fab fa-facebook-f"></i></a>
           <a class="btn btn-sm btn-light-green" href="<?= e($share['x']) ?>" target="_blank" rel="noopener" aria-label="Share on X"><i class="fab fa-x-twitter"></i></a>
-          <button class="btn btn-sm btn-light-green" data-copy="<?= e(Url::to('product-details.php?slug=' . $product['slug'])) ?>"><i class="fa-regular fa-copy"></i> Copy link</button>
+          <button class="btn btn-sm btn-light-green" data-copy="<?= e(product_url((string) $product['slug'])) ?>"><i class="fa-regular fa-copy"></i> Copy link</button>
         </div>
       </div>
     </div>

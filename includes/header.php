@@ -12,6 +12,8 @@ use Saee\Lib\Url;
 
 $siteName = (string) Settings::get('site_name', APP_NAME);
 $logo = (string) Settings::get('logo_header', 'assets/images/logo.png');
+$logoText = trim((string) Settings::get('logo_text', $siteName));
+$logoSub = trim((string) Settings::get('logo_subtitle', ''));
 $menu = get_menu('header');
 $socials = get_social_links();
 $cartCount = cart_count();
@@ -46,7 +48,7 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
 <style>:root{--saee-primary:<?= e($primary) ?>;--saee-primary-rgb:<?= implode(',', array_map('intval', sscanf($primary, '#%02x%02x%02x') ?: [36,122,60])) ?>;--saee-dark:<?= e($dark) ?>;--saee-accent:<?= e($accent) ?>;}</style>
 <?= (new \Saee\Lib\SeoService(db()))->organizationSchema() ?>
 </head>
-<body class="<?= e($bodyClass ?? '') ?>">
+<body class="site-public <?= e($bodyClass ?? '') ?>">
 <a href="#mainContent" class="visually-hidden-focusable position-absolute top-0 start-0 p-2 bg-white">Skip to content</a>
 <header class="site-header" data-sticky="<?= (int) Settings::get('header_sticky', 1) ?>">
   <?php if ((int) Settings::get('header_show_topbar', 1) === 1): ?>
@@ -70,27 +72,32 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
     </div>
   </div>
   <?php endif; ?>
-  <nav class="navbar navbar-expand-lg py-1">
-    <div class="container">
-      <a class="navbar-brand" href="<?= e(Url::base()) ?>">
-        <img src="<?= e(Url::media($logo)) ?>" alt="<?= e($siteName) ?> logo" width="160" height="52">
-        <span class="brand-text d-none d-sm-block">
-          <span class="brand-name"><?= e(Settings::get('logo_text', $siteName)) ?></span>
-          <span class="brand-sub"><?= e(Settings::get('logo_subtitle', 'Herbal Agri Solutions')) ?></span>
-        </span>
+  <nav class="navbar navbar-expand-xl py-1" aria-label="Main navigation">
+    <div class="container header-inner">
+      <a class="navbar-brand" href="<?= e(Url::base()) ?>" aria-label="<?= e($siteName) ?> — home">
+        <?php if ($logo !== ''): ?>
+          <img src="<?= e(Url::media($logo)) ?>" alt="<?= e($siteName) ?> logo" class="brand-logo" width="160" height="52" decoding="async">
+        <?php endif; ?>
+        <?php if ($logoText !== '' || $logoSub !== ''): ?>
+          <span class="brand-text">
+            <?php if ($logoText !== ''): ?><span class="brand-name"><?= e($logoText) ?></span><?php endif; ?>
+            <?php if ($logoSub !== ''): ?><span class="brand-sub"><?= e($logoSub) ?></span><?php endif; ?>
+          </span>
+        <?php endif; ?>
       </a>
-      <div class="d-flex align-items-center gap-2 order-lg-3">
-        <a class="header-icon-btn" href="<?= e(Url::to('wishlist.php')) ?>" aria-label="Wishlist">
-          <i class="fa-regular fa-heart"></i>
+
+      <div class="header-actions order-lg-3">
+        <a class="header-icon-btn d-none d-sm-inline-flex" href="<?= e(Url::to('wishlist.php')) ?>" aria-label="Wishlist">
+          <i class="fa-regular fa-heart" aria-hidden="true"></i>
           <?php if ($wishCount > 0): ?><span class="count-badge"><?= (int) $wishCount ?></span><?php endif; ?>
         </a>
-        <a class="header-icon-btn" href="<?= e(Url::to('cart.php')) ?>" aria-label="Cart">
-          <i class="fa-solid fa-bag-shopping"></i>
+        <a class="header-icon-btn" href="<?= e(Url::to('cart.php')) ?>" aria-label="Shopping cart">
+          <i class="fa-solid fa-bag-shopping" aria-hidden="true"></i>
           <span class="count-badge" data-cart-count><?= (int) $cartCount ?></span>
         </a>
         <?php if ($customer): ?>
-          <div class="dropdown">
-            <button class="header-icon-btn" data-bs-toggle="dropdown" aria-label="My account"><i class="fa-solid fa-user"></i></button>
+          <div class="dropdown d-none d-sm-block">
+            <button class="header-icon-btn" data-bs-toggle="dropdown" aria-label="My account"><i class="fa-solid fa-user" aria-hidden="true"></i></button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
               <li><a class="dropdown-item" href="<?= e(Url::to('my-account.php')) ?>"><i class="fa-solid fa-gauge-high me-2"></i>My Account</a></li>
               <li><a class="dropdown-item" href="<?= e(Url::to('my-orders.php')) ?>"><i class="fa-solid fa-box me-2"></i>My Orders</a></li>
@@ -100,14 +107,15 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
             </ul>
           </div>
         <?php endif; ?>
-        <a class="btn btn-primary btn-sm d-none d-xl-inline-flex ms-1" href="<?= e(menu_url((string) Settings::get('header_cta_url', 'mlm-business-opportunity'))) ?>">
-          <i class="fa-solid fa-seedling me-2"></i><?= e(Settings::get('header_cta_text', 'Become a Distributor')) ?>
+        <a class="btn btn-primary btn-sm header-cta d-none d-xl-inline-flex" href="<?= e(menu_url((string) Settings::get('header_cta_url', 'mlm-business-opportunity'))) ?>">
+          <i class="fa-solid fa-seedling me-2" aria-hidden="true"></i><?= e(Settings::get('header_cta_text', 'Become a Distributor')) ?>
         </a>
-        <button class="navbar-toggler d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-controls="mobileNav" aria-label="Open menu">
-          <i class="fa-solid fa-bars fs-4 text-primary"></i>
+        <button class="navbar-toggler d-xl-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-controls="mobileNav" aria-label="Open menu">
+          <i class="fa-solid fa-bars" aria-hidden="true"></i>
         </button>
       </div>
-      <div class="collapse navbar-collapse order-lg-2 site-nav justify-content-center" id="mainNav">
+
+      <div class="collapse navbar-collapse order-lg-2 site-nav" id="mainNav">
         <ul class="navbar-nav">
           <?php foreach ($menu as $item): ?>
             <?php $hasChildren = !empty($item['children']); ?>
@@ -138,6 +146,14 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
   </div>
   <div class="offcanvas-body p-0">
+    <div class="p-3 pb-2 border-bottom">
+      <form action="<?= e(Url::to('our-products')) ?>" method="get" role="search">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-white border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
+          <input class="form-control border-start-0 ps-0" type="search" name="q" placeholder="Search products" aria-label="Search products">
+        </div>
+      </form>
+    </div>
     <ul class="list-unstyled mb-0">
       <?php foreach ($menu as $item): ?>
         <li class="border-bottom">

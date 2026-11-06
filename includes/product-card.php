@@ -9,7 +9,7 @@ use Saee\Lib\Url;
 $img = $product['featured_image'] ?? '';
 $discount = product_discount($product);
 $inWishlist = in_array((int) $product['id'], (new \Saee\Lib\Cart(db()))->wishlistIds(), true);
-$productUrl = Url::to('product-details.php?slug=' . urlencode((string) $product['slug']));
+$productUrl = product_url((string) $product['slug']);
 ?>
 <div class="product-card">
   <div class="product-thumb">

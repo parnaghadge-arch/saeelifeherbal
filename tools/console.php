@@ -130,6 +130,26 @@ if ($command === 'doctor') {
         $ok = $ok && is_file($path);
     }
 
+    echo PHP_EOL . 'Routing (extension-less URLs, sub-directory installs):' . PHP_EOL;
+    foreach (['config/routes.php' => 'Route map', 'includes/router.php' => 'URL resolver', '.htaccess' => 'Apache rewrite rules'] as $file => $label) {
+        $path = APP_ROOT . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $file);
+        $line(is_file($path), $file, is_file($path) ? $label : 'MISSING — extension-less URLs will 404');
+        $ok = $ok && is_file($path);
+    }
+    $htaccess = @file_get_contents(APP_ROOT . '/.htaccess') ?: '';
+    $line(str_contains($htaccess, 'RewriteRule ^ index.php'), 'Rewrite rule to index.php', 'present in .htaccess');
+    if (!str_contains($htaccess, 'RewriteRule ^ index.php')) {
+        $ok = false;
+    }
+    $_SERVER['DOCUMENT_ROOT'] = $_SERVER['DOCUMENT_ROOT'] ?? APP_ROOT;
+    require_once APP_ROOT . '/includes/router.php';
+    echo '  Base path detected: "' . saee_base_path() . '"' . PHP_EOL;
+    foreach (['product-categories', 'about-us', 'our-products', 'blogs', 'login'] as $slug) {
+        $route = saee_resolve($slug);
+        $line($route !== null && is_file($route['file']), '/' . $slug, $route ? basename($route['file']) : 'no route');
+        $ok = $ok && $route !== null && is_file($route['file']);
+    }
+
     echo PHP_EOL . 'Config: APP_ENV=' . APP_ENV . '  APP_DEBUG=' . (APP_DEBUG ? '1' : '0')
         . '  APP_URL=' . ((string) \Saee\Lib\Config::get('app.url', '') ?: '(auto)') . PHP_EOL;
     echo '.env file: ' . (is_file(APP_ROOT . '/.env') ? 'found' : 'not present (using defaults / real env vars)') . PHP_EOL;

@@ -38,7 +38,7 @@ echo page_hero('Shopping Cart', $totals['item_count'] . ' item(s) in your cart',
                   <div class="flex-grow-1">
                     <div class="d-flex justify-content-between gap-2">
                       <div>
-                        <a class="fw-semibold text-dark-green" href="<?= e(Url::to('product-details.php?slug=' . urlencode((string) $item['slug']))) ?>"><?= e($item['name']) ?></a>
+                        <a class="fw-semibold text-dark-green" href="<?= e(product_url((string) $item['slug'])) ?>"><?= e($item['name']) ?></a>
                         <?php if ($item['variant_name']): ?><div class="small text-muted"><?= e($item['variant_name']) ?></div><?php endif; ?>
                         <div class="small text-muted"><?= money($item['unit_price']) ?> each</div>
                       </div>

@@ -37,7 +37,7 @@ echo page_hero('Agriculture Knowledge Hub', 'Practical guidance for better crop 
             <?php foreach ($blogs as $blog): ?>
               <div class="col-md-6 reveal">
                 <article class="blog-card">
-                  <a href="<?= e(Url::to('blog-details.php?slug=' . urlencode((string) $blog['slug']))) ?>" class="blog-thumb d-block">
+                  <a href="<?= e(blog_url((string) $blog['slug'])) ?>" class="blog-thumb d-block">
                     <img src="<?= e(Url::media($blog['featured_image'])) ?>" alt="<?= e($blog['title']) ?>" loading="lazy">
                   </a>
                   <div class="p-3 d-flex flex-column flex-grow-1">
@@ -45,7 +45,7 @@ echo page_hero('Agriculture Knowledge Hub', 'Practical guidance for better crop 
                       <span><i class="fa-regular fa-calendar me-1"></i><?= format_date($blog['published_at']) ?></span>
                       <?php if ($blog['category_name']): ?><span><i class="fa-solid fa-tag me-1"></i><?= e($blog['category_name']) ?></span><?php endif; ?>
                     </div>
-                    <h2 class="h6"><a class="text-dark-green" href="<?= e(Url::to('blog-details.php?slug=' . urlencode((string) $blog['slug']))) ?>"><?= e($blog['title']) ?></a></h2>
+                    <h2 class="h6"><a class="text-dark-green" href="<?= e(blog_url((string) $blog['slug'])) ?>"><?= e($blog['title']) ?></a></h2>
                     <p class="small text-muted text-truncate-3 mb-0"><?= e(truncate_text($blog['excerpt'], 140)) ?></p>
                   </div>
                 </article>

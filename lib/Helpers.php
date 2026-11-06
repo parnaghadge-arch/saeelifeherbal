@@ -162,11 +162,46 @@ if (!function_exists('status_badge')) {
     }
 }
 
+if (!function_exists('product_url')) {
+    /** Public (extension-less) URL of a product: /product/<slug>. */
+    function product_url(string $slug): string
+    {
+        return \Saee\Lib\Url::to('product/' . rawurlencode($slug));
+    }
+}
+
+if (!function_exists('blog_url')) {
+    /** Public (extension-less) URL of a blog post: /blog/<slug>. */
+    function blog_url(string $slug): string
+    {
+        return \Saee\Lib\Url::to('blog/' . rawurlencode($slug));
+    }
+}
+
 if (!function_exists('active_class')) {
+    /**
+     * Mark a nav link as active. The current route is normalised (sub-directory base removed,
+     * ".php" and trailing slashes dropped) so "/products.php" and "/products" both match
+     * "products", and the home link matches both "/" and "/index.php".
+     */
     function active_class(string $path, string $class = 'active'): string
     {
-        $current = trim(\Saee\Lib\Request::uri(), '/');
+        $current = function_exists('saee_request_path')
+            ? saee_request_path()
+            : trim(\Saee\Lib\Request::uri(), '/');
+        if ($current === 'index.php' || $current === 'index') {
+            $current = '';
+        }
+        if (str_ends_with($current, '.php')) {
+            $current = substr($current, 0, -4);
+        }
         $path = trim($path, '/');
+        if (str_ends_with($path, '.php')) {
+            $path = substr($path, 0, -4);
+        }
+        if ($path === 'home') {
+            $path = '';
+        }
         if ($path === '') {
             return $current === '' ? $class : '';
         }

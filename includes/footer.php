@@ -87,6 +87,26 @@ $whatsapp = preg_replace('/\D/', '', (string) Settings::get('whatsapp_number', '
   </div>
 </footer>
 
+<!-- Mobile app-style bottom tab bar (phones / small tablets only) -->
+<nav class="mobile-bottom-nav app-tabbar" aria-label="Quick navigation">
+  <a href="<?= e(Url::base()) ?>" class="<?= active_class('home', 'active') ?>">
+    <i class="fa-solid fa-house" aria-hidden="true"></i><span>Home</span>
+  </a>
+  <a href="<?= e(Url::to('products.php')) ?>" class="<?= active_class('products', 'active') ?>">
+    <i class="fa-solid fa-seedling" aria-hidden="true"></i><span>Shop</span>
+  </a>
+  <a href="<?= e(Url::to('product-categories')) ?>" class="<?= active_class('product-categories', 'active') ?>">
+    <i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>Explore</span>
+  </a>
+  <a href="<?= e(Url::to('cart.php')) ?>" class="<?= active_class('cart', 'active') ?>">
+    <i class="fa-solid fa-bag-shopping" aria-hidden="true"></i><span>Cart</span>
+    <span class="tab-badge" data-cart-count><?= (int) cart_count() ?></span>
+  </a>
+  <a href="<?= e(Url::to('my-account.php')) ?>" class="<?= active_class('my-account', 'active') ?>">
+    <i class="fa-solid fa-user" aria-hidden="true"></i><span>Account</span>
+  </a>
+</nav>
+
 <?php if ($whatsapp !== ''): ?>
 <a class="float-wa" href="https://wa.me/<?= e($whatsapp) ?>" target="_blank" rel="noopener" aria-label="Chat on WhatsApp"><i class="fab fa-whatsapp"></i></a>
 <?php endif; ?>

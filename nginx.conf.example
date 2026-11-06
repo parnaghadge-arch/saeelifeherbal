@@ -20,11 +20,14 @@ server {
         try_files $uri =404;
     }
 
-    # Member portal pretty URLs: /member/login -> /member/login.php
-    location ~ ^/member/([a-z0-9-]+)/?$ {
-        try_files /member/$1.php /member/$1/index.php /index.php?$query_string;
+    # Inner applications keep their own entry points. $uri.php covers /member/wallet ->
+    # member/wallet.php; the trailing /$1/index.php keeps /member and /admin working.
+    location ~ ^/(admin|member|api|pwa)/ {
+        try_files $uri $uri/ $uri.php /$1/index.php?$query_string;
     }
 
+    # Everything else goes through the public front controller (SEO slugs, /about-us,
+    # /about.php, CMS pages). Real files and directories are still served first.
     location / {
         try_files $uri $uri/ /index.php?$query_string;
     }

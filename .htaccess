@@ -6,23 +6,31 @@ DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+    # If the app lives in a sub-directory (http://localhost/LIVEpro/SaeeLifeHerbal-1/),
+    # uncomment and set it, e.g. RewriteBase /LIVEpro/SaeeLifeHerbal-1/
     # RewriteBase /
 
     # Block direct access to application internals
     RewriteRule ^(storage|vendor-src|database|tools|tests|docs)/ - [F,L]
     RewriteRule ^(config|lib|includes)/ - [F,L]
 
-    # Real files and directories are served as-is
-    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    # Real files (css, js, images, fonts, manifest.json …) are served as-is
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Directories with their own entry point keep working (/admin/, /member/, /api/, /pwa/).
+    # A directory *without* an index is not a route (empty placeholder folders such as
+    # member/wallet/), so it falls through to the front controller and member/wallet.php wins.
     RewriteCond %{REQUEST_FILENAME} -d
+    RewriteCond %{REQUEST_FILENAME}/index.php -f [OR]
+    RewriteCond %{REQUEST_FILENAME}/index.html -f
     RewriteRule ^ - [L]
 
     # Member portal pretty URLs: /member/login -> /member/login.php
-    RewriteRule ^member/wallets/?$ member/wallet.php [L,QSA]
-    RewriteCond %{DOCUMENT_ROOT}/member/$1.php -f
-    RewriteRule ^member/([a-z0-9-]+)/?$ member/$1.php [L,QSA]
+    RewriteCond %{REQUEST_FILENAME}.php -f
+    RewriteRule ^(member|admin)/([a-z0-9-]+)/?$ $1/$2.php [L,QSA]
 
-    # SEO URLs -> router
+    # Everything else (SEO slugs, .php pages, CMS pages) -> front controller
     RewriteRule ^ index.php [L]
 </IfModule>
 

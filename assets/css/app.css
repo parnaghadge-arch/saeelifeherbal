@@ -121,11 +121,36 @@ a:hover { color: var(--saee-dark); }
 .topbar-social a { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 50%; background: rgba(255, 255, 255, .12); margin-left: .3rem; font-size: .72rem; transition: var(--saee-transition); }
 .topbar-social a:hover { background: var(--saee-accent); color: #12260d; }
 
-.navbar-brand { display: flex; align-items: center; gap: .7rem; padding: .5rem 0; }
-.navbar-brand img { height: 52px; width: auto; object-fit: contain; }
-.brand-text { line-height: 1.1; }
-.brand-text .brand-name { font-family: var(--saee-font-heading); font-weight: 700; font-size: 1.2rem; color: var(--saee-dark); display: block; }
-.brand-text .brand-sub { font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--saee-primary); font-weight: 500; }
+/* Header layout -------------------------------------------------------------
+   A three-zone flex bar that never overflows: brand (flexible, truncated) on the
+   left, primary nav centred on large screens, actions on the right. Sizes are
+   driven by clamp() so the header is readable from 320px up to ultrawide. */
+.navbar { --saee-nav-gap: .15rem; padding-top: .35rem; padding-bottom: .35rem; min-height: 64px; }
+.navbar > .container,
+.navbar .header-inner { display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap; min-width: 0; }
+.navbar-brand {
+  display: flex; align-items: center; gap: .55rem; padding: 0;
+  margin-right: auto; min-width: 0; max-width: 62%; flex: 0 1 auto;
+}
+.navbar-brand .brand-logo,
+.navbar-brand img { height: 46px; width: auto; max-width: 100%; object-fit: contain; flex: 0 0 auto; }
+.brand-text { line-height: 1.15; min-width: 0; overflow: hidden; }
+.brand-text .brand-name {
+  font-family: var(--saee-font-heading); font-weight: 700; color: var(--saee-dark); display: block;
+  font-size: clamp(.95rem, 2.6vw, 1.2rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.brand-text .brand-sub {
+  font-size: clamp(.55rem, 1.7vw, .68rem); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--saee-primary); font-weight: 500; display: block;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.header-actions { display: flex; align-items: center; gap: .4rem; flex: 0 0 auto; margin-left: auto; }
+/* Large screens: brand | centred nav | actions, each zone sized so nothing can collide. */
+@media (min-width: 1200px) {
+  .site-nav { flex: 1 1 auto; min-width: 0; margin-left: .5rem; }
+  .header-actions { margin-left: .5rem; }
+  .navbar-brand { flex: 0 1 auto; max-width: 30%; }
+}
 
 .site-nav .nav-link {
   font-family: var(--saee-font-heading); font-weight: 500; font-size: .94rem;
@@ -143,11 +168,25 @@ a:hover { color: var(--saee-dark); }
 }
 .site-nav .dropdown-item { border-radius: 8px; padding: .55rem .8rem; font-size: .9rem; font-weight: 400; }
 .site-nav .dropdown-item:hover { background: var(--saee-light); color: var(--saee-dark); }
-@media (min-width: 992px) {
+@media (min-width: 1200px) {
   .site-nav .dropdown:hover > .dropdown-menu { display: block; }
   .site-nav .dropdown-menu .dropdown-menu { top: 0; left: 100%; }
 }
 .header-actions { display: flex; align-items: center; gap: .5rem; }
+/* 1200–1399px (common laptops): nav is visible but tight — shrink links, drop the CTA and
+   the secondary wishlist button so brand, all seven links and the actions fit on one row. */
+@media (min-width: 1200px) and (max-width: 1399.98px) {
+  .header-cta { display: none !important; }
+  .header-actions > .header-icon-btn:first-child { display: none !important; }
+  .site-nav .nav-link { font-size: .82rem; padding: .7rem .5rem !important; }
+  .site-nav .nav-link::after { left: .5rem; right: .5rem; }
+  .navbar-brand { max-width: 30%; }
+}
+/* Ultrawide: keep the bar readable instead of stretching. */
+@media (min-width: 1600px) {
+  .site-header .container { max-width: 1440px; }
+}
+
 .header-icon-btn {
   position: relative; display: inline-flex; align-items: center; justify-content: center;
   width: 42px; height: 42px; border-radius: 50%; background: var(--saee-light); color: var(--saee-dark);
@@ -161,10 +200,29 @@ a:hover { color: var(--saee-dark); }
 }
 .navbar-toggler { border: none; padding: .4rem .6rem; }
 .navbar-toggler:focus { box-shadow: none; }
-@media (max-width: 991.98px) {
+@media (max-width: 1199.98px) {
   .site-nav .nav-link { padding: .6rem .25rem !important; }
   .site-nav .nav-link::after { display: none; }
   .offcanvas-mobile { background: #fff; }
+}
+/* Phones: compact header, always-visible brand text, app-style toggler. */
+@media (max-width: 767.98px) {
+  .site-header .navbar { min-height: 58px; padding: .25rem 0; }
+  .navbar > .container,
+  .navbar .header-inner { padding-left: .85rem; padding-right: .85rem; gap: .35rem; }
+  .navbar-brand { max-width: calc(100% - 132px); gap: .45rem; }
+  .navbar-brand .brand-logo,
+  .navbar-brand img { height: 38px; }
+  .brand-text .brand-sub { display: none; }
+  .header-icon-btn { width: 38px; height: 38px; }
+  .navbar-toggler { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; background: var(--saee-light); color: var(--saee-dark); }
+  .navbar-toggler i { font-size: 1.05rem !important; }
+}
+@media (max-width: 359.98px) {
+  .navbar-brand .brand-logo, .navbar-brand img { height: 32px; }
+  .brand-text .brand-name { font-size: .88rem; }
+  .header-actions { gap: .25rem; }
+  .header-icon-btn { width: 34px; height: 34px; }
 }
 
 /* ---------------------------------------------------------- hero slider */
@@ -704,3 +762,104 @@ a:hover { color: var(--saee-dark); }
 .table-tools { display: flex; gap: .3rem; flex-wrap: wrap; }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .7rem; }
 .chip { display: inline-flex; align-items: center; gap: .3rem; background: var(--saee-light); color: var(--saee-dark); border-radius: 999px; padding: .18rem .6rem; font-size: .74rem; font-weight: 600; }
+
+/* ============================================================
+   Mobile app shell
+   On phones the public site behaves like a native app: a sticky
+   translucent header, an installable tab bar pinned to the bottom,
+   safe-area aware spacing and touch-sized controls.
+   ============================================================ */
+:root {
+  --saee-tabbar-height: 62px;
+  --saee-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --saee-safe-top: env(safe-area-inset-top, 0px);
+}
+
+@media (max-width: 991.98px) {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { -webkit-overflow-scrolling: touch; }
+
+  /* leave room for the tab bar so the footer/last content is never covered */
+  body.site-public { padding-bottom: calc(var(--saee-tabbar-height) + var(--saee-safe-bottom)); }
+
+  .site-header { position: sticky; top: 0; padding-top: var(--saee-safe-top); background: rgba(255, 255, 255, .96); backdrop-filter: saturate(180%) blur(12px); }
+  .site-header.sticky-active { position: sticky; animation: none; }
+
+  /* floating action buttons sit above the tab bar */
+  .float-wa { bottom: calc(var(--saee-tabbar-height) + var(--saee-safe-bottom) + 16px); right: 14px; width: 48px; height: 48px; }
+  .back-to-top { bottom: calc(var(--saee-tabbar-height) + var(--saee-safe-bottom) + 12px); right: 12px; }
+}
+
+/* the public tab bar (footer include) */
+.app-tabbar.mobile-bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1045;
+  transition: transform .3s cubic-bezier(.4, 0, .2, 1); will-change: transform;
+  display: none; align-items: stretch; gap: 0;
+  background: rgba(255, 255, 255, .97);
+  border-top: 1px solid var(--saee-border);
+  padding: .3rem .3rem calc(.3rem + var(--saee-safe-bottom));
+  box-shadow: 0 -8px 24px rgba(20, 83, 45, .09);
+  backdrop-filter: saturate(180%) blur(12px);
+}
+@media (max-width: 991.98px) { .app-tabbar.mobile-bottom-nav { display: flex; } }
+.app-tabbar a {
+  position: relative; flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .12rem;
+  padding: .3rem 0 .25rem; border-radius: 12px;
+  font-family: var(--saee-font-heading); font-size: .64rem; font-weight: 500;
+  color: var(--saee-muted); text-decoration: none; line-height: 1.1;
+}
+.app-tabbar a i { font-size: 1.05rem; transition: transform var(--saee-transition); }
+.app-tabbar a:active { background: var(--saee-light); }
+.app-tabbar a.active { color: var(--saee-primary); font-weight: 700; }
+.app-tabbar a.active i { transform: translateY(-2px); }
+.app-tabbar a.active::before {
+  content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 22px; height: 3px; border-radius: 0 0 3px 3px; background: var(--saee-primary);
+}
+.app-tabbar .tab-badge {
+  position: absolute; top: .1rem; right: 50%; margin-right: -22px;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--saee-accent); color: #12260d; font-size: .6rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Offcanvas navigation styled like an app drawer */
+.offcanvas-mobile { border: none; }
+.offcanvas-mobile .offcanvas-header { padding: 1rem 1.1rem calc(1rem + var(--saee-safe-top)); padding-top: calc(1rem + var(--saee-safe-top)); }
+.offcanvas-mobile .offcanvas-body { padding-bottom: calc(1.25rem + var(--saee-safe-bottom)) !important; }
+.offcanvas-mobile .offcanvas-body > ul.list-unstyled > li > a { font-size: .95rem; }
+.offcanvas-mobile .btn { padding: .7rem 1rem; }
+
+@media (max-width: 767.98px) {
+  /* app-like typography and rhythm */
+  body { font-size: .95rem; line-height: 1.65; }
+  h1, .h1 { font-size: clamp(1.55rem, 7vw, 2rem); }
+  h2, .h2 { font-size: clamp(1.3rem, 5.6vw, 1.7rem); }
+  h3, .h3 { font-size: clamp(1.12rem, 4.6vw, 1.35rem); }
+  .container, .container-fluid { padding-left: .9rem; padding-right: .9rem; }
+
+  /* sections breathe like app cards rather than wide web pages */
+  section { padding-top: 2.2rem !important; padding-bottom: 2.2rem !important; }
+  .card-saee .card-body, .feature-card { padding: 1.1rem; }
+
+  /* full-width, thumb-friendly buttons in forms and CTAs */
+  .btn { padding: .6rem 1.15rem; }
+  .hero-slide .btn { width: 100%; margin-bottom: .55rem; }
+  .hero-slide .hero-content .d-flex { flex-direction: column; }
+
+  /* tables/forms never cause horizontal scroll */
+  .table-responsive { -webkit-overflow-scrolling: touch; }
+
+  /* product grid: two comfortable columns */
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+}
+
+/* Installable-app niceties */
+@supports (padding: max(0px)) {
+  .app-tabbar.mobile-bottom-nav { padding-bottom: max(.3rem, var(--saee-safe-bottom)); }
+}
+@media (display-mode: standalone) {
+  .site-footer { padding-bottom: 1rem; }
+  .float-wa { display: none; }
+}

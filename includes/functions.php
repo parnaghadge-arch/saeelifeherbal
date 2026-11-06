@@ -274,7 +274,12 @@ function menu_url(string $url): string
     if (preg_match('#^https?://#i', $url)) {
         return $url;
     }
-    return Url::base() . '/' . ltrim($url, '/');
+    // "home" is the site root; everything else is a clean route (/about-us, /our-products).
+    $url = ltrim($url, '/');
+    if ($url === 'home' || $url === 'index' || $url === 'index.php') {
+        return Url::base() . '/';
+    }
+    return Url::base() . '/' . Url::pretty($url);
 }
 
 function get_page_by_slug(string $slug): ?array

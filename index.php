@@ -1,9 +1,25 @@
 <?php
 /**
- * Home page - dynamic hero carousel, categories, featured products, trust band,
- * how it works, testimonials, knowledge hub and CTA.
+ * Public front controller + home page.
+ *
+ * Apache/nginx rewrite every extension-less URL here, so this file first resolves the
+ * request to the right script (via includes/router.php) and only renders the homepage
+ * when the request really is for "/". That keeps /product-categories,
+ * /product-categories.php and / serving the same page instead of silently falling
+ * through to the CMS page renderer.
  */
 declare(strict_types=1);
+
+require_once __DIR__ . '/includes/router.php';
+// Only act as a front controller on a direct hit (/index.php or "/"). When the router has
+// already resolved this request (SAEE_ROUTED, e.g. /home -> index.php) just render the page.
+if (!defined('SAEE_ROUTED')) {
+    $__slug = saee_request_path();
+    if ($__slug !== '' && !in_array($__slug, ['index', 'index.php'], true)) {
+        saee_dispatch(saee_resolve($__slug), $__slug);
+        exit;
+    }
+}
 
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once INCLUDES_PATH . '/functions.php';
@@ -308,7 +324,7 @@ require INCLUDES_PATH . '/header.php';
       <?php foreach ($blogs as $blog): ?>
         <div class="col-md-4 reveal">
           <article class="blog-card">
-            <a href="<?= e(Url::to('blog-details.php?slug=' . urlencode((string) $blog['slug']))) ?>" class="blog-thumb d-block">
+            <a href="<?= e(blog_url((string) $blog['slug'])) ?>" class="blog-thumb d-block">
               <img src="<?= e(Url::media($blog['featured_image'])) ?>" alt="<?= e($blog['title']) ?>" loading="lazy">
             </a>
             <div class="p-3 d-flex flex-column flex-grow-1">
@@ -316,9 +332,9 @@ require INCLUDES_PATH . '/header.php';
                 <span><i class="fa-regular fa-calendar me-1"></i><?= format_date($blog['published_at']) ?></span>
                 <?php if ($blog['category_name']): ?><span><i class="fa-solid fa-tag me-1"></i><?= e($blog['category_name']) ?></span><?php endif; ?>
               </div>
-              <h3 class="h6"><a class="text-dark-green" href="<?= e(Url::to('blog-details.php?slug=' . urlencode((string) $blog['slug']))) ?>"><?= e($blog['title']) ?></a></h3>
+              <h3 class="h6"><a class="text-dark-green" href="<?= e(blog_url((string) $blog['slug'])) ?>"><?= e($blog['title']) ?></a></h3>
               <p class="small text-muted text-truncate-2 mb-3"><?= e(truncate_text($blog['excerpt'], 110)) ?></p>
-              <a class="small fw-medium mt-auto" href="<?= e(Url::to('blog-details.php?slug=' . urlencode((string) $blog['slug']))) ?>">Read article <i class="fa-solid fa-arrow-right ms-1"></i></a>
+              <a class="small fw-medium mt-auto" href="<?= e(blog_url((string) $blog['slug'])) ?>">Read article <i class="fa-solid fa-arrow-right ms-1"></i></a>
             </div>
           </article>
         </div>

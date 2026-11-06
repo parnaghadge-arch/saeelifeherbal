@@ -270,7 +270,7 @@ require __DIR__ . '/includes/layout.php';
 
       <?php if ($product): ?>
         <div class="d-flex gap-2 mt-2">
-          <a class="btn btn-sm btn-outline-secondary flex-grow-1" target="_blank" rel="noopener" href="<?= e(Url::to('product-details.php?slug=' . $product['slug'])) ?>">View on site</a>
+          <a class="btn btn-sm btn-outline-secondary flex-grow-1" target="_blank" rel="noopener" href="<?= e(product_url((string) $product['slug'])) ?>">View on site</a>
           <form method="post" class="flex-grow-1" data-confirm="Deactivate this product?">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="delete">

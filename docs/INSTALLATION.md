@@ -177,7 +177,52 @@ screen without any gateway account.
 
 ---
 
-## 8. PWA
+## 8. Clean URLs, sub-directory installs and branding
+
+**Every page has a clean URL.** `/product-categories` and `/product-categories.php` serve
+exactly the same page, and every internal link is generated without the `.php` extension. This
+works unchanged whether the site sits at `http://localhost/` or at
+`http://localhost/LIVEpro/SaeeLifeHerbal-1/`.
+
+How it works:
+
+| Piece | Role |
+| --- | --- |
+| `config/routes.php` | The single route table: public slug → script (`'about-us' => '/about.php'`). Pure data, no side effects. |
+| `includes/router.php` | Resolves a request path to a script and dispatches it. Detects the install sub-directory from `DOCUMENT_ROOT`. |
+| `.htaccess` | Apache: real files and app directories are served as-is, everything else goes to `index.php`. |
+| `nginx.conf.example` | nginx equivalent (`try_files $uri $uri/ /index.php?$query_string`). |
+| `router.php` | PHP built-in server (`php -S 0.0.0.0:8000 router.php`) for local development. |
+
+Rules the resolver applies, in order:
+
+1. A real directory with its own `index.php` (`/admin`, `/member`, `/api`, `/pwa`) → that index.
+2. A real `.php` file → that file.
+3. Route table alias → `/about-us` → `about.php`; `/product/<slug>` → product page;
+   `/blog/<slug>` → blog post; `/member/<page>` → `member/<page>.php`.
+4. A script without its extension → `/about` → `about.php`.
+5. Otherwise the CMS page renderer, which shows a branded 404 when the slug is unknown.
+
+**Branding comes from the database.** Admin → **Settings → Logos & Branding** controls
+`logo_header` (image), `logo_text` (main line), `logo_subtitle` (line under it), plus
+`logo_footer`, `logo_admin`, `logo_pwa`, `favicon` and the theme colours. Nothing in the header
+is hardcoded: the logo image and both text lines are rendered from those settings and shown at
+every width (the subtitle is hidden only below 768 px, where space is tight).
+
+Diagnostics: `php tools/console.php doctor` prints the detected base path and checks that the
+main slugs resolve to real scripts.
+
+Sub-directory troubleshooting:
+
+| Symptom | Fix |
+| --- | --- |
+| `/LIVEpro/SaeeLifeHerbal-1/about-us` shows the home page | The rewrite is not reaching `index.php`. Confirm `mod_rewrite` is enabled and `AllowOverride All` is set for `htdocs`, or set `RewriteBase /LIVEpro/SaeeLifeHerbal-1/` in `.htaccess`. |
+| Every page is styled but links point at the domain root | Copy your real domain (with `/LIVEpro/SaeeLifeHerbal-1`) into `APP_URL` in `.env`; otherwise the base path is auto-detected from the request. |
+| Admin links jump to the public site | You are on an old copy — the router now derives the base from `DOCUMENT_ROOT`, which is identical for the front controller and the admin/member apps. |
+
+---
+
+## 9. PWA
 
 * Manifest: `/manifest.json` (admin-editable app name, colours, icons in **Settings → PWA**).
 * Service worker: `/service-worker.js` — caches only the public app shell and static
@@ -186,7 +231,7 @@ screen without any gateway account.
 
 ---
 
-## 9. MLM activation checklist
+## 10. MLM activation checklist
 
 The compensation plan ships **disabled for public display** (`mlm_plan_public = 0`) on
 purpose. Before activating:
@@ -208,7 +253,7 @@ unilevel with unlimited direct referrals (binary is not supported); commissions 
 
 ---
 
-## 10. Backups & disaster recovery
+## 11. Backups & disaster recovery
 
 * Automated SQL dumps land in `storage/backups/` (excluded from the web root).
 * Copy `storage/backups/`, `storage/uploads/`, `storage/private/`, `.env` and `APP_KEY`
@@ -218,7 +263,7 @@ unilevel with unlimited direct referrals (binary is not supported); commissions 
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |

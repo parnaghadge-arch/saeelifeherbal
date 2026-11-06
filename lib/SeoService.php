@@ -90,7 +90,7 @@ final class SeoService
                 'priceCurrency' => 'INR',
                 'price' => number_format((float) $product['price'], 2, '.', ''),
                 'availability' => (int) $product['stock_quantity'] > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-                'url' => Url::to('product-details.php?slug=' . $product['slug']),
+                'url' => product_url((string) $product['slug']),
             ],
         ];
         if ($category) {
@@ -132,10 +132,10 @@ final class SeoService
             $urls[] = ['loc' => $base . '/products.php?category=' . $cat['slug'], 'priority' => '0.8', 'changefreq' => 'weekly', 'lastmod' => $cat['updated_at']];
         }
         foreach ($this->db->select("SELECT slug, updated_at FROM products WHERE status = 'active'") as $product) {
-            $urls[] = ['loc' => $base . '/product-details.php?slug=' . $product['slug'], 'priority' => '0.8', 'changefreq' => 'weekly', 'lastmod' => $product['updated_at']];
+            $urls[] = ['loc' => product_url((string) $product['slug']), 'priority' => '0.8', 'changefreq' => 'weekly', 'lastmod' => $product['updated_at']];
         }
         foreach ($this->db->select("SELECT slug, updated_at FROM blogs WHERE status = 'published'") as $blog) {
-            $urls[] = ['loc' => $base . '/blog-details.php?slug=' . $blog['slug'], 'priority' => '0.6', 'changefreq' => 'monthly', 'lastmod' => $blog['updated_at']];
+            $urls[] = ['loc' => blog_url((string) $blog['slug']), 'priority' => '0.6', 'changefreq' => 'monthly', 'lastmod' => $blog['updated_at']];
         }
         $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
         foreach ($urls as $url) {

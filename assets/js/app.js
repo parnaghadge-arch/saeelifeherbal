@@ -48,6 +48,9 @@
   function initStickyHeader() {
     var header = document.querySelector('.site-header');
     if (!header || header.dataset.sticky !== '1') { return; }
+    // Below 992px the header is already sticky through CSS (mobile app shell); adding the
+    // fixed/spacer behaviour there would double the offset and jump the layout.
+    if (window.matchMedia('(max-width: 991.98px)').matches) { return; }
     var spacer = document.createElement('div');
     spacer.style.display = 'none';
     header.parentNode.insertBefore(spacer, header);
@@ -400,6 +403,59 @@
     btn.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
   }
 
+  /* -------------------------------------------------- mobile app shell */
+  function initMobileShell() {
+    var tabbar = document.querySelector('.app-tabbar');
+    if (!tabbar) { return; }
+
+    // Reflect the current URL in the tab bar even when the server-side active class is
+    // not applicable (query strings, pagination, product detail pages).
+    var path = location.pathname.replace(/\/+$/, '');
+    var links = Array.prototype.slice.call(tabbar.querySelectorAll('a'));
+    links.forEach(function (a) {
+      var href = a.getAttribute('href') || '';
+      try {
+        var target = new URL(href, location.href).pathname.replace(/\/+$/, '');
+        var isHome = target === '' || target === new URL(SAEE.base + '/').pathname.replace(/\/+$/, '');
+        if (isHome ? (path === '' || path === new URL(SAEE.base + '/').pathname.replace(/\/+$/, '')) : (path === target || path.indexOf(target + '/') === 0)) {
+          links.forEach(function (other) { other.classList.remove('active'); });
+          a.classList.add('active');
+        }
+      } catch (e) { /* ignore malformed hrefs */ }
+    });
+
+    // App-like behaviour: hide the tab bar while scrolling down, reveal on scroll up.
+    var lastY = window.scrollY;
+    var hidden = false;
+    window.addEventListener('scroll', function () {
+      var y = window.scrollY;
+      if (y > lastY + 8 && y > 140 && !hidden) {
+        tabbar.style.transform = 'translateY(110%)';
+        hidden = true;
+      } else if ((y < lastY - 8 || y <= 140) && hidden) {
+        tabbar.style.transform = 'translateY(0)';
+        hidden = false;
+      }
+      lastY = y;
+    }, { passive: true });
+
+    // Keep the document class in sync so the safe-area padding is always applied.
+    document.body.classList.add('has-tabbar');
+
+    // Close the offcanvas drawer after a navigation tap (instant app feel).
+    document.querySelectorAll('.offcanvas-mobile a[href]').forEach(function (link) {
+      link.addEventListener('click', function () {
+        var instance = window.bootstrap && bootstrap.Offcanvas.getInstance(document.getElementById('mobileNav'));
+        if (instance) { instance.hide(); }
+      });
+    });
+
+    // Light haptic feedback where supported.
+    tabbar.querySelectorAll('a').forEach(function (a) {
+      a.addEventListener('click', function () { if (navigator.vibrate) { navigator.vibrate(8); } });
+    });
+  }
+
   /* ---------------------------------------------------------------- PWA */
   function initPWA() {
     if (!('serviceWorker' in navigator)) { return; }
@@ -462,6 +518,7 @@
     initQtyInputs();
     initCopy();
     initBackToTop();
+    initMobileShell();
     initPWA();
     initInstallPrompt();
 

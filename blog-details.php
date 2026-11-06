@@ -47,7 +47,7 @@ echo page_hero($blog['title'], '', ['Knowledge Hub' => 'blogs', $blog['category_
         </div>
         <div class="prose"><?= Security::cleanHtml($blog['content']) ?></div>
 
-        <?php $share = share_links(Url::to('blog-details.php?slug=' . $blog['slug']), $blog['title']); ?>
+        <?php $share = share_links(blog_url((string) $blog['slug']), $blog['title']); ?>
         <div class="d-flex align-items-center gap-2 mt-4 pt-3 border-top">
           <span class="small text-muted">Share this article:</span>
           <a class="btn btn-sm btn-light-green" href="<?= e($share['whatsapp']) ?>" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i></a>
@@ -64,7 +64,7 @@ echo page_hero($blog['title'], '', ['Knowledge Hub' => 'blogs', $blog['category_
               <div class="d-flex gap-2 py-2 border-bottom">
                 <img src="<?= e(Url::media($item['featured_image'])) ?>" alt="" width="64" height="48" style="object-fit:cover;border-radius:8px" loading="lazy">
                 <div>
-                  <a class="small fw-medium d-block text-dark-green" href="<?= e(Url::to('blog-details.php?slug=' . urlencode((string) $item['slug']))) ?>"><?= e(truncate_text($item['title'], 62)) ?></a>
+                  <a class="small fw-medium d-block text-dark-green" href="<?= e(blog_url((string) $item['slug'])) ?>"><?= e(truncate_text($item['title'], 62)) ?></a>
                   <span class="text-muted" style="font-size:.72rem"><?= format_date($item['published_at']) ?></span>
                 </div>
               </div>

@@ -21,14 +21,19 @@ final class Url
             self::$base = rtrim($configured, '/');
             return self::$base;
         }
-        // Auto-detect from script location.
-        $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
-        $dir = rtrim(dirname($script), '/');
-        // Strip known sub-app folders (admin, member, api, ajax) from the base path,
-        // including nested API folders such as /api/orders.
-        $dir = preg_replace('#/(admin|member|api|ajax|pwa|install)(/.*)?$#', '', $dir) ?? $dir;
-        if ($dir === '.' || $dir === '/') {
-            $dir = '';
+        // Auto-detect from the application root so links stay correct whichever script
+        // (front controller, admin, member) handled the request.
+        if (function_exists('saee_base_path')) {
+            $dir = saee_base_path();
+        } else {
+            $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
+            $dir = rtrim(dirname($script), '/');
+            // Strip known sub-app folders (admin, member, api, ajax) from the base path,
+            // including nested API folders such as /api/orders.
+            $dir = preg_replace('#/(admin|member|api|ajax|pwa|install)(/.*)?$#', '', $dir) ?? $dir;
+            if ($dir === '.' || $dir === '/') {
+                $dir = '';
+            }
         }
         self::$base = Request::scheme() . '://' . Request::host() . $dir;
         return self::$base;
@@ -72,9 +77,76 @@ final class Url
         return self::upload($path);
     }
 
+    /**
+     * Public URL for a path. Known routes are emitted without the ".php" extension so the
+     * site always links to clean URLs (/about-us, /our-products) even when a template still
+     * passes an internal script name.
+     */
     public static function to(string $path = ''): string
     {
-        return self::base() . '/' . ltrim($path, '/');
+        $path = ltrim($path, '/');
+        return self::base() . '/' . self::pretty($path);
+    }
+
+    /** Map an internal script name to its public slug when one exists. */
+    public static function pretty(string $path): string
+    {
+        if ($path === '' || $path === 'index.php' || $path === 'index') {
+            return '';
+        }
+        $map = self::routeMap();
+        if (isset($map[$path])) {
+            return $map[$path];
+        }
+        // "products.php?category=fertilizers" -> "fertilizers"
+        if (str_contains($path, '?')) {
+            [$file, $qs] = explode('?', $path, 2);
+            parse_str($qs, $params);
+            ksort($params);
+            $key = $file . '?' . http_build_query($params);
+            if (isset($map[$key])) {
+                return $map[$key];
+            }
+        }
+        return $path;
+    }
+
+    /**
+     * Reverse of config/routes.php: internal target ("about.php", "products.php?category=x")
+     * => public slug. Built once per request.
+     *
+     * @return array<string,string>
+     */
+    private static function routeMap(): array
+    {
+        static $map = null;
+        if ($map !== null) {
+            return $map;
+        }
+        $map = [];
+        $file = dirname(__DIR__) . '/config/routes.php';
+        if (is_file($file)) {
+            /** @var array<string,string> $routes */
+            $routes = require $file;
+            foreach ($routes as $slug => $target) {
+                $target = ltrim($target, '/');
+                if ($slug === 'home') {
+                    continue;
+                }
+                if (str_contains($target, '?')) {
+                    [$tFile, $qs] = explode('?', $target, 2);
+                    parse_str($qs, $params);
+                    ksort($params);
+                    $target = $tFile . '?' . http_build_query($params);
+                }
+                if (!isset($map[$target])) {
+                    $map[$target] = $slug;
+                }
+            }
+            $map['index.php'] = '';
+            $map['index'] = '';
+        }
+        return $map;
     }
 
     public static function admin(string $path = ''): string
