@@ -175,6 +175,12 @@ final class OrderService
         }
         Notification::sendToAdmins('New order received', $orderNumber . ' - ' . money($totals['grand_total']) . ' via ' . strtoupper($paymentMethod), ['template' => 'order_placed', 'link' => 'orders']);
 
+        // Remember the orders this session placed so a guest can reopen the confirmation
+        // page and invoice without a token in the URL.
+        $placed = (array) Session::get('placed_orders', []);
+        $placed[] = (int) $orderId;
+        Session::set('placed_orders', array_slice(array_values(array_unique($placed)), -10));
+
         return ['ok' => true, 'order_id' => $orderId, 'order_number' => $orderNumber, 'payment_method' => $paymentMethod, 'grand_total' => $totals['grand_total']];
     }
 

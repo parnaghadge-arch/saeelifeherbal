@@ -327,6 +327,47 @@ function page_meta(array $meta = []): string
 }
 
 /** Render flash messages once. */
+/**
+ * Access token for a guest order. Order ids are sequential, so nothing that exposes a
+ * customer name, phone, address or invoice may be reachable by id alone.
+ */
+function order_access_token(array $order): string
+{
+    return substr(hash_hmac('sha256', (string) $order['order_number'] . '|' . (string) $order['id'], (string) \Saee\Lib\Config::get('security.encryption_key', 'saee-order-token')), 0, 20);
+}
+
+/**
+ * Can the current visitor (or session) open this order?
+ * Customers may open their own orders, admins may open any, and a guest may open an
+ * order only when the confirmation link carried the matching token or the order was
+ * just placed in this session.
+ */
+function can_view_order(array $order): bool
+{
+    if (\Saee\Lib\AdminAuth::check()) {
+        return true;
+    }
+    $customerId = \Saee\Lib\CustomerAuth::id();
+    if ($customerId !== null && (int) $order['customer_id'] === $customerId) {
+        return true;
+    }
+    $memberId = \Saee\Lib\MemberAuth::id();
+    if ($memberId !== null && (int) $order['member_id'] === $memberId) {
+        return true;
+    }
+    $placed = (array) \Saee\Lib\Session::get('placed_orders', []);
+    if (in_array((int) $order['id'], array_map('intval', $placed), true)) {
+        return true;
+    }
+    $token = (string) \Saee\Lib\Request::query('token', '');
+    return $token !== '' && hash_equals(order_access_token($order), $token);
+}
+
+function order_url(array $order): string
+{
+    return Url::to('order-confirmation.php?order=' . (int) $order['id'] . '&token=' . order_access_token($order));
+}
+
 function render_flash(): string
 {
     $out = '';

@@ -13,8 +13,7 @@ use Saee\Lib\Url;
 
 $orderId = Request::int('order');
 $order = db()->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
-$isOwner = $order && (CustomerAuth::id() === (int) $order['customer_id'] || (\Saee\Lib\MemberAuth::id() === (int) $order['member_id']));
-if (!$order || (!AdminAuth::check() && !$isOwner)) {
+if (!$order || !can_view_order($order)) {
     http_response_code(404);
     exit('Invoice not available.');
 }

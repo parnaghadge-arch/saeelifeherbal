@@ -10,6 +10,11 @@ use Saee\Lib\Url;
 
 $orderId = Request::int('order');
 $order = db()->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
+// Order ids are sequential: only the buyer, the referring member, an admin, or a
+// guest holding the tokenized link may see the confirmation details.
+if ($order && !can_view_order($order)) {
+    $order = null;
+}
 if (!$order) {
     http_response_code(404);
     $pageTitle = 'Order not found';
@@ -35,7 +40,7 @@ require INCLUDES_PATH . '/header.php';
         Status: <?= status_badge($order['status']) ?>
       </p>
       <div class="d-flex gap-2 justify-content-center flex-wrap">
-        <a href="<?= e(Url::to('invoice.php?order=' . $orderId)) ?>" class="btn btn-outline-primary btn-sm" target="_blank"><i class="fa-solid fa-file-invoice me-1"></i>Invoice</a>
+        <a href="<?= e(Url::to('invoice.php?order=' . $orderId . '&token=' . order_access_token($order))) ?>" class="btn btn-outline-primary btn-sm" target="_blank"><i class="fa-solid fa-file-invoice me-1"></i>Invoice</a>
         <a href="<?= e(Url::to('my-orders.php')) ?>" class="btn btn-primary btn-sm"><i class="fa-solid fa-box me-1"></i>My orders</a>
       </div>
     </div>
