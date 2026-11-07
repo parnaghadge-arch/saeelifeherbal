@@ -138,7 +138,7 @@ a:hover { color: var(--saee-dark); }
 /* Logo: 80px on desktop and scaled down by clamp() so it always fits the device width. */
 .navbar-brand .brand-logo,
 .navbar-brand img {
-  height: var(--saee-logo-h); width: auto; max-width: 100%; object-fit: contain; flex: 0 0 auto;
+  height: var(--saee-logo-h); width: auto; object-fit: contain; flex: 0 0 auto;
   transition: height var(--saee-transition);
 }
 .brand-text { line-height: 1.15; min-width: 0; overflow: hidden; }
