@@ -172,10 +172,25 @@ require INCLUDES_PATH . '/header.php';
       </div>
       <a href="<?= e(Url::to('our-products')) ?>" class="btn btn-outline-primary btn-sm">Browse all products <i class="fa-solid fa-arrow-right ms-1"></i></a>
     </div>
-    <div class="row g-4">
-      <?php foreach ($featured as $product): ?>
-        <div class="col-6 col-lg-3 reveal"><?php include INCLUDES_PATH . '/product-card.php'; ?></div>
-      <?php endforeach; ?>
+    <?php // Carousel: 4 cards on desktop, 3 on small laptops, 2 on tablets, 1 per window on
+          // phones. Swipeable on touch; arrows and dots where there is room for them. ?>
+    <div class="featured-carousel" data-feat-carousel tabindex="0" role="group"
+         aria-roledescription="carousel" aria-label="Featured products">
+      <div class="feat-track" data-feat-track>
+        <?php foreach ($featured as $i => $product): ?>
+          <div class="feat-slide" role="group" aria-roledescription="slide"
+               aria-label="<?= (int) $i + 1 ?> of <?= count($featured) ?>">
+            <?php include INCLUDES_PATH . '/product-card.php'; ?>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <?php if (count($featured) > 1): ?>
+        <div class="feat-controls">
+          <button type="button" class="t-nav feat-prev" data-feat-prev aria-label="Previous products"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+          <div class="t-dots" data-feat-dots role="tablist" aria-label="Choose products"></div>
+          <button type="button" class="t-nav feat-next" data-feat-next aria-label="Next products"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+        </div>
+      <?php endif; ?>
     </div>
   </div>
 </section>

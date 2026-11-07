@@ -82,6 +82,10 @@ $pageHeading = $memberId ? 'Wallet · ' . $member['name'] : 'Wallet Overview';
 $pageSub = $memberId ? e((string) $member['member_code']) : 'Company-wide wallet liability';
 $activeModule = 'wallets';
 $pageActions = $memberId ? '<a class="btn btn-sm btn-outline-secondary" href="wallets.php">All wallets</a>' : '';
+$formOpen = $memberId && AdminAuth::can('wallets.adjust') && (Request::query('new') !== null || !empty($errors));
+if ($formOpen || ($memberId && AdminAuth::can('wallets.adjust'))) {
+    $pageActions = '<a class="btn btn-sm btn-primary" href="wallets.php?member=' . (int) $memberId . '&new=1"><i class="fa-solid fa-plus me-1"></i>Adjustment</a>' . $pageActions;
+}
 require __DIR__ . '/includes/layout.php';
 ?>
 <div class="row g-3 mb-3">
@@ -92,12 +96,42 @@ require __DIR__ . '/includes/layout.php';
 </div>
 
 <?php if ($memberId): ?>
-  <div class="row g-3">
-    <div class="col-lg-8">
+  <div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+    <?php if (AdminAuth::can('wallets.adjust')): ?>
+    <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
       <div class="panel p-3 p-md-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2 class="h6 mb-0">Manual adjustment</h2>
+          <a class="btn btn-sm btn-outline-secondary" href="wallets.php?member=<?= (int) $memberId ?>">Cancel</a>
+        </div>
+        <div class="alert alert-warning small py-2">Every adjustment is written to the immutable ledger and the audit log.</div>
+        <form method="post" data-confirm="Apply this wallet adjustment?">
+          <?= csrf_field() ?>
+          <input type="hidden" name="member_id" value="<?= (int) $memberId ?>">
+          <div class="mb-2"><label class="form-label small">Direction</label>
+            <select class="form-select form-select-sm" name="direction"><option value="credit">Credit</option><option value="debit">Debit</option></select>
+          </div>
+          <div class="mb-2"><label class="form-label small">Wallet</label>
+            <select class="form-select form-select-sm" name="wallet_type">
+              <option value="incentive">Adjustment / incentive</option>
+              <option value="direct">Direct</option>
+              <option value="grand_direct">Grand direct</option>
+              <option value="royalty">Royalty</option>
+            </select>
+          </div>
+          <div class="mb-2"><label class="form-label small">Amount</label><input type="number" step="0.01" min="0.01" name="amount" class="form-control form-control-sm" required></div>
+          <div class="mb-2"><label class="form-label small">Reason (required)</label><textarea name="reason" class="form-control form-control-sm" rows="2" required></textarea></div>
+          <button class="btn btn-sm btn-primary w-100">Post adjustment</button>
+        </form>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <div class="crud-list-col">
+      <div class="panel p-3 p-md-4 mb-3">
         <h2 class="h6 mb-3">Ledger</h2>
         <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
+          <table class="table table-sm align-middle mb-0 data-table">
             <thead><tr><th>Date</th><th>Code</th><th>Type</th><th>Description</th><th class="text-end">Amount</th><th class="text-end">Balance</th></tr></thead>
             <tbody>
             <?php foreach ($ledger as $row): ?>
@@ -114,7 +148,7 @@ require __DIR__ . '/includes/layout.php';
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-between align-items-center mt-3">
+        <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
           <div class="small text-muted"><?= $pager->infoText() ?></div>
           <?= $pager->links(['member' => $memberId]) ?>
         </div>
@@ -132,31 +166,6 @@ require __DIR__ . '/includes/layout.php';
           <div class="d-flex justify-content-between py-1"><span class="text-muted">Incentive</span><strong><?= money((float) $account['incentive_balance']) ?></strong></div>
         </div>
       </div>
-      <?php if (AdminAuth::can('wallets.adjust')): ?>
-        <div class="panel p-3 p-md-4">
-          <h2 class="h6 mb-3">Manual adjustment</h2>
-          <div class="alert alert-warning small py-2">Every adjustment is written to the immutable ledger and the audit log.</div>
-          <form method="post" data-confirm="Apply this wallet adjustment?">
-            <?= csrf_field() ?>
-            <input type="hidden" name="member_id" value="<?= (int) $memberId ?>">
-            <div class="mb-2"><label class="form-label small">Direction</label>
-              <select class="form-select form-select-sm" name="direction"><option value="credit">Credit</option><option value="debit">Debit</option></select>
-            </div>
-            <div class="mb-2"><label class="form-label small">Wallet</label>
-              <select class="form-select form-select-sm" name="wallet_type">
-                <option value="incentive">Adjustment / incentive</option>
-                <option value="direct">Direct</option>
-                <option value="grand_direct">Grand direct</option>
-                <option value="royalty">Royalty</option>
-                <option value="incentive">Incentive</option>
-              </select>
-            </div>
-            <div class="mb-2"><label class="form-label small">Amount</label><input type="number" step="0.01" min="0.01" name="amount" class="form-control form-control-sm" required></div>
-            <div class="mb-2"><label class="form-label small">Reason (required)</label><textarea name="reason" class="form-control form-control-sm" rows="2" required></textarea></div>
-            <button class="btn btn-sm btn-primary w-100">Post adjustment</button>
-          </form>
-        </div>
-      <?php endif; ?>
     </div>
   </div>
 <?php else: ?>

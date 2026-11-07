@@ -451,7 +451,7 @@ if (!function_exists('crud_page')) {
                     </tbody>
                   </table>
                 </div>
-                <div class="d-flex justify-content-between align-items-center mt-3">
+                <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
                   <div class="small text-muted"><?= $pager->infoText() ?></div>
                   <?= $pager->links(['q' => $search]) ?>
                 </div>

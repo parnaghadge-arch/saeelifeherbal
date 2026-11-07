@@ -84,10 +84,62 @@ $pageHeading = 'Royalty & Incentives';
 $pageSub = count($rules) . ' rules · ' . count(array_filter($achievements, static fn ($a) => $a['status'] === 'pending')) . ' pending approvals';
 $activeModule = 'royalty';
 $pageActions = AdminAuth::can('royalty.approve') ? '<form method="post" class="d-inline">' . csrf_field() . '<input type="hidden" name="action" value="run"><button class="btn btn-sm btn-primary">Run evaluation</button></form>' : '';
+$formOpen = $editRule !== null || !empty($errors) || Request::query('new') !== null;
+if (AdminAuth::can('royalty.approve')) {
+    $pageActions = '<a class="btn btn-sm btn-primary" href="royalty.php?new=1"><i class="fa-solid fa-plus me-1"></i>New rule</a>'
+        . ($pageActions !== '' ? ' ' . $pageActions : '');
+}
 require __DIR__ . '/includes/layout.php';
 ?>
-<div class="row g-3">
-  <div class="col-lg-7">
+<div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+  <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
+    <div class="panel p-3 p-md-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0"><?= $editRule ? 'Edit rule' : 'New royalty rule' ?></h2>
+        <a class="btn btn-sm btn-outline-secondary" href="royalty.php">Cancel</a>
+      </div>
+      <?php if (!empty($errors)): ?><div class="alert alert-danger small">Check the highlighted fields.</div><?php endif; ?>
+      <form method="post">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="rule-save">
+        <?php if ($editRule): ?><input type="hidden" name="rule_id" value="<?= (int) $editRule['id'] ?>"><?php endif; ?>
+        <div class="row g-2">
+          <div class="col-8"><label class="form-label small">Name</label><input name="name" class="form-control form-control-sm" value="<?= e((string) ($editRule['name'] ?? '')) ?>" required></div>
+          <div class="col-4"><label class="form-label small">Level</label><input type="number" name="level_no" class="form-control form-control-sm" value="<?= (int) ($editRule['level_no'] ?? 1) ?>"></div>
+          <div class="col-4"><label class="form-label small">Direct referrals</label><input type="number" name="required_direct_referrals" class="form-control form-control-sm" value="<?= (int) ($editRule['required_direct_referrals'] ?? 0) ?>"></div>
+          <div class="col-4"><label class="form-label small">Team size</label><input type="number" name="required_downline" class="form-control form-control-sm" value="<?= (int) ($editRule['required_downline'] ?? 0) ?>"></div>
+          <div class="col-4"><label class="form-label small">Active members</label><input type="number" name="required_active_members" class="form-control form-control-sm" value="<?= (int) ($editRule['required_active_members'] ?? 0) ?>"></div>
+          <div class="col-6"><label class="form-label small">Purchase count</label><input type="number" name="required_purchase_count" class="form-control form-control-sm" value="<?= (int) ($editRule['required_purchase_count'] ?? 0) ?>"></div>
+          <div class="col-6"><label class="form-label small">Min team sales</label><input type="number" step="0.01" name="min_qualifying_sales" class="form-control form-control-sm" value="<?= e((string) ($editRule['min_qualifying_sales'] ?? 0)) ?>"></div>
+          <div class="col-6"><label class="form-label small">Qualification window (days)</label><input type="number" name="qualification_period_days" class="form-control form-control-sm" value="<?= (int) ($editRule['qualification_period_days'] ?? 0) ?>"></div>
+          <div class="col-6"><label class="form-label small">Frequency</label>
+            <select name="frequency" class="form-select form-select-sm">
+              <?php foreach (['once' => 'One time', 'monthly' => 'Monthly', 'recurring' => 'Recurring'] as $k => $label): ?>
+                <option value="<?= e($k) ?>" <?= ($editRule['frequency'] ?? 'once') === $k ? 'selected' : '' ?>><?= e($label) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-6"><label class="form-label small">Reward type</label>
+            <select name="reward_type" class="form-select form-select-sm">
+              <option value="fixed" <?= ($editRule['reward_type'] ?? 'fixed') === 'fixed' ? 'selected' : '' ?>>Fixed amount</option>
+              <option value="percent" <?= ($editRule['reward_type'] ?? '') === 'percent' ? 'selected' : '' ?>>Percentage</option>
+            </select>
+          </div>
+          <div class="col-3"><label class="form-label small">Amount ₹</label><input type="number" step="0.01" name="reward_amount" class="form-control form-control-sm" value="<?= e((string) ($editRule['reward_amount'] ?? 0)) ?>"></div>
+          <div class="col-3"><label class="form-label small">Percent %</label><input type="number" step="0.01" name="reward_percent" class="form-control form-control-sm" value="<?= e((string) ($editRule['reward_percent'] ?? 0)) ?>"></div>
+          <div class="col-12"><label class="form-label small">Description</label><textarea name="description" class="form-control form-control-sm" rows="2"><?= e((string) ($editRule['description'] ?? '')) ?></textarea></div>
+          <div class="col-6"><label class="form-label small">Sort order</label><input type="number" name="sort_order" class="form-control form-control-sm" value="<?= (int) ($editRule['sort_order'] ?? 0) ?>"></div>
+          <div class="col-6"><label class="form-label small">Status</label>
+            <select name="status" class="form-select form-select-sm"><option value="1" <?= (int) ($editRule['status'] ?? 1) === 1 ? 'selected' : '' ?>>Active</option><option value="0" <?= (int) ($editRule['status'] ?? 1) === 0 ? 'selected' : '' ?>>Inactive</option></select>
+          </div>
+          <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="requires_admin_approval" value="1" id="appr" <?= (int) ($editRule['requires_admin_approval'] ?? 1) === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="appr">Require admin approval before crediting</label></div></div>
+        </div>
+        <button class="btn btn-primary w-100 mt-3"><?= $editRule ? 'Update rule' : 'Create rule' ?></button>
+      </form>
+    </div>
+  </div>
+
+  <div class="crud-list-col">
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Achievements</h2>
       <div class="table-responsive">
@@ -134,50 +186,6 @@ require __DIR__ . '/includes/layout.php';
           </tbody>
         </table>
       </div>
-    </div>
-  </div>
-
-  <div class="col-lg-5">
-    <div class="panel p-3 p-md-4">
-      <h2 class="h6 mb-3"><?= $editRule ? 'Edit rule' : 'New royalty rule' ?></h2>
-      <?php if (!empty($errors)): ?><div class="alert alert-danger small">Check the highlighted fields.</div><?php endif; ?>
-      <form method="post">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="rule-save">
-        <?php if ($editRule): ?><input type="hidden" name="rule_id" value="<?= (int) $editRule['id'] ?>"><?php endif; ?>
-        <div class="row g-2">
-          <div class="col-8"><label class="form-label small">Name</label><input name="name" class="form-control form-control-sm" value="<?= e((string) ($editRule['name'] ?? '')) ?>" required></div>
-          <div class="col-4"><label class="form-label small">Level</label><input type="number" name="level_no" class="form-control form-control-sm" value="<?= (int) ($editRule['level_no'] ?? 1) ?>"></div>
-          <div class="col-4"><label class="form-label small">Direct referrals</label><input type="number" name="required_direct_referrals" class="form-control form-control-sm" value="<?= (int) ($editRule['required_direct_referrals'] ?? 0) ?>"></div>
-          <div class="col-4"><label class="form-label small">Team size</label><input type="number" name="required_downline" class="form-control form-control-sm" value="<?= (int) ($editRule['required_downline'] ?? 0) ?>"></div>
-          <div class="col-4"><label class="form-label small">Active members</label><input type="number" name="required_active_members" class="form-control form-control-sm" value="<?= (int) ($editRule['required_active_members'] ?? 0) ?>"></div>
-          <div class="col-6"><label class="form-label small">Purchase count</label><input type="number" name="required_purchase_count" class="form-control form-control-sm" value="<?= (int) ($editRule['required_purchase_count'] ?? 0) ?>"></div>
-          <div class="col-6"><label class="form-label small">Min team sales</label><input type="number" step="0.01" name="min_qualifying_sales" class="form-control form-control-sm" value="<?= e((string) ($editRule['min_qualifying_sales'] ?? 0)) ?>"></div>
-          <div class="col-6"><label class="form-label small">Qualification window (days)</label><input type="number" name="qualification_period_days" class="form-control form-control-sm" value="<?= (int) ($editRule['qualification_period_days'] ?? 0) ?>"></div>
-          <div class="col-6"><label class="form-label small">Frequency</label>
-            <select name="frequency" class="form-select form-select-sm">
-              <?php foreach (['once' => 'One time', 'monthly' => 'Monthly', 'recurring' => 'Recurring'] as $k => $label): ?>
-                <option value="<?= e($k) ?>" <?= ($editRule['frequency'] ?? 'once') === $k ? 'selected' : '' ?>><?= e($label) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="col-6"><label class="form-label small">Reward type</label>
-            <select name="reward_type" class="form-select form-select-sm">
-              <option value="fixed" <?= ($editRule['reward_type'] ?? 'fixed') === 'fixed' ? 'selected' : '' ?>>Fixed amount</option>
-              <option value="percent" <?= ($editRule['reward_type'] ?? '') === 'percent' ? 'selected' : '' ?>>Percentage</option>
-            </select>
-          </div>
-          <div class="col-3"><label class="form-label small">Amount ₹</label><input type="number" step="0.01" name="reward_amount" class="form-control form-control-sm" value="<?= e((string) ($editRule['reward_amount'] ?? 0)) ?>"></div>
-          <div class="col-3"><label class="form-label small">Percent %</label><input type="number" step="0.01" name="reward_percent" class="form-control form-control-sm" value="<?= e((string) ($editRule['reward_percent'] ?? 0)) ?>"></div>
-          <div class="col-12"><label class="form-label small">Description</label><textarea name="description" class="form-control form-control-sm" rows="2"><?= e((string) ($editRule['description'] ?? '')) ?></textarea></div>
-          <div class="col-6"><label class="form-label small">Sort order</label><input type="number" name="sort_order" class="form-control form-control-sm" value="<?= (int) ($editRule['sort_order'] ?? 0) ?>"></div>
-          <div class="col-6"><label class="form-label small">Status</label>
-            <select name="status" class="form-select form-select-sm"><option value="1" <?= (int) ($editRule['status'] ?? 1) === 1 ? 'selected' : '' ?>>Active</option><option value="0" <?= (int) ($editRule['status'] ?? 1) === 0 ? 'selected' : '' ?>>Inactive</option></select>
-          </div>
-          <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="requires_admin_approval" value="1" id="appr" <?= (int) ($editRule['requires_admin_approval'] ?? 1) === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="appr">Require admin approval before crediting</label></div></div>
-        </div>
-        <button class="btn btn-primary w-100 mt-3"><?= $editRule ? 'Update rule' : 'Create rule' ?></button>
-      </form>
     </div>
   </div>
 </div>

@@ -64,7 +64,7 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Items</h2>
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 data-table">
           <thead><tr><th>Product</th><th class="text-end">Price</th><th>Qty</th><th class="text-end">Total</th></tr></thead>
           <tbody>
           <?php foreach ($items as $item): ?>
@@ -93,7 +93,7 @@ require __DIR__ . '/includes/layout.php';
         <p class="small text-muted mb-0">No commission generated yet (order must be paid).</p>
       <?php else: ?>
         <div class="table-responsive">
-          <table class="table table-sm mb-3 align-middle">
+          <table class="table table-sm mb-3 align-middle data-table">
             <thead><tr><th>Beneficiary</th><th>Type</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
             <tbody>
             <?php foreach ($commissions as $c): ?>

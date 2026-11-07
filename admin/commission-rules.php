@@ -18,6 +18,7 @@ use Saee\Lib\Url;
 $db = db();
 $products = $db->select('SELECT id, name, sku, mlm_enabled, direct_commission_type, direct_commission_value, grand_direct_commission_type, grand_direct_commission_value, commission_basis FROM products ORDER BY name ASC');
 $errors = [];
+$rule = null; // set by the "close" action; the form is a new version, not an edit
 
 if (is_post()) {
     Security::verifyCsrf();
@@ -110,9 +111,12 @@ $pageTitle = 'Commission Rules';
 $pageHeading = 'Commission Rules';
 $pageSub = $total . ' rule versions · per product, effective-dated, never overwritten';
 $activeModule = 'commission-rules';
+$formOpen = admin_form_open($rule, $errors);
+$pageActions = $formOpen
+    ? '<a class="btn btn-sm btn-outline-secondary" href="commission-rules.php"><i class="fa-solid fa-list me-1"></i>Back to list</a>'
+    : admin_new_button('commission-rules.php', 'rule version');
 require __DIR__ . '/includes/layout.php';
 ?>
-<?php $formOpen = admin_form_open($rule, $errors); ?>
 <div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
   <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
     <div class="col-lg-12 p-0">
@@ -172,7 +176,6 @@ require __DIR__ . '/includes/layout.php';
     </div>
   </div>
   <div class="crud-list-col">
-    <div class="crud-toolbar"><?= $formOpen ? '' : admin_new_button('commission-rules.php', 'rule') ?></div>
     <div class="panel p-3 p-md-4">
       <form class="d-flex gap-2 mb-3" method="get">
         <select class="form-select form-select-sm" name="product" onchange="this.form.submit()">
@@ -209,7 +212,7 @@ require __DIR__ . '/includes/layout.php';
           </tbody>
         </table>
       </div>
-      <div class="d-flex justify-content-between align-items-center mt-3">
+      <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
         <div class="small text-muted"><?= $pager->infoText() ?></div>
         <?= $pager->links(['product' => $productFilter]) ?>
       </div>

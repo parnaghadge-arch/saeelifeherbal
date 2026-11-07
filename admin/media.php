@@ -120,7 +120,7 @@ require __DIR__ . '/includes/layout.php';
         <?php endforeach; ?>
         <?php if (!$rows): ?><p class="small text-muted mb-0">No media files yet.</p><?php endif; ?>
       </div>
-      <div class="d-flex justify-content-between align-items-center mt-3">
+      <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
         <div class="small text-muted"><?= $pager->infoText() ?></div>
         <?= $pager->links(['q' => $search]) ?>
       </div>

@@ -93,7 +93,9 @@ $menu = [
         <h1 class="page-title text-truncate"><?= e($pageHeading ?? $pageTitle ?? 'Dashboard') ?></h1>
         <p class="page-sub text-truncate"><?= e($pageSub ?? '') ?></p>
       </div>
-      <?php if (!empty($pageActions)): ?><div class="d-none d-md-flex gap-2"><?= $pageActions ?></div><?php endif; ?>
+      <?php // Rendered once: on phones the actions wrap onto their own line under the title
+            // instead of being duplicated into the content area. ?>
+      <?php if (!empty($pageActions)): ?><div class="page-actions d-none d-md-flex gap-2"><?= $pageActions ?></div><?php endif; ?>
       <div class="dropdown">
         <button class="btn btn-sm btn-light-green dropdown-toggle" data-bs-toggle="dropdown">
           <i class="fa-solid fa-user-shield me-1"></i><span class="d-none d-sm-inline"><?= e($adminName) ?></span>
@@ -108,5 +110,5 @@ $menu = [
     </header>
 
     <div class="app-content">
-      <?php if (!empty($pageActions)): ?><div class="d-md-none mb-2 d-flex gap-2 flex-wrap"><?= $pageActions ?></div><?php endif; ?>
+      <?php if (!empty($pageActions)): ?><div class="page-actions d-md-none mb-2 d-flex gap-2 flex-wrap"><?= $pageActions ?></div><?php endif; ?>
       <?= render_flash() ?>

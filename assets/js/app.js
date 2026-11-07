@@ -7,6 +7,17 @@
 
   window.SAEE = window.SAEE || {};
 
+  /**
+   * Join the install base path with a relative file path.
+   * On a root install the base is '' — naively doing base + '/file.js' would produce the
+   * protocol-relative "//file.js" (a request to a host literally named "file.js"), so the
+   * separator is only added when there is a base to separate from.
+   */
+  SAEE.path = function (path) {
+    var base = (SAEE.base || '').replace(/\/+$/, '');
+    return base + '/' + String(path).replace(/^\/+/, '');
+  };
+
   /* ---------------------------------------------------------------- utils */
   SAEE.post = function (url, data, onSuccess, onError) {
     data = data || {};
@@ -776,11 +787,25 @@
     });
   }
 
+  function initFeaturedCarousel() {
+    initCarousel({
+      root: '[data-feat-carousel]',
+      track: '[data-feat-track]',
+      slide: '.feat-slide',
+      dots: '[data-feat-dots]',
+      prev: '[data-feat-prev]',
+      next: '[data-feat-next]',
+      controls: '.feat-controls',
+      label: 'Product',
+      perView: function (w) { return w < 576 ? 1 : (w < 992 ? 2 : (w < 1200 ? 3 : 4)); }
+    });
+  }
+
   /* ---------------------------------------------------------------- PWA */  /* ---------------------------------------------------------------- PWA */
   function initPWA() {
     if (!('serviceWorker' in navigator)) { return; }
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register(SAEE.base + '/service-worker.js', { scope: SAEE.base + '/' }).then(function (reg) {
+      navigator.serviceWorker.register(SAEE.path('service-worker.js'), { scope: SAEE.path('') }).then(function (reg) {
         reg.addEventListener('updatefound', function () {
           var worker = reg.installing;
           worker && worker.addEventListener('statechange', function () {
@@ -841,6 +866,7 @@
     initMobileShell();
     initTestimonialCarousel();
     initCategoryCarousel();
+    initFeaturedCarousel();
     initPWA();
     initInstallPrompt();
 

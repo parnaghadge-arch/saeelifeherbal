@@ -92,9 +92,12 @@ $pageTitle = 'Admin Users';
 $pageHeading = 'Admin Users';
 $pageSub = count($users) . ' user(s)';
 $activeModule = 'admin-users';
+$formOpen = admin_form_open($user, $errors);
+$pageActions = $formOpen
+    ? '<a class="btn btn-sm btn-outline-secondary" href="admin-users.php"><i class="fa-solid fa-list me-1"></i>Back to list</a>'
+    : admin_new_button('admin-users.php', 'admin user');
 require __DIR__ . '/includes/layout.php';
 ?>
-<?php $formOpen = admin_form_open($user, $errors); ?>
 <div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
   <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
     <div class="col-lg-12 p-0">
@@ -128,7 +131,6 @@ require __DIR__ . '/includes/layout.php';
     </div>
   </div>
   <div class="crud-list-col">
-    <div class="crud-toolbar"><?= $formOpen ? '' : admin_new_button('admin-users.php', 'admin user') ?></div>
     <div class="panel p-3 p-md-4">
       <h2 class="h6 mb-3">Administrators</h2>
       <div class="table-responsive">

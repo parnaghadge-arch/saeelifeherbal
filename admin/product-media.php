@@ -57,13 +57,18 @@ $pageTitle = 'Product media';
 $pageHeading = 'Videos · ' . $product['name'];
 $pageSub = 'Attach demo / usage videos to this product';
 $activeModule = 'products';
-$pageActions = '<a class="btn btn-sm btn-outline-secondary" href="products.php?id=' . (int) $productId . '">Back to product</a>';
+$formOpen = Request::query('new') !== null || !empty($errors);
+$pageActions = '<a class="btn btn-sm btn-primary" href="product-media.php?id=' . (int) $productId . '&new=1"><i class="fa-solid fa-plus me-1"></i>New video</a>'
+    . '<a class="btn btn-sm btn-outline-secondary" href="products.php?id=' . (int) $productId . '">Back to product</a>';
 require __DIR__ . '/includes/layout.php';
 ?>
-<div class="row g-3">
-  <div class="col-lg-5">
+<div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+  <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
     <div class="panel p-3 p-md-4">
-      <h2 class="h6 mb-3">Add video</h2>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 mb-0">Add video</h2>
+        <a class="btn btn-sm btn-outline-secondary" href="product-media.php?id=<?= (int) $productId ?>">Cancel</a>
+      </div>
       <form method="post" enctype="multipart/form-data">
         <?= csrf_field() ?>
         <div class="mb-3"><label class="form-label">Title</label><input name="title" class="form-control"></div>
@@ -74,7 +79,7 @@ require __DIR__ . '/includes/layout.php';
       </form>
     </div>
   </div>
-  <div class="col-lg-7">
+  <div class="crud-list-col">
     <div class="panel p-3 p-md-4">
       <h2 class="h6 mb-3">Videos (<?= count($videos) ?>)</h2>
       <?php if (!$videos): ?><p class="small text-muted mb-0">No videos yet.</p><?php endif; ?>

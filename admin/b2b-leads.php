@@ -285,9 +285,9 @@ require __DIR__ . '/includes/layout.php';
   </form>
 
   <div class="panel p-3 p-md-4">
-    <?php if (!$rows): ?><p class="small text-muted mb-0">No B2B leads yet. Submissions from the public B2B page appear here.</p><?php endif; ?>
-    <?php if ($rows): ?>
-      <div class="table-responsive">
+    <?php // The table always renders: an empty <tbody> lets DataTables show its own
+          // "No records yet" state, and the markup stays identical either way. ?>
+    <div class="table-responsive">
         <table class="table table-sm align-middle mb-0 data-table">
           <thead>
             <tr>
@@ -324,12 +324,11 @@ require __DIR__ . '/includes/layout.php';
         </table>
       </div>
       <?php if ($total > 20): ?>
-        <div class="d-flex justify-content-between align-items-center mt-3">
+        <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
           <div class="small text-muted"><?= $pager->infoText() ?></div>
           <?= $pager->links(['status' => $status, 'q' => $search]) ?>
         </div>
       <?php endif; ?>
-    <?php endif; ?>
   </div>
 <?php endif; ?>
 <?php require __DIR__ . '/includes/layout-end.php'; ?>

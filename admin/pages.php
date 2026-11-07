@@ -138,9 +138,12 @@ $pageTitle = 'CMS Pages';
 $pageHeading = 'CMS Pages';
 $pageSub = $total . ' pages · full page builder with sections, SEO and custom CSS';
 $activeModule = 'pages';
+$formOpen = admin_form_open($page, $errors);
+$pageActions = $formOpen
+    ? '<a class="btn btn-sm btn-outline-secondary" href="pages.php"><i class="fa-solid fa-list me-1"></i>Back to list</a>'
+    : admin_new_button('pages.php', 'page');
 require __DIR__ . '/includes/layout.php';
 ?>
-<?php $formOpen = admin_form_open($page, $errors); ?>
 <div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
   <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
     <div class="panel p-3 p-md-4 mb-3">
@@ -267,9 +270,6 @@ require __DIR__ . '/includes/layout.php';
   </div>
 
   <div class="crud-list-col">
-    <div class="crud-toolbar">
-      <?= $formOpen ? '' : admin_new_button('pages.php', 'page') ?>
-    </div>
     <div class="panel p-3 p-md-4">
       <form class="d-flex gap-2 mb-3" method="get">
         <input class="form-control form-control-sm" name="q" value="<?= e($search) ?>" placeholder="Search pages">
@@ -294,7 +294,7 @@ require __DIR__ . '/includes/layout.php';
           </tbody>
         </table>
       </div>
-      <div class="d-flex justify-content-between align-items-center mt-3">
+      <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
         <div class="small text-muted"><?= $pager->infoText() ?></div>
         <?= $pager->links(['q' => $search]) ?>
       </div>

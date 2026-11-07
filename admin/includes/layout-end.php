@@ -30,6 +30,20 @@ document.querySelectorAll('[data-confirm]').forEach(function (form) {
   jQuery('table.data-table:not(.data-table-plain)').each(function () {
     var $t = jQuery(this);
     if (jQuery.fn.DataTable.isDataTable(this)) { return; }
+
+    // A lone "nothing here yet" row whose cell spans every column makes DataTables 2 spin
+    // forever while it tries to map cells to columns (the whole main thread locks up).
+    // Drop those rows first — DataTables' own "No records yet" message covers the state.
+    var colCount = $t.find('thead th').length;
+    if (colCount > 0) {
+      $t.find('tbody tr').each(function () {
+        var cells = this.children;
+        if (cells.length === 1 && parseInt(cells[0].getAttribute('colspan') || '1', 10) >= colCount) {
+          jQuery(this).remove();
+        }
+      });
+    }
+
     var noSort = [];
     $t.find('thead th').each(function (i) {
       var label = jQuery.trim(jQuery(this).text()).toLowerCase();
@@ -61,6 +75,9 @@ document.querySelectorAll('[data-confirm]').forEach(function (form) {
         paginate: { previous: '‹', next: '›' }
       }
     });
+    // The PHP pager under the table is a no-JS fallback; once DataTables owns paging a
+    // second "showing x of y" line is just noise.
+    $t.closest('.panel, .card').find('.server-pager').hide();
   });
 })();
 </script>

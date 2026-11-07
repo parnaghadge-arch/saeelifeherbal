@@ -514,6 +514,31 @@ a:hover { color: var(--saee-dark); }
   .cat-controls { margin-top: .9rem; }
 }
 
+/* featured products carousel — same mechanics, four cards wide on desktop */
+.featured-carousel {
+  position: relative; overflow: hidden; scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.featured-carousel::-webkit-scrollbar { display: none; }
+.featured-carousel:focus-visible { outline: 2px solid var(--saee-primary); outline-offset: 6px; border-radius: var(--saee-radius); }
+.feat-track { display: flex; gap: 1.5rem; transition: transform .45s cubic-bezier(.33, .8, .3, 1); will-change: transform; }
+.feat-slide { flex: 0 0 calc((100% - 4.5rem) / 4); min-width: 0; display: flex; }
+.feat-slide .product-card { flex: 1 1 auto; width: 100%; }
+.feat-controls { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1.4rem; }
+.feat-controls .t-nav { width: 42px; height: 42px; }
+@media (max-width: 1199.98px) { .feat-slide { flex-basis: calc((100% - 3rem) / 3); } }
+@media (max-width: 991.98px) {
+  .feat-track { gap: 1rem; }
+  .feat-slide { flex-basis: calc((100% - 1rem) / 2); }
+}
+@media (max-width: 575.98px) {
+  /* phones: one product per window, finger swipe, arrows hidden */
+  .feat-track { gap: .8rem; transform: none !important; }
+  .feat-slide { flex-basis: 100%; }
+  .feat-controls .t-nav { display: none; }
+  .feat-controls { margin-top: .9rem; }
+}
+
 .avatar-circle { width: 46px; height: 46px; border-radius: 50%; background: var(--saee-light); color: var(--saee-primary); display: flex; align-items: center; justify-content: center; font-family: var(--saee-font-heading); font-weight: 700; }
 .stars { color: #F5A623; font-size: .82rem; letter-spacing: .1em; }
 
@@ -1073,14 +1098,12 @@ a:hover { color: var(--saee-dark); }
 .admin-login-body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(150deg, var(--saee-dark), #2f8f4c); padding: 1.5rem; }
 .admin-login-card { background: #fff; border-radius: 18px; padding: 1.8rem; width: 100%; max-width: 400px; box-shadow: 0 24px 60px rgba(10,30,18,.28); }
 /* CRUD screens: the data table owns the page; the add/edit form drops in above it on demand. */
+/* Data-first admin screens: the list owns the page; the add/edit form only appears on demand
+   ("+ New" or the edit pencil) and is stacked ABOVE the table at every width. */
 .crud-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-.crud-layout.is-form-open { grid-template-columns: minmax(0, 360px) minmax(0, 1fr); align-items: start; }
-.crud-layout.is-form-open .crud-form-col { position: sticky; top: .75rem; }
+.crud-layout.is-form-open .crud-form-col { order: 1; }
+.crud-layout.is-form-open .crud-list-col { order: 2; max-width: 100%; }
 .crud-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .85rem; }
-@media (max-width: 1199.98px) {
-  .crud-layout.is-form-open { grid-template-columns: minmax(0, 1fr); }
-  .crud-layout.is-form-open .crud-form-col { position: static; }
-}
 
 /* DataTables: skin it with the site palette so it reads as part of the panel. */
 div.dt-container .dt-search input,

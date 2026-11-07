@@ -200,10 +200,12 @@ $pageTitle = 'Products';
 $pageHeading = 'Product Catalogue';
 $pageSub = $total . ' products · per-product MLM commission configuration';
 $activeModule = 'products';
+$formOpen = $product !== null || !empty($errors) || Request::query('new') !== null;
+$pageActions = '<a class="btn btn-sm btn-primary" href="products.php?new=1"><i class="fa-solid fa-plus me-1"></i>New product</a>';
 require __DIR__ . '/includes/layout.php';
 ?>
-<div class="row g-3">
-  <div class="col-xl-7">
+<div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+  <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
     <div class="panel p-3 p-md-4">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="h6 mb-0"><?= $product ? 'Edit product' : 'Add product' ?></h2>
@@ -348,12 +350,14 @@ require __DIR__ . '/includes/layout.php';
     </div>
   </div>
 
-  <div class="col-xl-5">
+  <div class="crud-list-col">
     <div class="panel p-3 p-md-4">
-      <form class="d-flex gap-2 mb-3" method="get">
-        <input class="form-control form-control-sm" name="q" value="<?= e($search) ?>" placeholder="Search products / SKU">
-        <button class="btn btn-sm btn-dark">Search</button>
-      </form>
+      <div class="crud-toolbar">
+        <form class="d-flex gap-2 flex-grow-1" method="get">
+          <input class="form-control form-control-sm" name="q" value="<?= e($search) ?>" placeholder="Search products / SKU">
+          <button class="btn btn-sm btn-dark flex-shrink-0">Search</button>
+        </form>
+      </div>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 data-table">
           <thead><tr><th>Product</th><th class="text-end">Price</th><th>Status</th><th class="text-end">Edit</th></tr></thead>
@@ -402,7 +406,9 @@ require __DIR__ . '/includes/layout.php';
           </tbody>
         </table>
       </div>
-      <div class="d-flex justify-content-between align-items-center mt-3">
+      <?php // DataTables renders its own "showing x of y" + pager, so the server one is only
+            // kept for the no-JS fallback (hidden as soon as the table is enhanced). ?>
+      <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
         <div class="small text-muted"><?= $pager->infoText() ?></div>
         <?= $pager->links(['q' => $search]) ?>
       </div>

@@ -142,7 +142,7 @@ require __DIR__ . '/includes/layout.php';
       <?php endif; ?>
     </div>
   <?php endforeach; ?>
-  <div class="d-flex justify-content-between align-items-center mt-3">
+  <div class="d-flex justify-content-between align-items-center mt-3 server-pager">
     <div class="small text-muted"><?= $pager->infoText() ?></div>
     <?= $pager->links(['status' => $status]) ?>
   </div>

@@ -154,7 +154,7 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Recent commissions</h2>
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 data-table">
           <thead><tr><th>Date</th><th>Type</th><th>Product</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
           <tbody>
           <?php foreach ($commissions as $c): ?>
@@ -228,7 +228,7 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4 mt-3">
       <h2 class="h6 mb-3">Orders</h2>
       <div class="table-responsive">
-        <table class="table table-sm mb-0 align-middle">
+        <table class="table table-sm mb-0 align-middle data-table">
           <thead><tr><th>Order</th><th>Date</th><th class="text-end">Total</th><th>Payment</th><th>Status</th></tr></thead>
           <tbody>
           <?php foreach ($orders as $o): ?>
