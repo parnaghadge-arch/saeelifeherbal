@@ -146,14 +146,6 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
   </div>
   <div class="offcanvas-body p-0">
-    <div class="p-3 pb-2 border-bottom">
-      <form action="<?= e(Url::to('our-products')) ?>" method="get" role="search">
-        <div class="input-group input-group-sm">
-          <span class="input-group-text bg-white border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
-          <input class="form-control border-start-0 ps-0" type="search" name="q" placeholder="Search products" aria-label="Search products">
-        </div>
-      </form>
-    </div>
     <ul class="list-unstyled mb-0 mnav-list">
       <?php foreach ($menu as $item): ?>
         <?php $hasChildren = !empty($item['children']); ?>

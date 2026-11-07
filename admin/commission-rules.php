@@ -112,8 +112,10 @@ $pageSub = $total . ' rule versions · per product, effective-dated, never overw
 $activeModule = 'commission-rules';
 require __DIR__ . '/includes/layout.php';
 ?>
-<div class="row g-3">
-  <div class="col-lg-5">
+<?php $formOpen = admin_form_open($rule, $errors); ?>
+<div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+  <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
+    <div class="col-lg-12 p-0">
     <div class="panel p-3 p-md-4">
       <h2 class="h6 mb-3">New rule version</h2>
       <?php if (!empty($errors)): ?><div class="alert alert-danger small">Please correct the highlighted fields.</div><?php endif; ?>
@@ -169,7 +171,8 @@ require __DIR__ . '/includes/layout.php';
       </div>
     </div>
   </div>
-  <div class="col-lg-7">
+  <div class="crud-list-col">
+    <div class="crud-toolbar"><?= $formOpen ? '' : admin_new_button('commission-rules.php', 'rule') ?></div>
     <div class="panel p-3 p-md-4">
       <form class="d-flex gap-2 mb-3" method="get">
         <select class="form-select form-select-sm" name="product" onchange="this.form.submit()">

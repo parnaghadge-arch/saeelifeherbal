@@ -288,7 +288,7 @@ require __DIR__ . '/includes/layout.php';
     <?php if (!$rows): ?><p class="small text-muted mb-0">No B2B leads yet. Submissions from the public B2B page appear here.</p><?php endif; ?>
     <?php if ($rows): ?>
       <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
+        <table class="table table-sm align-middle mb-0 data-table">
           <thead>
             <tr>
               <th scope="col">Lead</th>

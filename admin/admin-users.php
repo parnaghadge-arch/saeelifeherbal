@@ -94,8 +94,10 @@ $pageSub = count($users) . ' user(s)';
 $activeModule = 'admin-users';
 require __DIR__ . '/includes/layout.php';
 ?>
-<div class="row g-3">
-  <div class="col-lg-5">
+<?php $formOpen = admin_form_open($user, $errors); ?>
+<div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+  <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
+    <div class="col-lg-12 p-0">
     <div class="panel p-3 p-md-4">
       <h2 class="h6 mb-3"><?= $user ? 'Edit user' : 'Add admin user' ?></h2>
       <?php if (!empty($errors)): ?><div class="alert alert-danger small">Please correct the highlighted fields.</div><?php endif; ?>
@@ -125,7 +127,8 @@ require __DIR__ . '/includes/layout.php';
       </form>
     </div>
   </div>
-  <div class="col-lg-7">
+  <div class="crud-list-col">
+    <div class="crud-toolbar"><?= $formOpen ? '' : admin_new_button('admin-users.php', 'admin user') ?></div>
     <div class="panel p-3 p-md-4">
       <h2 class="h6 mb-3">Administrators</h2>
       <div class="table-responsive">

@@ -119,6 +119,37 @@ final class Url
         return self::base() . '/' . ltrim($path, '/');
     }
 
+    /**
+     * Folder of the running script relative to the install base: "" at the site root,
+     * "/admin" for /sub/admin/x.php, "/api" for /sub/api/orders/list.php.
+     *
+     * Used by redirects so a target such as "categories.php?id=5&saved=1" becomes
+     * "/sub/admin/categories.php?id=5&saved=1" instead of repeating the install prefix.
+     */
+    public static function currentDir(): string
+    {
+        $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
+        $dir = rtrim(dirname($script), '/');
+        if ($dir === '.' || $dir === '/' || $dir === '') {
+            return '';
+        }
+        $base = self::base();
+        if ($base !== '') {
+            if ($dir === $base) {
+                return '';
+            }
+            if (str_starts_with($dir, $base . '/')) {
+                return substr($dir, strlen($base));
+            }
+            // The script folder does not sit below the detected base (unusual vhost setup):
+            // use only its last segment so a sub-application folder is still honoured.
+            if (preg_match('#/(admin|member|api|ajax|pwa)$#i', $dir, $m)) {
+                return $m[0];
+            }
+        }
+        return $dir;
+    }
+
     public static function asset(string $path): string
     {
         return self::join('assets/' . ltrim($path, '/'));

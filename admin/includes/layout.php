@@ -62,6 +62,7 @@ $menu = [
 <link rel="stylesheet" href="<?= e(\Saee\Lib\Url::asset('vendor/bootstrap/bootstrap.min.css')) ?>">
 <link rel="stylesheet" href="<?= e(\Saee\Lib\Url::asset('vendor/fontawesome/css/all.min.css')) ?>">
 <link rel="stylesheet" href="<?= e(\Saee\Lib\Url::asset('css/app.css')) ?>?v=<?= APP_VERSION ?>">
+<link rel="stylesheet" href="<?= e(\Saee\Lib\Url::asset('vendor/datatables/dataTables.bootstrap5.min.css')) ?>">
 <style>:root{--saee-primary:<?= e((string) Settings::get('theme_primary', '#247A3C')) ?>;}</style>
 </head>
 <body class="app-body admin-body">

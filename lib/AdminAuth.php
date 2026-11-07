@@ -167,7 +167,8 @@ final class AdminAuth
             if (Request::isAjax()) {
                 Response::error('Your session has expired. Please sign in again.', [], 401);
             }
-            $target = Request::uri() . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '');
+            // Sub-app relative target, so a sub-directory install never gets the prefix twice.
+            $target = basename(Request::uri()) . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '');
             Session::set('admin_redirect', $target);
             Session::flash('warning', 'Please sign in to continue.');
             Request::redirect('login');

@@ -147,15 +147,24 @@ final class Request
             return $url;
         }
         $base = Url::base();
+
+        // Safety net for historical callers that passed a full request path — "Request::uri()"
+        // or a stored redirect — after the URL helper had already prefixed it. Without this the
+        // install prefix was applied twice ("/LIVEpro/SaeeLifeHerbal-1/LIVEpro/SaeeLifeHerbal-1/
+        // admin/categories.php"), which is exactly the 404 the admin screens were hitting.
+        if ($base !== '' && str_starts_with($url, $base . '/')) {
+            $url = substr($url, strlen($base));
+        }
+
         // Inside a sub-application the target may name its own folder ("member/login").
-        if (preg_match('#^(admin|member|api|pwa|ajax)/#', $url)) {
-            return $base . '/' . $url;
+        if (preg_match('#^(admin|member|api|pwa|ajax)/#', ltrim($url, '/'))) {
+            return $base . '/' . ltrim($url, '/');
         }
         if (!str_contains($url, '/')) {
-            $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
-            $dir = rtrim(dirname($script), '/');
-            // Keep redirects inside the sub-application the request came from.
-            if (preg_match('#/(admin|member|pwa|ajax)$#', $dir) && !str_ends_with($base, $dir)) {
+            // Keep redirects inside the sub-application the request came from, without
+            // appending the folder twice when the base already ends with it.
+            $dir = Url::currentDir();
+            if ($dir !== '' && !str_ends_with($base, $dir)) {
                 $base .= $dir;
             }
         }

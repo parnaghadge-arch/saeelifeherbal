@@ -405,50 +405,32 @@ final class Installer
 
     private function seedMenus(string $now): void
     {
+        // Flat top-level header menu: no submenus at all. Products opens the full catalogue,
+        // Solutions opens the agriculture solutions page, Gallery mixes photos and videos.
         $items = [
-            ['Home', 'home', 0, 1],
-            ['About Us', 'about-us', 0, 2],
-            ['Products', '#', 0, 3],
-            ['Solutions', '#', 0, 4],
-            ['Business Opportunity', 'mlm-business-opportunity', 0, 5],
-            ['Knowledge Hub', 'blogs', 0, 6],
-            ['Contact', 'contact-us', 0, 7],
-            ['B2B / Bulk', 'b2b', 0, 8],
+            ['Home', 'home', 1],
+            ['About Us', 'about-us', 2],
+            ['Products', 'our-products', 3],
+            ['Solutions', 'agriculture-solutions', 4],
+            ['Gallery', 'gallery', 5],
+            ['Business Opportunity', 'mlm-business-opportunity', 6],
+            ['Contact', 'contact-us', 7],
+            ['B2B', 'b2b', 8],
         ];
-        $ids = [];
-        foreach ($items as [$label, $url, $parent, $order]) {
-            $ids[$label] = $this->db->insert('navigation_menus', [
-                'parent_id' => null, 'label' => $label, 'url' => $url, 'icon' => null,
-                'target' => '_self', 'position' => 'header', 'sort_order' => $order,
-                'status' => 1, 'created_at' => $now, 'updated_at' => $now,
-            ]);
-        }
-        $children = [
-            ['All Products', 'our-products', 'Products', 1],
-            ['Product Categories', 'product-categories', 'Products', 2],
-            ['Crop Protection', 'crop-protection', 'Products', 3],
-            ['Fertilizers', 'fertilizers', 'Products', 4],
-            ['Pesticides', 'pesticides', 'Products', 5],
-            ['Insecticides', 'insecticides', 'Products', 6],
-            ['Agriculture Solutions', 'agriculture-solutions', 'Solutions', 1],
-            ['Farmer Registration', 'farmer-registration', 'Solutions', 2],
-            ['Gallery', 'gallery', 'Solutions', 3],
-            ['Videos', 'videos', 'Solutions', 4],
-            ['FAQs', 'faqs', 'Knowledge Hub', 1],
-        ];
-        foreach ($children as [$label, $url, $parent, $order]) {
+        foreach ($items as [$label, $url, $order]) {
             $this->db->insert('navigation_menus', [
-                'parent_id' => $ids[$parent], 'label' => $label, 'url' => $url, 'icon' => null,
+                'parent_id' => null, 'label' => $label, 'url' => $url, 'icon' => null,
                 'target' => '_self', 'position' => 'header', 'sort_order' => $order,
                 'status' => 1, 'created_at' => $now, 'updated_at' => $now,
             ]);
         }
         $footer = [
             ['About Us', 'about-us', 1], ['Our Products', 'our-products', 2], ['Blogs', 'blogs', 3],
-            ['FAQs', 'faqs', 4], ['Contact Us', 'contact-us', 5], ['Privacy Policy', 'privacy-policy', 6],
-            ['Terms & Conditions', 'terms-conditions', 7], ['Refund & Return Policy', 'refund-return-policy', 8],
-            ['Shipping Policy', 'shipping-policy', 9], ['Disclaimer', 'disclaimer', 10],
-            ['Business Opportunity', 'mlm-business-opportunity', 11], ['Partner Login', 'member/login', 12],
+            ['FAQs', 'faqs', 4], ['B2B', 'b2b', 5], ['Contact Us', 'contact-us', 6],
+            ['Privacy Policy', 'privacy-policy', 7], ['Terms & Conditions', 'terms-conditions', 8],
+            ['Refund & Return Policy', 'refund-return-policy', 9], ['Shipping Policy', 'shipping-policy', 10],
+            ['Disclaimer', 'disclaimer', 11], ['Business Opportunity', 'mlm-business-opportunity', 12],
+            ['Partner Login', 'member/login', 13],
         ];
         foreach ($footer as [$label, $url, $order]) {
             $this->db->insert('navigation_menus', [

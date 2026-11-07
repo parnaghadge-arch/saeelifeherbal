@@ -293,19 +293,26 @@ if (!function_exists('crud_page')) {
         $pager = new Pager($total, $perPage);
         $rows = $db->select("SELECT * FROM $table WHERE $where ORDER BY $order" . $pager->limitSql(), $params);
 
+        // The form only opens on demand: "+ New <singular>" or the edit pencil. The table owns
+        // the page by default — a plain list URL never shows an empty add form next to it.
+        $formOpen = $record !== null || !empty($errors) || Request::query('new') !== null;
+        $searchQuery = $search !== '' ? '&q=' . urlencode($search) : '';
+
         $pageTitle = $title;
         $pageHeading = $title;
         $pageSub = $total . ' record(s)' . ($intro !== '' ? ' · ' . $intro : '');
         $activeModule = $module;
-        $pageActions = '<a class="btn btn-sm btn-primary" href="' . e($listRoute) . '"><i class="fa-solid fa-plus me-1"></i>New ' . e($singular) . '</a>';
+        $pageActions = $formOpen
+            ? '<a class="btn btn-sm btn-outline-secondary" href="' . e($listRoute . ($search !== '' ? '?q=' . urlencode($search) : '')) . '"><i class="fa-solid fa-list me-1"></i>Back to list</a>'
+            : '<a class="btn btn-sm btn-primary" href="' . e($listRoute . '?new=1') . '"><i class="fa-solid fa-plus me-1"></i>New ' . e($singular) . '</a>';
         require dirname(__DIR__) . '/includes/layout.php';
         ?>
-        <div class="row g-3">
-          <div class="col-lg-5 order-lg-2">
+        <div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+          <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
             <div class="panel p-3 p-md-4">
               <div class="d-flex justify-content-between align-items-center mb-3">
                 <h2 class="h6 mb-0"><?= $record ? 'Edit ' . e($singular) : 'Add ' . e($singular) ?></h2>
-                <?php if ($record): ?><a class="btn btn-sm btn-outline-secondary" href="<?= e($listRoute) ?>">Cancel</a><?php endif; ?>
+                <a class="btn btn-sm btn-outline-secondary" href="<?= e($listRoute . ($search !== '' ? '?q=' . urlencode($search) : '')) ?>">Cancel</a>
               </div>
               <?php if (!empty($errors['_general'])): ?><div class="alert alert-danger small"><?= e($errors['_general'][0]) ?></div><?php endif; ?>
               <?php if (!empty($errors)): ?><div class="alert alert-danger small">Please correct the highlighted fields.</div><?php endif; ?>
@@ -389,15 +396,19 @@ if (!function_exists('crud_page')) {
               <?php endif; ?>
             </div>
           </div>
-          <div class="col-lg-7 order-lg-1">
+          <div class="crud-list-col">
             <div class="panel p-3 p-md-4">
-              <?php if ($searchColumns): ?>
-                <form class="d-flex gap-2 mb-3" method="get">
-                  <input class="form-control form-control-sm" name="q" value="<?= e($search) ?>" placeholder="Search <?= e(strtolower($title)) ?>">
-                  <button class="btn btn-sm btn-dark">Search</button>
-                  <?php if ($search !== ''): ?><a class="btn btn-sm btn-outline-secondary" href="<?= e($listRoute) ?>">Reset</a><?php endif; ?>
-                </form>
-              <?php endif; ?>
+              <div class="crud-toolbar">
+                <?php if ($searchColumns): ?>
+                  <form class="d-flex gap-2 flex-grow-1" method="get">
+                    <input class="form-control form-control-sm" name="q" value="<?= e($search) ?>" placeholder="Search <?= e(strtolower($title)) ?>">
+                    <button class="btn btn-sm btn-dark">Search</button>
+                    <?php if ($search !== ''): ?><a class="btn btn-sm btn-outline-secondary" href="<?= e($listRoute) ?>">Reset</a><?php endif; ?>
+                  </form>
+                <?php endif; ?>
+                <?php // the "+ New" button lives in the page header (and is repeated on phones) ?>
+
+              </div>
               <?php if (!$rows): ?>
                 <p class="small text-muted mb-0">No records found.</p>
               <?php else: ?>

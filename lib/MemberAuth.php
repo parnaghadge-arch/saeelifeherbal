@@ -109,7 +109,9 @@ final class MemberAuth
             if (Request::isAjax()) {
                 Response::error('Your session has expired. Please sign in again.', [], 401);
             }
-            Session::set('member_redirect', Request::uri());
+            // Store a sub-app relative target (admin/member redirects must not re-append the
+            // install prefix): Request::uri() is the full web path and broke sub-directory installs.
+            Session::set('member_redirect', ltrim(Url::currentDir() . basename(Request::uri()), '/'));
             Session::flash('warning', 'Please sign in to your partner account.');
             Request::redirect('login');
         }

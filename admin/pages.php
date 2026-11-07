@@ -140,12 +140,13 @@ $pageSub = $total . ' pages · full page builder with sections, SEO and custom C
 $activeModule = 'pages';
 require __DIR__ . '/includes/layout.php';
 ?>
-<div class="row g-3">
-  <div class="col-lg-5">
+<?php $formOpen = admin_form_open($page, $errors); ?>
+<div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+  <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
     <div class="panel p-3 p-md-4 mb-3">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="h6 mb-0"><?= $page ? 'Edit page' : 'Create page' ?></h2>
-        <?php if ($page): ?><a class="btn btn-sm btn-outline-secondary" href="pages.php">New page</a><?php endif; ?>
+        <a class="btn btn-sm btn-outline-secondary" href="pages.php"><i class="fa-solid fa-list me-1"></i>Back to list</a>
       </div>
       <?php if (!empty($errors['_general'])): ?><div class="alert alert-danger small"><?= e($errors['_general'][0]) ?></div><?php endif; ?>
       <?php if (!empty($errors)): ?><div class="alert alert-danger small">Please correct the highlighted fields.</div><?php endif; ?>
@@ -265,7 +266,10 @@ require __DIR__ . '/includes/layout.php';
     <?php endif; ?>
   </div>
 
-  <div class="col-lg-7">
+  <div class="crud-list-col">
+    <div class="crud-toolbar">
+      <?= $formOpen ? '' : admin_new_button('pages.php', 'page') ?>
+    </div>
     <div class="panel p-3 p-md-4">
       <form class="d-flex gap-2 mb-3" method="get">
         <input class="form-control form-control-sm" name="q" value="<?= e($search) ?>" placeholder="Search pages">

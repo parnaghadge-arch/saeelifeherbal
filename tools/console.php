@@ -254,6 +254,31 @@ switch ($command) {
         } else {
             echo "Created " . count($created) . " table(s): " . implode(', ', $created) . PHP_EOL;
         }
+        // 2026-11 menu simplification: the public header is now a flat list with no submenus,
+        // Products opens the full catalogue, Solutions opens agriculture solutions and Gallery
+        // mixes photos + videos. Upgrades rewrite the header rows to match; anything the admin
+        // added by hand as a top-level item is preserved.
+        $now = date('Y-m-d H:i:s');
+        $db->execute('DELETE FROM navigation_menus WHERE position = :p AND parent_id IS NOT NULL', ['p' => 'header']);
+        $flat = [
+            ['Home', 'home'], ['About Us', 'about-us'], ['Products', 'our-products'],
+            ['Solutions', 'agriculture-solutions'], ['Gallery', 'gallery'],
+            ['Business Opportunity', 'mlm-business-opportunity'], ['Contact', 'contact-us'], ['B2B', 'b2b'],
+        ];
+        $touched = 0;
+        foreach ($flat as $i => [$label, $url]) {
+            $existing = $db->first(
+                'SELECT id FROM navigation_menus WHERE position = :p AND (url = :u OR label = :l) ORDER BY id LIMIT 1',
+                ['p' => 'header', 'u' => $url, 'l' => $label]
+            );
+            if ($existing) {
+                $db->update('navigation_menus', ['label' => $label, 'url' => $url, 'parent_id' => null, 'sort_order' => $i + 1, 'status' => 1, 'updated_at' => $now], 'id = :id', ['id' => $existing['id']]);
+            } else {
+                $db->insert('navigation_menus', ['parent_id' => null, 'label' => $label, 'url' => $url, 'icon' => null, 'target' => '_self', 'position' => 'header', 'sort_order' => $i + 1, 'status' => 1, 'created_at' => $now, 'updated_at' => $now]);
+            }
+            $touched++;
+        }
+        echo "Header menu normalised (" . $touched . " items, no submenus)." . PHP_EOL;
         break;
 
     case 'demo':

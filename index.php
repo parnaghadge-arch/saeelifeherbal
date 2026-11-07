@@ -107,7 +107,7 @@ require INCLUDES_PATH . '/header.php';
       foreach ($usps as [$icon, $title, $text]): ?>
         <div class="col-6 col-lg-3">
           <div class="d-flex gap-3 align-items-start">
-            <span class="feature-icon" style="width:46px;height:46px;font-size:1rem;border-radius:12px;margin:0"><i class="fa-solid <?= e($icon) ?>"></i></span>
+            <span class="feature-icon feature-icon-sm"><i class="fa-solid <?= e($icon) ?>" aria-hidden="true"></i></span>
             <div>
               <h3 class="h6 mb-1"><?= e($title) ?></h3>
               <p class="small text-muted mb-0"><?= e($text) ?></p>
