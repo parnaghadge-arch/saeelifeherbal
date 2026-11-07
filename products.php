@@ -1,5 +1,5 @@
 <?php
-/** Product listing with search, category filters and sorting. */
+/** Product listing with a category dropdown, sorting and pagination. */
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/bootstrap.php';
@@ -9,12 +9,14 @@ use Saee\Lib\Pager;
 use Saee\Lib\Request;
 use Saee\Lib\Url;
 
-$search = trim((string) Request::query('q', ''));
 $categorySlug = trim((string) Request::query('category', ''));
 $sort = (string) Request::query('sort', 'newest');
-$perPage = 12;
 
-$options = ['search' => $search, 'category' => $categorySlug, 'sort' => $sort];
+// Four products per page: a 4-up row on desktop, 2-up on phones, so a page is exactly one
+// or two tidy rows instead of a long scroll.
+$perPage = 4;
+
+$options = ['category' => $categorySlug, 'sort' => $sort];
 $total = count_products($options);
 $pager = new Pager($total, $perPage);
 $options['limit'] = $perPage;
@@ -28,12 +30,11 @@ foreach ($categories as $c) {
         $activeCategory = $c;
     }
 }
+$allProductsCount = count_products([]);
 
 $titleParts = ['Our Products'];
 if ($activeCategory) {
     $titleParts[] = $activeCategory['name'];
-} elseif ($search !== '') {
-    $titleParts[] = 'Search: ' . $search;
 }
 $pageTitle = implode(' - ', $titleParts);
 $pageDescription = 'Shop herbal agricultural products - fertilizers, pesticides, insecticides and crop protection from Saee Life Herbal.';
@@ -46,33 +47,32 @@ echo page_hero($activeCategory ? $activeCategory['name'] : 'Our Products', $acti
   <div class="container">
     <div class="row g-4">
       <aside class="col-lg-3">
-        <div class="filter-card mb-3">
-          <h6><i class="fa-solid fa-magnifying-glass me-2"></i>Search</h6>
-          <form method="get" action="<?= e(Url::to('products.php')) ?>">
-            <div class="input-group">
-              <input type="search" name="q" value="<?= e($search) ?>" class="form-control form-control-sm" placeholder="Product or SKU">
-              <?php if ($categorySlug): ?><input type="hidden" name="category" value="<?= e($categorySlug) ?>"><?php endif; ?>
-              <button class="btn btn-primary btn-sm" type="submit"><i class="fa-solid fa-arrow-right"></i></button>
-            </div>
+        <div class="filter-card catalog-filter">
+          <h6><i class="fa-solid fa-layer-group me-2" aria-hidden="true"></i>Categories</h6>
+          <form method="get" action="<?= e(Url::to('products.php')) ?>" class="catalog-filter-form">
+            <?php if ($sort !== ''): ?><input type="hidden" name="sort" value="<?= e($sort) ?>"><?php endif; ?>
+            <label class="visually-hidden" for="catalogCategory">Filter by category</label>
+            <select class="form-select form-select-sm" id="catalogCategory" name="category" onchange="this.form.submit()">
+              <option value="" <?= $categorySlug === '' ? 'selected' : '' ?>>All products (<?= $allProductsCount ?>)</option>
+              <?php foreach ($categories as $category): ?>
+                <?php $children = get_subcategories((int) $category['id']); ?>
+                <option value="<?= e((string) $category['slug']) ?>" <?= $categorySlug === $category['slug'] ? 'selected' : '' ?>>
+                  <?= e((string) $category['name']) ?> (<?= (int) $category['product_count'] ?>)
+                </option>
+                <?php foreach ($children as $sub): ?>
+                  <option value="<?= e((string) $sub['slug']) ?>" <?= $categorySlug === $sub['slug'] ? 'selected' : '' ?>>
+                    &nbsp;&nbsp;&mdash; <?= e((string) $sub['name']) ?>
+                  </option>
+                <?php endforeach; ?>
+              <?php endforeach; ?>
+            </select>
+            <noscript><button class="btn btn-primary btn-sm w-100 mt-2" type="submit">Apply filter</button></noscript>
           </form>
-        </div>
-        <div class="filter-card mb-3">
-          <h6>Categories</h6>
-          <a class="d-flex justify-content-between py-1 small <?= $categorySlug === '' ? 'fw-bold text-primary' : 'text-dark' ?>" href="<?= e(Url::to('products.php')) ?>">All products <span class="text-muted"><?= count_products([]) ?></span></a>
-          <?php foreach ($categories as $category): ?>
-            <a class="d-flex justify-content-between py-1 small <?= $categorySlug === $category['slug'] ? 'fw-bold text-primary' : 'text-dark' ?>"
-               href="<?= e(Url::to('products.php?category=' . urlencode((string) $category['slug']))) ?>">
-              <?= e($category['name']) ?> <span class="text-muted"><?= (int) $category['product_count'] ?></span>
+          <?php if ($categorySlug !== ''): ?>
+            <a class="d-block small mt-2" href="<?= e(Url::to('products.php')) ?>">
+              <i class="fa-solid fa-xmark me-1" aria-hidden="true"></i>Clear filter
             </a>
-            <?php foreach (get_subcategories((int) $category['id']) as $sub): ?>
-              <a class="d-block ps-3 py-1 small text-muted <?= $categorySlug === $sub['slug'] ? 'fw-bold text-primary' : '' ?>" href="<?= e(Url::to('products.php?category=' . urlencode((string) $sub['slug']))) ?>">– <?= e($sub['name']) ?></a>
-            <?php endforeach; ?>
-          <?php endforeach; ?>
-        </div>
-        <div class="filter-card">
-          <h6>Need advice?</h6>
-          <p class="small text-muted mb-2">Not sure which product fits your crop stage?</p>
-          <a href="<?= e(Url::to('contact-us')) ?>" class="btn btn-outline-primary btn-sm w-100">Ask an agronomist</a>
+          <?php endif; ?>
         </div>
       </aside>
 
@@ -80,10 +80,9 @@ echo page_hero($activeCategory ? $activeCategory['name'] : 'Our Products', $acti
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
           <div class="small text-muted"><?= $pager->infoText() ?> products</div>
           <form method="get" class="d-flex align-items-center gap-2">
-            <?php if ($search !== ''): ?><input type="hidden" name="q" value="<?= e($search) ?>"><?php endif; ?>
             <?php if ($categorySlug !== ''): ?><input type="hidden" name="category" value="<?= e($categorySlug) ?>"><?php endif; ?>
-            <label class="small text-muted mb-0">Sort</label>
-            <select name="sort" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width:170px">
+            <label class="small text-muted mb-0" for="catalogSort">Sort</label>
+            <select id="catalogSort" name="sort" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width:170px">
               <?php foreach (['newest' => 'Newest first', 'price_low' => 'Price: low to high', 'price_high' => 'Price: high to low', 'name' => 'Name A-Z', 'popular' => 'Most viewed'] as $key => $label): ?>
                 <option value="<?= e($key) ?>" <?= $sort === $key ? 'selected' : '' ?>><?= e($label) ?></option>
               <?php endforeach; ?>
@@ -95,17 +94,30 @@ echo page_hero($activeCategory ? $activeCategory['name'] : 'Our Products', $acti
           <div class="panel p-5 text-center">
             <i class="fa-solid fa-box-open fs-1 text-muted mb-3"></i>
             <h2 class="h5">No products found</h2>
-            <p class="text-muted small">Try a different search term or category.</p>
-            <a href="<?= e(Url::to('products.php')) ?>" class="btn btn-primary btn-sm">Reset filters</a>
+            <p class="text-muted small">No products are listed in this category yet.</p>
+            <a href="<?= e(Url::to('products.php')) ?>" class="btn btn-primary btn-sm">Show all products</a>
           </div>
         <?php else: ?>
-          <div class="row g-4">
+          <?php // 4 per row on desktop, 2 per row on phones. ?>
+          <div class="row g-3 g-lg-4 catalog-grid">
             <?php foreach ($products as $product): ?>
-              <div class="col-6 col-xl-4 reveal"><?php include INCLUDES_PATH . '/product-card.php'; ?></div>
+              <div class="col-6 col-lg-3 reveal"><?php include INCLUDES_PATH . '/product-card.php'; ?></div>
             <?php endforeach; ?>
           </div>
-          <div class="d-flex justify-content-center mt-4"><?= $pager->links(['q' => $search, 'category' => $categorySlug, 'sort' => $sort]) ?></div>
+          <div class="d-flex justify-content-center mt-4"><?= $pager->links(['category' => $categorySlug, 'sort' => $sort]) ?></div>
         <?php endif; ?>
+
+        <?php // Agronomy help sits after the products, not above them. ?>
+        <div class="advice-banner mt-4">
+          <div class="advice-icon" aria-hidden="true"><i class="fa-solid fa-headset"></i></div>
+          <div class="advice-copy">
+            <h3 class="h6 mb-1">Need advice?</h3>
+            <p class="small mb-0">Not sure which product fits your crop stage? Our agronomy team helps you pick the right input, dose and spray schedule for your soil, crop and district.</p>
+          </div>
+          <a class="btn btn-primary btn-sm" href="<?= e(Url::to('contact-us')) ?>">
+            <i class="fa-solid fa-comments me-1" aria-hidden="true"></i>Ask an agronomist
+          </a>
+        </div>
       </div>
     </div>
   </div>

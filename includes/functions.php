@@ -127,16 +127,33 @@ function get_product_videos(int $productId): array
 
 function get_related_products(int $productId, ?int $categoryId, int $limit = 4): array
 {
-    $sql = "SELECT p.*, c.name AS category_name FROM products p LEFT JOIN product_categories c ON c.id = p.category_id
-            WHERE p.status = 'active' AND p.id <> :id";
-    $params = ['id' => $productId];
+    $SQL = static function (string $extra, array $params, int $limit): array {
+        $sql = "SELECT p.*, c.name AS category_name FROM products p LEFT JOIN product_categories c ON c.id = p.category_id
+                WHERE p.status = 'active' AND p.id <> :id" . $extra;
+        $sql .= ' ORDER BY p.is_featured DESC, ' . (db()->driver() === 'sqlite' ? 'RANDOM()' : 'RAND()')
+            . ' LIMIT ' . (int) $limit;
+        return db()->select($sql, $params);
+    };
+
+    $rows = [];
+    // Same category first — but a sparse category (one or two products) would leave the
+    // "You may also like" row half empty, so top it up with the rest of the catalogue.
     if ($categoryId) {
-        $sql .= ' AND p.category_id = :cat';
-        $params['cat'] = $categoryId;
+        $rows = $SQL(' AND p.category_id = :cat', ['id' => $productId, 'cat' => $categoryId], $limit);
     }
-    $sql .= ' ORDER BY p.is_featured DESC, RANDOM_LIMIT';
-    $sql = str_replace('RANDOM_LIMIT', db()->driver() === 'sqlite' ? 'RANDOM()' : 'RAND()', $sql) . ' LIMIT ' . (int) $limit;
-    return db()->select($sql, $params);
+    if (count($rows) < $limit) {
+        $seen = array_column($rows, 'id');
+        $seen[] = $productId;
+        $placeholders = implode(',', array_fill(0, count($seen), '?'));
+        $fill = db()->select(
+            "SELECT p.*, c.name AS category_name FROM products p LEFT JOIN product_categories c ON c.id = p.category_id
+             WHERE p.status = 'active' AND p.id NOT IN ($placeholders)
+             ORDER BY p.is_featured DESC, p.sort_order ASC, p.id DESC LIMIT " . (int) ($limit - count($rows)),
+            array_values($seen)
+        );
+        $rows = array_merge($rows, $fill);
+    }
+    return $rows;
 }
 
 function get_blogs(array $options = []): array

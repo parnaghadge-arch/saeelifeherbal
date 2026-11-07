@@ -41,8 +41,26 @@ $extraScripts = (new SeoService(db()))->productSchema($product, ['name' => $prod
     . (new SeoService(db()))->breadcrumbSchema(['Home' => Url::absoluteBase() . '/', 'Products' => Url::to('our-products'), $product['name'] => product_url((string) $product['slug'])]);
 
 require INCLUDES_PATH . '/header.php';
-echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' => 'our-products', ($product['category_name'] ?? 'Category') => 'products.php?category=' . urlencode((string) ($product['category_slug'] ?? '')), $product['name'] => '']);
 ?>
+<?php // A slim identity band instead of the tall marketing hero: the product name, its
+      // category and the breadcrumb, so the spec sheet starts higher on the page. ?>
+<div class="product-idband">
+  <div class="container">
+    <?php // breadcrumbs() prepends Home itself. ?>
+    <?= breadcrumbs(['Products' => 'our-products', ($product['category_name'] ?? 'Category') => 'products.php?category=' . urlencode((string) ($product['category_slug'] ?? '')), $product['name'] => '']) ?>
+    <div class="product-idband-row">
+      <div class="min-w-0">
+        <h1><?= e($product['name']) ?></h1>
+        <p class="product-idband-meta">
+          <?php if ($product['category_name']): ?><span><i class="fa-solid fa-layer-group"></i><?= e($product['category_name']) ?></span><?php endif; ?>
+          <?php if (!empty($product['sku'])): ?><span><i class="fa-solid fa-barcode"></i>SKU <?= e((string) $product['sku']) ?></span><?php endif; ?>
+          <span><i class="fa-solid <?= $stock > 0 ? 'fa-circle-check' : 'fa-circle-xmark' ?>"></i><?= $stock > 0 ? 'In stock (' . $stock . ' units)' : 'Out of stock' ?></span>
+        </p>
+      </div>
+      <?php if ($discount > 0): ?><span class="product-idband-off"><?= $discount ?>% OFF</span><?php endif; ?>
+    </div>
+  </div>
+</div>
 <section class="section">
   <div class="container">
     <div class="row g-4 g-lg-5">
@@ -99,31 +117,25 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
       </div>
 
       <div class="col-lg-6">
-        <div class="mb-2">
-          <?php if ($product['category_name']): ?>
-            <a class="product-cat d-inline-block" href="<?= e(Url::to('products.php?category=' . urlencode((string) $product['category_slug']))) ?>"><?= e($product['category_name']) ?></a>
-          <?php endif; ?>
-        </div>
-        <h1 class="h2 mb-2"><?= e($product['name']) ?></h1>
-        <?php if ($product['sku']): ?><p class="small text-muted mb-2">SKU: <?= e($product['sku']) ?></p><?php endif; ?>
-        <p class="text-muted"><?= e($product['short_description']) ?></p>
+        <div class="product-buy">
+          <p class="product-lede"><?= e($product['short_description']) ?></p>
 
-        <div class="product-price mb-3">
-          <span class="now" style="font-size:1.7rem"><?= money($product['price']) ?></span>
-          <?php if ($discount > 0): ?>
-            <span class="was"><?= money($product['mrp']) ?></span>
-            <span class="off"><?= $discount ?>% OFF</span>
-          <?php endif; ?>
-          <span class="small text-muted ms-2">incl. of applicable taxes</span>
-        </div>
+          <div class="product-price">
+            <span class="now"><?= money($product['price']) ?></span>
+            <?php if ($discount > 0): ?>
+              <span class="was"><?= money($product['mrp']) ?></span>
+              <span class="off"><?= $discount ?>% OFF</span>
+            <?php endif; ?>
+            <span class="price-note">incl. of applicable taxes</span>
+          </div>
 
-        <div class="trust-strip mb-3">
+        <div class="trust-strip">
           <span><i class="fa-solid fa-box"></i><?= $stock > 0 ? 'In stock (' . $stock . ' units)' : 'Currently out of stock' ?></span>
           <?php if ($product['packaging_sizes']): ?><span><i class="fa-solid fa-flask"></i><?= e($product['packaging_sizes']) ?></span><?php endif; ?>
           <span><i class="fa-solid fa-truck-fast"></i>Dispatch in 1-2 days</span>
         </div>
 
-        <div class="buy-box mb-3">
+        <div class="buy-box">
           <div class="qty-input">
             <button class="qty-btn" type="button" data-qty-step="down" aria-label="Decrease quantity"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
             <input type="number" class="qty-field" value="<?= max(1, (int) $product['min_order_qty']) ?>" min="<?= max(1, (int) $product['min_order_qty']) ?>" step="1" inputmode="numeric" data-qty-input aria-label="Quantity">
@@ -138,31 +150,41 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
           </button>
         </div>
 
-        <?php if ($product['suitable_crops']): ?>
-          <div class="panel p-3 mb-3">
-            <div class="row g-2 small">
-              <div class="col-sm-6"><strong>Suitable crops:</strong><br><?= e($product['suitable_crops']) ?></div>
-              <?php if ($product['target_pests'] && $product['target_pests'] !== '-'): ?>
-                <div class="col-sm-6"><strong>Target pests:</strong><br><?= e($product['target_pests']) ?></div>
-              <?php endif; ?>
-              <?php if ($product['dosage']): ?>
-                <div class="col-sm-6"><strong>Dosage:</strong><br><?= e($product['dosage']) ?></div>
-              <?php endif; ?>
-              <?php if ($product['packaging_sizes']): ?>
-                <div class="col-sm-6"><strong>Pack sizes:</strong><br><?= e($product['packaging_sizes']) ?></div>
-              <?php endif; ?>
+          <?php // Key facts as a definition list — the same shape as a spec sheet, so the
+                // agronomy data reads as reference material rather than marketing copy. ?>
+          <?php
+          $facts = array_filter([
+              'Suitable crops' => $product['suitable_crops'] ?? '',
+              'Target pests' => ($product['target_pests'] && $product['target_pests'] !== '-') ? $product['target_pests'] : '',
+              'Dosage' => $product['dosage'] ?? '',
+              'Pack sizes' => $product['packaging_sizes'] ?? '',
+              'Application' => $product['application_instructions'] ?? '',
+          ], static fn ($v) => trim((string) $v) !== '');
+          ?>
+          <?php if ($facts !== []): ?>
+            <div class="product-facts">
+              <h2 class="product-facts-title">At a glance</h2>
+              <dl>
+                <?php foreach ($facts as $label => $value): ?>
+                  <div class="product-fact">
+                    <dt><?= e($label) ?></dt>
+                    <dd><?= nl2br(e(strip_tags((string) $value))) ?></dd>
+                  </div>
+                <?php endforeach; ?>
+              </dl>
             </div>
-          </div>
-        <?php endif; ?>
+          <?php endif; ?>
 
-        <?php $share = share_links(product_url((string) $product['slug']), $product['name']); ?>
-        <div class="d-flex flex-wrap align-items-center gap-2 small text-muted">
-          <span>Share:</span>
-          <a class="btn btn-sm btn-light-green" href="<?= e($share['whatsapp']) ?>" target="_blank" rel="noopener" aria-label="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>
-          <a class="btn btn-sm btn-light-green" href="<?= e($share['facebook']) ?>" target="_blank" rel="noopener" aria-label="Share on Facebook"><i class="fab fa-facebook-f"></i></a>
-          <a class="btn btn-sm btn-light-green" href="<?= e($share['x']) ?>" target="_blank" rel="noopener" aria-label="Share on X"><i class="fab fa-x-twitter"></i></a>
-          <button class="btn btn-sm btn-light-green" data-copy="<?= e(product_url((string) $product['slug'])) ?>"><i class="fa-regular fa-copy"></i> Copy link</button>
-        </div>
+          </div><!-- /.product-buy -->
+
+          <?php $share = share_links(product_url((string) $product['slug']), $product['name']); ?>
+          <div class="product-share">
+            <span class="product-share-label">Share this product</span>
+            <a class="btn btn-sm btn-light-green" href="<?= e($share['whatsapp']) ?>" target="_blank" rel="noopener" aria-label="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>
+            <a class="btn btn-sm btn-light-green" href="<?= e($share['facebook']) ?>" target="_blank" rel="noopener" aria-label="Share on Facebook"><i class="fab fa-facebook-f"></i></a>
+            <a class="btn btn-sm btn-light-green" href="<?= e($share['x']) ?>" target="_blank" rel="noopener" aria-label="Share on X"><i class="fab fa-x-twitter"></i></a>
+            <button class="btn btn-sm btn-light-green" data-copy="<?= e(product_url((string) $product['slug'])) ?>"><i class="fa-regular fa-copy"></i><span>Copy link</span></button>
+          </div>
       </div>
     </div>
 
@@ -187,6 +209,13 @@ echo page_hero($product['name'], $product['category_name'] ?? '', ['Products' =>
         if (trim((string) $content) === '') {
             continue;
         }
+        // The page already shows the product name in the identity band; a description that
+        // opens with its own <h1>/<h2> repeating the name reads as a duplicate heading.
+        $content = preg_replace(
+            '#^\s*<h[12][^>]*>\s*' . preg_quote(trim((string) $product['name']), '#') . '\s*</h[12]>\s*#i',
+            '',
+            (string) $content
+        );
         $tabContent[$key] = $content;
     }
     ?>

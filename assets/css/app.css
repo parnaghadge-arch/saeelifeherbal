@@ -760,12 +760,23 @@ a:hover { color: var(--saee-dark); }
 /* the sticky panel needs room to travel: give the section a min height so the rail and the
    panel stay pinned while long content scrolls inside the panel itself */
 @media (min-width: 992px) {
-  .product-tabs { min-height: 420px; }
-  .product-tab-panel { min-height: min(70vh, 560px); }
-  /* comfortable two-column prose inside the panel so the panel rarely needs its own scroll */
-  .product-tab-panel .prose { column-gap: 2rem; }
+  /* The panel is a document, not a viewport: size it to its content and let the page scroll,
+     with only a reasonable ceiling before the panel gets its own scrollbar. */
+  .product-tabs { min-height: 0; }
+  .product-tab-panel { min-height: 240px; max-height: none; }
 }
 .product-tab-panel:focus-visible { outline: 2px solid var(--saee-primary); outline-offset: 2px; }
+/* editorial rhythm inside the panel: a section rule under each heading, tidy measure */
+.product-tab-panel .prose { font-size: .96rem; line-height: 1.72; max-width: 74ch; }
+.product-tab-panel .prose > :first-child { margin-top: 0; }
+.product-tab-panel .prose h2 { font-size: 1.18rem; margin: 1.9rem 0 .7rem; padding-bottom: .45rem; border-bottom: 1px solid var(--saee-border); }
+.product-tab-panel .prose h3 { font-size: 1.02rem; margin: 1.5rem 0 .5rem; color: var(--saee-dark); }
+.product-tab-panel .prose h2:first-child, .product-tab-panel .prose h3:first-child { margin-top: 0; }
+.product-tab-panel .prose p { margin-bottom: .85rem; }
+.product-tab-panel .prose ul, .product-tab-panel .prose ol { padding-left: 1.15rem; }
+.product-tab-panel .prose li { margin-bottom: .35rem; }
+.product-tab-panel .prose table { font-size: .88rem; }
+.product-tab-panel .prose table th { width: 38%; text-align: left; font-weight: 600; }
 @media (max-width: 991.98px) {
   .product-tabs { grid-template-columns: minmax(0, 1fr); gap: .85rem; }
   /* phones/tablets: the tab list becomes a pinned horizontal pill row */
@@ -797,6 +808,74 @@ a:hover { color: var(--saee-dark); }
 .trust-strip span { display: inline-flex; align-items: center; gap: .4rem; }
 .trust-strip i { color: var(--saee-primary); }
 
+/* ---------------------------------------------------------------- product detail */
+/* slim identity band in place of the tall marketing hero */
+.product-idband {
+  background: linear-gradient(105deg, #14532d 0%, #247a3c 100%);
+  color: #fff; padding: 1.1rem 0 1.4rem;
+}
+.product-idband .breadcrumb { margin-bottom: .65rem; }
+.product-idband .breadcrumb a,
+.product-idband .breadcrumb-item { color: rgba(255, 255, 255, .72); font-size: .78rem; }
+.product-idband .breadcrumb-item + .breadcrumb-item::before { color: rgba(255, 255, 255, .45); }
+.product-idband .breadcrumb-item.active { color: #fff; }
+.product-idband-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.product-idband h1 { font-size: clamp(1.35rem, 2.4vw, 1.95rem); line-height: 1.2; margin-bottom: .45rem; color: #fff; }
+.product-idband-meta { display: flex; flex-wrap: wrap; gap: .35rem 1.15rem; margin: 0; font-size: .82rem; color: rgba(255, 255, 255, .82); }
+.product-idband-meta span { display: inline-flex; align-items: center; gap: .4rem; }
+.product-idband-meta i { opacity: .8; }
+.product-idband-off {
+  align-self: center; flex: 0 0 auto; background: #eafff0; color: #14532d;
+  font-family: var(--saee-font-heading); font-weight: 700; font-size: .8rem;
+  padding: .35rem .7rem; border-radius: 999px; letter-spacing: .02em;
+}
+
+/* right-hand purchase column, grouped into one card */
+.product-buy {
+  border: 1px solid var(--saee-border); border-radius: var(--saee-radius);
+  background: #fff; padding: 1.25rem; box-shadow: var(--saee-shadow-sm);
+}
+.product-lede { color: var(--saee-muted); font-size: .95rem; margin-bottom: .85rem; }
+.product-buy .product-price { margin-bottom: .1rem; }
+.product-buy .product-price .now { font-size: 1.75rem; letter-spacing: -.01em; }
+.product-buy .price-note { font-size: .74rem; color: var(--saee-muted); }
+.product-buy .trust-strip { padding: .7rem 0 .9rem; border-bottom: 1px solid var(--saee-border); margin-bottom: 1rem; }
+.product-buy .buy-box { margin-bottom: 0; }
+
+/* "At a glance" reference list — reads like a datasheet, not a marketing block */
+.product-facts { margin-top: 1.25rem; border: 1px solid var(--saee-border); border-radius: var(--saee-radius); background: #fff; overflow: hidden; }
+.product-facts-title {
+  font-size: .76rem; text-transform: uppercase; letter-spacing: .09em; color: var(--saee-muted);
+  margin: 0; padding: .7rem 1rem; background: var(--saee-light); border-bottom: 1px solid var(--saee-border);
+  font-weight: 600;
+}
+.product-facts dl { margin: 0; }
+.product-fact { display: grid; grid-template-columns: minmax(0, 34%) minmax(0, 1fr); gap: .75rem; padding: .6rem 1rem; border-bottom: 1px solid var(--saee-border); }
+.product-fact:last-child { border-bottom: 0; }
+.product-fact dt { font-size: .8rem; font-weight: 500; color: var(--saee-dark); }
+.product-fact dd { margin: 0; font-size: .85rem; color: #37474F; }
+.product-share { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-top: 1rem; }
+.product-share-label { font-size: .78rem; color: var(--saee-muted); margin-right: .25rem; }
+.product-share .btn { display: inline-flex; align-items: center; gap: .35rem; }
+.product-share .btn i { margin: 0; }
+
+@media (max-width: 767.98px) {
+  .product-idband { padding: .85rem 0 1.05rem; }
+  .product-idband .breadcrumb { font-size: .72rem; margin-bottom: .5rem; }
+  .product-idband-meta { gap: .3rem .8rem; font-size: .76rem; }
+  .product-buy { padding: 1rem; }
+  .product-buy .product-price { gap: .35rem; }
+  .product-buy .product-price .now { font-size: 1.5rem; }
+  .product-buy .price-note { flex-basis: 100%; }
+  .product-fact { grid-template-columns: minmax(0, 1fr); gap: .15rem; padding: .55rem .85rem; }
+  .product-fact dt { color: var(--saee-muted); }
+  .product-facts-title { padding: .6rem .85rem; }
+  /* keep the share chips on one line: icon-only socials + a compact copy button */
+  .product-share { gap: .35rem; }
+  .product-share-label { flex-basis: 100%; margin-bottom: .15rem; }
+  .product-share .btn { padding: .3rem .55rem; font-size: .78rem; }
+}
+
 /* cart / checkout */
 .cart-line { display: flex; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--saee-border); }
 .cart-line img { width: 84px; height: 84px; object-fit: cover; border-radius: var(--saee-radius-sm); background: var(--saee-light); }
@@ -811,6 +890,36 @@ a:hover { color: var(--saee-dark); }
 .filter-card { background: #fff; border: 1px solid var(--saee-border); border-radius: var(--saee-radius); padding: 1.25rem; }
 .filter-card h6 { font-size: .82rem; text-transform: uppercase; letter-spacing: .08em; color: var(--saee-muted); margin-bottom: .8rem; }
 .filter-card .form-check { margin-bottom: .5rem; font-size: .9rem; }
+
+/* catalogue: one category dropdown instead of a search box + long link list */
+.catalog-filter-form select { font-size: .9rem; padding: .55rem .7rem; border-radius: 10px; }
+.catalog-filter .btn-link, .catalog-filter a.small { color: var(--saee-primary); text-decoration: none; font-weight: 500; }
+/* 4 products per row on desktop, 2 on phones (the column classes are stock Bootstrap;
+   the grid wrapper only evens the row out when the last page has a single card) */
+.catalog-grid > [class*='col-'] { display: flex; }
+.catalog-grid .product-card { width: 100%; }
+
+/* agronomy help banner, shown after the product grid */
+.advice-banner {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  background: linear-gradient(120deg, var(--saee-light), #fff 65%);
+  border: 1px solid var(--saee-border); border-left: 4px solid var(--saee-primary);
+  border-radius: var(--saee-radius); padding: 1.1rem 1.25rem;
+}
+.advice-banner .advice-icon {
+  width: 46px; height: 46px; flex: 0 0 auto; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--saee-primary); color: #fff; font-size: 1.1rem; padding: 2px;
+}
+.advice-banner .advice-copy { flex: 1 1 260px; min-width: 0; }
+.advice-banner .advice-copy h3 { color: var(--saee-dark); }
+.advice-banner .advice-copy p { color: var(--saee-muted); }
+.advice-banner .btn { flex: 0 0 auto; }
+@media (max-width: 575.98px) {
+  .advice-banner { padding: .95rem 1rem; gap: .7rem; }
+  .advice-banner .advice-copy { flex-basis: 100%; }
+  .advice-banner .btn { width: 100%; }
+}
 
 /* gallery & video */
 .gallery-item { position: relative; border-radius: var(--saee-radius); overflow: hidden; display: block; }
