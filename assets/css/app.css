@@ -891,9 +891,39 @@ a:hover { color: var(--saee-dark); }
 .filter-card h6 { font-size: .82rem; text-transform: uppercase; letter-spacing: .08em; color: var(--saee-muted); margin-bottom: .8rem; }
 .filter-card .form-check { margin-bottom: .5rem; font-size: .9rem; }
 
-/* catalogue: one category dropdown instead of a search box + long link list */
-.catalog-filter-form select { font-size: .9rem; padding: .55rem .7rem; border-radius: 10px; }
-.catalog-filter .btn-link, .catalog-filter a.small { color: var(--saee-primary); text-decoration: none; font-weight: 500; }
+/* catalogue: a categories + sort toolbar that sits above a full-width product grid.
+   The two controls share a row at every width — including phones, where they split the
+   line evenly instead of stacking. */
+.catalog-toolbar {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem 1rem;
+  align-items: end; margin-bottom: .9rem;
+}
+.catalog-toolbar-field { min-width: 0; }
+.catalog-toolbar-label {
+  display: flex; align-items: center; gap: .4rem; margin-bottom: .3rem;
+  font-size: .72rem; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--saee-muted); font-weight: 600;
+}
+.catalog-toolbar-label i { color: var(--saee-primary); font-size: .78rem; }
+.catalog-toolbar-form { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+.catalog-toolbar-form select {
+  width: 100%; min-width: 0; font-size: .88rem; padding: .5rem .7rem; border-radius: 10px;
+  border-color: var(--saee-border);
+}
+.catalog-toolbar-form select:focus { border-color: var(--saee-primary); box-shadow: 0 0 0 .18rem rgba(36, 122, 60, .15); }
+.catalog-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; flex-wrap: wrap; }
+.catalog-clear { color: var(--saee-primary); text-decoration: none; font-weight: 500; }
+.catalog-clear:hover { text-decoration: underline; }
+@media (min-width: 992px) {
+  /* a little more presence on desktop: the bar spans the full catalogue width */
+  .catalog-toolbar { grid-template-columns: minmax(0, 340px) minmax(0, 260px); gap: 1rem 1.25rem; }
+  .catalog-toolbar-form select { font-size: .9rem; padding: .55rem .8rem; }
+}
+@media (max-width: 575.98px) {
+  .catalog-toolbar { gap: .5rem; }
+  .catalog-toolbar-label { font-size: .66rem; gap: .3rem; margin-bottom: .22rem; }
+  .catalog-toolbar-form select { font-size: .8rem; padding: .45rem .5rem; border-radius: 8px; }
+}
 /* 4 products per row on desktop, 2 on phones (the column classes are stock Bootstrap;
    the grid wrapper only evens the row out when the last page has a single card) */
 .catalog-grid > [class*='col-'] { display: flex; }
