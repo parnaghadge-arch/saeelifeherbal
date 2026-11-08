@@ -162,6 +162,46 @@ if ($command === 'doctor') {
         echo 'Tables installed: no — run: php tools/console.php install' . PHP_EOL;
     }
 
+    // Schema drift: a live database can be missing tables or columns that the current code
+    // reads. Drift is what produces "Unknown column" errors that never show up on a fresh
+    // install, so it is worth reporting before a page does.
+    echo PHP_EOL . 'Schema drift:' . PHP_EOL;
+    try {
+        $probe = Database::instance();
+        $missingTables = [];
+        $missingColumns = [];
+        foreach (\Saee\Lib\Schema::tables() as $table => $definition) {
+            $cols = [];
+            try {
+                if ($probe->driver() === 'mysql') {
+                    foreach ($probe->select('SHOW COLUMNS FROM `' . $table . '`') as $row) {
+                        $cols[] = (string) $row['Field'];
+                    }
+                } else {
+                    foreach ($probe->select('PRAGMA table_info("' . $table . '")') as $row) {
+                        $cols[] = (string) $row['name'];
+                    }
+                }
+            } catch (Throwable) {
+                $missingTables[] = $table;
+                continue;
+            }
+            foreach (array_keys($definition['columns']) as $column) {
+                if (!in_array($column, $cols, true)) {
+                    $missingColumns[] = $table . '.' . $column;
+                }
+            }
+        }
+        $line($missingTables === [], 'Tables', $missingTables === [] ? 'all present' : 'missing: ' . implode(', ', $missingTables));
+        $line($missingColumns === [], 'Columns', $missingColumns === [] ? 'all present' : count($missingColumns) . ' missing: ' . implode(', ', array_slice($missingColumns, 0, 8)) . (count($missingColumns) > 8 ? ' …' : ''));
+        if ($missingTables !== [] || $missingColumns !== []) {
+            echo '  Fix: php tools/console.php upgrade' . PHP_EOL;
+            $ok = false;
+        }
+    } catch (Throwable $e) {
+        $line(false, 'Schema drift check', $e->getMessage());
+    }
+
     echo PHP_EOL . ($ok ? 'Everything looks good.' : 'Fix the [FAIL] lines above, then run install again.') . PHP_EOL;
     exit($ok ? 0 : 1);
 }
@@ -250,9 +290,25 @@ switch ($command) {
     case 'upgrade':
         $created = \Saee\Lib\Schema::ensureTables($db);
         if ($created === []) {
-            echo "Schema already up to date — no missing tables." . PHP_EOL;
+            echo "No missing tables." . PHP_EOL;
         } else {
             echo "Created " . count($created) . " table(s): " . implode(', ', $created) . PHP_EOL;
+        }
+        // Report (and repair) column drift too: ensureTables() already ran ensureColumns()
+        // for every existing table, so re-run it here purely to print what was added.
+        $addedColumns = [];
+        foreach (\Saee\Lib\Schema::tables() as $table => $definition) {
+            foreach (\Saee\Lib\Schema::ensureColumns($db, $table, $definition) as $entry) {
+                $addedColumns[] = $entry;
+            }
+        }
+        if ($addedColumns === []) {
+            echo "No missing columns." . PHP_EOL;
+        } else {
+            echo "Added " . count($addedColumns) . " missing column(s): " . implode(', ', $addedColumns) . PHP_EOL;
+        }
+        if ($created === [] && $addedColumns === []) {
+            echo "Schema already up to date." . PHP_EOL;
         }
         // 2026-11 menu simplification: the public header is now a flat list with no submenus,
         // Products opens the full catalogue, Solutions opens agriculture solutions and Gallery

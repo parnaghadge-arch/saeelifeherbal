@@ -1192,12 +1192,138 @@ final class Schema
                 $db->statement(self::createTableSql($db->driver(), $table, $definition));
                 $created[] = $table;
             }
+            // Existing tables can also be missing columns that a later feature introduced
+            // (a live database created before that feature existed). ensureTables() used to
+            // stop at whole tables, which left such installs erroring with "Unknown column"
+            // on MySQL long after the code had moved on.
+            foreach (self::tables() as $table => $definition) {
+                if (!in_array($table, $existing, true)) {
+                    continue;
+                }
+                self::ensureColumns($db, $table, $definition);
+            }
         } finally {
             if ($mysql) {
                 $db->statement('SET FOREIGN_KEY_CHECKS = 1');
             }
         }
         return $created;
+    }
+
+    /**
+     * Add any column declared in the schema but absent from an existing table.
+     *
+     * A live table can lag behind the schema for two reasons: an older release did not have
+     * the column, or a previous schema edit added it. Both are repaired here. Only ADD COLUMN
+     * is performed — columns are never dropped, retyped or reordered, and a column the site
+     * added by hand is left alone. Added columns have no foreign key (MySQL rejects
+     * ADD COLUMN ... REFERENCES without a full constraint) and never carry NOT NULL without a
+     * default, so the statement cannot fail on a table that already has rows.
+     *
+     * @return list<string> "table.column" entries that were added
+     */
+    public static function ensureColumns(Database $db, string $table, array $definition): array
+    {
+        $driver = $db->driver();
+        try {
+            $present = [];
+            if ($driver === 'mysql') {
+                foreach ($db->select('SHOW COLUMNS FROM ' . self::ident($driver, $table)) as $row) {
+                    $present[] = (string) $row['Field'];
+                }
+            } else {
+                foreach ($db->select('PRAGMA table_info(' . self::ident($driver, $table) . ')') as $row) {
+                    $present[] = (string) $row['name'];
+                }
+            }
+        } catch (Throwable) {
+            return [];
+        }
+        if ($present === []) {
+            return [];
+        }
+
+        $added = [];
+        foreach ($definition['columns'] as $name => $spec) {
+            if (in_array($name, $present, true)) {
+                continue;
+            }
+            $alterSpec = self::alterColumnSql($driver, $name, $spec);
+            try {
+                $db->statement(sprintf(
+                    'ALTER TABLE %s ADD COLUMN %s',
+                    self::ident($driver, $table),
+                    $alterSpec
+                ));
+                $added[] = $table . '.' . $name;
+            } catch (Throwable) {
+                // Never let a repair statement break the upgrade run.
+            }
+        }
+        return $added;
+    }
+
+    /**
+     * Column definition for ALTER TABLE ADD COLUMN.
+     *
+     * Deliberately different from columnSql(): MySQL refuses "ADD COLUMN … REFERENCES"
+     * unless a named constraint is supplied separately, and NOT NULL without a default fails
+     * on a table that already has rows. So an added column is always NULLable, never carries
+     * a foreign key, and never carries a unique index — it exists only so the code that reads
+     * it stops hitting "Unknown column".
+     */
+    private static function alterColumnSql(string $driver, string $name, string $spec): string
+    {
+        $tokens = explode('|', $spec);
+        $type = array_shift($tokens);
+        $default = null;
+        foreach ($tokens as $flag) {
+            if (str_starts_with($flag, 'default:')) {
+                $default = substr($flag, 8);
+            }
+        }
+
+        $map = [
+            'text' => $driver === 'mysql' ? 'TEXT' : 'TEXT',
+            'longtext' => $driver === 'mysql' ? 'LONGTEXT' : 'TEXT',
+            'json' => $driver === 'mysql' ? 'JSON' : 'TEXT',
+            'bool' => $driver === 'mysql' ? 'TINYINT(1)' : 'INTEGER',
+            'int' => $driver === 'mysql' ? 'INT' : 'INTEGER',
+            'tinyint' => $driver === 'mysql' ? 'TINYINT' : 'INTEGER',
+            'bigint' => $driver === 'mysql' ? 'BIGINT' : 'INTEGER',
+            'money' => $driver === 'mysql' ? 'DECIMAL(14,2)' : 'NUMERIC',
+            'date' => 'DATE',
+            'datetime' => 'DATETIME',
+            'pk' => $driver === 'mysql' ? 'BIGINT UNSIGNED' : 'INTEGER',
+        ];
+
+        if (isset($map[$type])) {
+            $typeSql = $map[$type];
+        } elseif (str_starts_with($type, 'fk:')) {
+            $typeSql = $driver === 'mysql' ? 'BIGINT UNSIGNED' : 'INTEGER';
+        } elseif (str_starts_with($type, 'string:')) {
+            $typeSql = $driver === 'mysql' ? 'VARCHAR(' . (int) substr($type, 7) . ')' : 'TEXT';
+        } elseif (str_starts_with($type, 'decimal:')) {
+            $typeSql = $driver === 'mysql' ? 'DECIMAL(' . substr($type, 8) . ')' : 'NUMERIC';
+        } elseif (str_starts_with($type, 'enum:')) {
+            if ($driver === 'mysql') {
+                $values = explode(',', substr($type, 5));
+                $quoted = implode(',', array_map(fn ($v) => "'" . str_replace("'", "''", $v) . "'", $values));
+                $typeSql = "ENUM($quoted)";
+            } else {
+                $typeSql = 'TEXT';
+            }
+        } else {
+            $typeSql = $driver === 'mysql' ? 'VARCHAR(191)' : 'TEXT';
+        }
+
+        $sql = self::ident($driver, $name) . ' ' . $typeSql . ' NULL';
+        if ($default !== null) {
+            $sql .= ' DEFAULT ' . $default;
+        } elseif ($type === 'bool') {
+            $sql .= ' DEFAULT 0';
+        }
+        return $sql;
     }
 
     public static function dropAll(Database $db): void

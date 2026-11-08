@@ -131,7 +131,7 @@ final class Uploader
                 imagesavealpha($resized, true);
             }
             imagecopyresampled($resized, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-            imagedestroy($source);
+            self::releaseImage($source);
             $source = $resized;
             $width = $newWidth;
             $height = $newHeight;
@@ -143,7 +143,7 @@ final class Uploader
             'image/gif' => imagegif($source, $absolute),
             default => null,
         };
-        imagedestroy($source);
+        self::releaseImage($source);
         return ['width' => $width, 'height' => $height];
     }
 
@@ -207,5 +207,13 @@ final class Uploader
             return false;
         }
         return is_file($absolute) && @unlink($absolute);
+    }
+
+    /** Free an image handle, without the PHP 8.4+ deprecation on imagedestroy(). */
+    private static function releaseImage(mixed $image): void
+    {
+        if ($image instanceof \GdImage && PHP_VERSION_ID < 80400 && function_exists('imagedestroy')) {
+            @imagedestroy($image);
+        }
     }
 }
