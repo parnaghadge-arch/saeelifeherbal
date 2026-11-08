@@ -151,7 +151,7 @@ window.addEventListener("load", function () {
     type: "bar",
     data: { labels: data.labels, datasets: [{ label: "Revenue", data: data.revenue, backgroundColor: "rgba(36,122,60,.75)", borderRadius: 6 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, ticks: { callback: function (v) { return "₹" + v; } } }, x: { grid: { display: false } } } }
+      scales: { y: { beginAtZero: true, ticks: { callback: function (v) { return "\u{20B9}" + v; } } }, x: { grid: { display: false } } } }
   });
 });
 </script>';

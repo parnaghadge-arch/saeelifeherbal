@@ -75,6 +75,13 @@ set_exception_handler(static function (Throwable $e): void {
     }
 });
 
+// Default charset. Without this PHP falls back to php.ini's default_charset, which on some
+// hosts is ISO-8859-1; the browser then mis-decodes the UTF-8 rupee sign in every price.
+if (!headers_sent() && PHP_SAPI !== 'cli') {
+    ini_set('default_charset', 'UTF-8');
+    header('Content-Type: text/html; charset=UTF-8');
+}
+
 // Security headers for every response.
 if (!headers_sent() && PHP_SAPI !== 'cli') {
     header('X-Content-Type-Options: nosniff');

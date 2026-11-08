@@ -155,6 +155,25 @@ if ($command === 'doctor') {
         . '  APP_URL=' . ((string) \Saee\Lib\Config::get('app.url', '') ?: '(auto)') . PHP_EOL;
     echo '.env file: ' . (is_file(APP_ROOT . '/.env') ? 'found' : 'not present (using defaults / real env vars)') . PHP_EOL;
 
+    // Encoding canary: the rupee sign lives in config/app.php as a \u{20B9} escape, but an
+    // older copy of that file (or one re-saved by an editor) may hold the literal glyph in a
+    // non-UTF-8 encoding. That mangles into digits and shows up inside every price, so it is
+    // checked here rather than discovered on the shop page.
+    echo PHP_EOL . 'Currency encoding:' . PHP_EOL;
+    $symbol = function_exists('currency_symbol') ? currency_symbol() : '';
+    $configSource = @file_get_contents(APP_ROOT . '/config/app.php') ?: '';
+    $configBytes = '';
+    if (preg_match("/define\('CURRENCY_SYMBOL',\s*([^)]+)\)/", $configSource, $m)) {
+        $configBytes = trim($m[1]);
+    }
+    $encodingOk = $symbol !== '' && preg_match('//u', $symbol) === 1 && !preg_match('/[0-9\x{FFFD}]/u', $symbol);
+    $line($encodingOk, 'Currency symbol', 'renders as "' . $symbol . '"' . ($encodingOk ? '' : ' — CORRUPT, every price will be wrong. Replace config/app.php with the current copy from the repository.'));
+    $configFileUtf8 = $configSource === '' || mb_check_encoding($configSource, 'UTF-8');
+    $line($configFileUtf8, 'config/app.php', $configFileUtf8 ? 'valid UTF-8' : 'NOT valid UTF-8 — re-upload the file (FTP/editor saved it in the wrong encoding)');
+    if (!$configFileUtf8) {
+        $ok = false;
+    }
+
     try {
         $tableCount = (int) Database::instance()->value("SELECT COUNT(*) FROM settings");
         echo 'Tables installed: ' . ($tableCount > 0 ? 'yes (settings seeded)' : 'schema present but empty — run: php tools/console.php install') . PHP_EOL;

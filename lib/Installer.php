@@ -110,7 +110,7 @@ final class Installer
             ['robots_txt', "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /member\nDisallow: /api\nDisallow: /install\n", 'text', 'seo'],
             // commerce
             ['store_enabled', '1', 'bool', 'commerce'],
-            ['currency_symbol', '₹', 'string', 'commerce'],
+            ['currency_symbol', "\u{20B9}", 'string', 'commerce'],
             ['ship_flat_rate', '60', 'string', 'commerce'],
             ['free_shipping_above', '1500', 'string', 'commerce'],
             ['gst_percent_default', '0', 'string', 'commerce'],

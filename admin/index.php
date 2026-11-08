@@ -217,7 +217,7 @@ window.addEventListener("load", function () {
       interaction: { mode: "index", intersect: false },
       plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } },
       scales: {
-        y: { beginAtZero: true, ticks: { callback: function (v) { return "₹" + v; }, font: { size: 10 } }, grid: { color: "rgba(0,0,0,.05)" } },
+        y: { beginAtZero: true, ticks: { callback: function (v) { return "\u{20B9}" + v; }, font: { size: 10 } }, grid: { color: "rgba(0,0,0,.05)" } },
         y1: { beginAtZero: true, position: "right", grid: { display: false }, ticks: { precision: 0, font: { size: 10 } } },
         x: { grid: { display: false }, ticks: { maxTicksLimit: 10, font: { size: 10 } } }
       }

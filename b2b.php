@@ -284,7 +284,7 @@ $usp = [
               </div>
               <div class="col-md-6">
                 <label class="form-label" for="annual_turnover">Annual turnover</label>
-                <input type="text" id="annual_turnover" name="annual_turnover" class="form-control<?= invalid_class($errors, 'annual_turnover') ?>" value="<?= old_input('annual_turnover') ?>" placeholder="e.g. ₹50 lakh – ₹1 crore">
+                <input type="text" id="annual_turnover" name="annual_turnover" class="form-control<?= invalid_class($errors, 'annual_turnover') ?>" value="<?= old_input('annual_turnover') ?>" placeholder="e.g. \u{20B9}50 lakh – \u{20B9}1 crore">
                 <?= field_error($errors, 'annual_turnover') ?>
               </div>
               <div class="col-md-6">

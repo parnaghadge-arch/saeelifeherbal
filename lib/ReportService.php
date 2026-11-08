@@ -253,7 +253,7 @@ final class ReportService
         $line = '';
         foreach ($values as $i => $value) {
             $width = (int) (($widths[$i] ?? 60) / 4.4);
-            $value = str_replace(['₹', "\r", "\n"], ['Rs.', ' ', ' '], (string) $value);
+            $value = str_replace(["\u{20B9}", "\r", "\n"], ['Rs.', ' ', ' '], (string) $value);
             $value = preg_replace('/[^\x20-\x7E]/', '?', $value) ?? '';
             $line .= str_pad(mb_substr($value, 0, $width), $width, ' ', STR_PAD_RIGHT) . ' ';
         }

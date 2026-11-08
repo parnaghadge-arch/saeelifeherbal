@@ -36,7 +36,10 @@ define('MAX_UPLOAD_MB', 12);
 
 define('DEFAULT_TIMEZONE', 'Asia/Kolkata');
 define('CURRENCY', 'INR');
-define('CURRENCY_SYMBOL', '₹');
+// Written as the \u{20B9} escape, never the literal glyph: a config file saved or uploaded
+// with the wrong encoding used to turn the rupee sign into stray digits (262145), which
+// then appeared inside every price on the site.
+define('CURRENCY_SYMBOL', "\u{20B9}");
 define('DEFAULT_COMPANY_SPONSOR_ID', 'SAEE00001');
 
 date_default_timezone_set(DEFAULT_TIMEZONE);

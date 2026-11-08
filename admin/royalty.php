@@ -125,7 +125,7 @@ require __DIR__ . '/includes/layout.php';
               <option value="percent" <?= ($editRule['reward_type'] ?? '') === 'percent' ? 'selected' : '' ?>>Percentage</option>
             </select>
           </div>
-          <div class="col-3"><label class="form-label small">Amount ₹</label><input type="number" step="0.01" name="reward_amount" class="form-control form-control-sm" value="<?= e((string) ($editRule['reward_amount'] ?? 0)) ?>"></div>
+          <div class="col-3"><label class="form-label small">Amount (<?= e(currency_symbol()) ?>)</label><input type="number" step="0.01" name="reward_amount" class="form-control form-control-sm" value="<?= e((string) ($editRule['reward_amount'] ?? 0)) ?>"></div>
           <div class="col-3"><label class="form-label small">Percent %</label><input type="number" step="0.01" name="reward_percent" class="form-control form-control-sm" value="<?= e((string) ($editRule['reward_percent'] ?? 0)) ?>"></div>
           <div class="col-12"><label class="form-label small">Description</label><textarea name="description" class="form-control form-control-sm" rows="2"><?= e((string) ($editRule['description'] ?? '')) ?></textarea></div>
           <div class="col-6"><label class="form-label small">Sort order</label><input type="number" name="sort_order" class="form-control form-control-sm" value="<?= (int) ($editRule['sort_order'] ?? 0) ?>"></div>

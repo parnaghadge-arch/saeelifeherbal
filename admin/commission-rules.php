@@ -138,7 +138,7 @@ require __DIR__ . '/includes/layout.php';
         </div>
         <div class="row g-2">
           <div class="col-6"><label class="form-label small">Direct type</label>
-            <select name="direct_type" class="form-select form-select-sm"><option value="percent">Percent</option><option value="fixed">Fixed (₹)</option></select>
+            <select name="direct_type" class="form-select form-select-sm"><option value="percent">Percent</option><option value="fixed">Fixed (\u{20B9})</option></select>
           </div>
           <div class="col-6">
             <label class="form-label small">Direct value</label>
@@ -146,7 +146,7 @@ require __DIR__ . '/includes/layout.php';
             <?= field_error($errors, 'direct_value') ?>
           </div>
           <div class="col-6"><label class="form-label small">Grand direct type</label>
-            <select name="grand_direct_type" class="form-select form-select-sm"><option value="percent">Percent</option><option value="fixed">Fixed (₹)</option></select>
+            <select name="grand_direct_type" class="form-select form-select-sm"><option value="percent">Percent</option><option value="fixed">Fixed (\u{20B9})</option></select>
           </div>
           <div class="col-6">
             <label class="form-label small">Grand direct value</label>
@@ -192,8 +192,8 @@ require __DIR__ . '/includes/layout.php';
           <?php foreach ($rows as $r): ?>
             <tr>
               <td data-label="Product"><div class="small fw-semibold"><?= e((string) ($r['product_name'] ?? '—')) ?></div><div class="small text-muted">#<?= (int) $r['id'] ?> · basis <?= e(str_replace('_', ' ', (string) $r['commission_basis'])) ?></div></td>
-              <td data-label="Direct" class="small"><?= e((string) $r['direct_value']) ?><?= $r['direct_type'] === 'percent' ? '%' : ' ₹' ?></td>
-              <td data-label="Grand direct" class="small"><?= e((string) $r['grand_direct_value']) ?><?= $r['grand_direct_type'] === 'percent' ? '%' : ' ₹' ?></td>
+              <td data-label="Direct" class="small"><?= e((string) $r['direct_value']) ?><?= $r['direct_type'] === 'percent' ? '%' : ' ' . currency_symbol() ?></td>
+              <td data-label="Grand direct" class="small"><?= e((string) $r['grand_direct_value']) ?><?= $r['grand_direct_type'] === 'percent' ? '%' : ' ' . currency_symbol() ?></td>
               <td data-label="Window" class="small"><?= e(format_date((string) $r['effective_from'], 'd M Y')) ?><?= $r['effective_to'] ? ' → ' . e(format_date((string) $r['effective_to'], 'd M Y')) : ' → open' ?></td>
               <td data-label="Status"><?= (int) $r['is_active'] === 1 ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Closed</span>' ?></td>
               <td class="text-end">

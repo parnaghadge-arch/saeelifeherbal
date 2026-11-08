@@ -23,13 +23,49 @@ if (!function_exists('setting')) {
     }
 }
 
+if (!function_exists('currency_symbol')) {
+    /**
+     * The currency symbol to print before an amount.
+     *
+     * CURRENCY_SYMBOL is a literal '₹' in config/app.php. When that file is transferred with
+     * the wrong encoding (or saved as ANSI by an editor, or served with a non-UTF-8 default
+     * charset) those three UTF-8 bytes come back as stray digits — which is how a price of
+     * 940.00 ends up on screen as "262145940.00".
+     *
+     * The constant is only trusted when it is exactly the rupee sign or the ASCII "Rs."/"Rs"
+     * fallback. Anything else that contains ASCII digits or control characters is treated as
+     * corrupt and replaced, so a mangled config file can never leak digits into a price
+     * anywhere on the site. A genuine symbol for another currency (e.g. '$') is left alone.
+     */
+    function currency_symbol(): string
+    {
+        $raw = defined('CURRENCY_SYMBOL') ? (string) CURRENCY_SYMBOL : '';
+        if ($raw === "\u{20B9}" || $raw === 'Rs.' || $raw === 'Rs') {
+            return $raw;
+        }
+        if ($raw === '' || preg_match('//u', $raw) !== 1) {
+            return "\u{20B9}"; // empty, or not even valid UTF-8
+        }
+        // A real currency symbol is one or two printable (non-alphanumeric) characters such as
+        // ₹, $, £, € or "Rs.". Digits, control characters or the U+FFFD replacement character
+        // all mean the bytes were damaged in transit, so fall back to the rupee sign.
+        if (function_exists('mb_strlen') ? mb_strlen($raw, 'UTF-8') > 3 : strlen($raw) > 6) {
+            return "\u{20B9}";
+        }
+        if (preg_match('/[0-9\x00-\x1F\x7F\x{FFFD}]/u', $raw)) {
+            return "\u{20B9}";
+        }
+        return $raw;
+    }
+}
+
 if (!function_exists('money')) {
     /** Format an amount in Indian numbering with the configured currency symbol. */
     function money(float|int|string|null $amount, bool $withSymbol = true, int $decimals = 2): string
     {
         $amount = (float) ($amount ?? 0);
         $formatted = number_format($amount, $decimals, '.', ',');
-        return $withSymbol ? CURRENCY_SYMBOL . $formatted : $formatted;
+        return $withSymbol ? currency_symbol() . $formatted : $formatted;
     }
 }
 
@@ -50,7 +86,7 @@ if (!function_exists('money_in')) {
             $str = $rest . ',' . $last3;
         }
         $out = $str . '.' . str_pad((string) $decimals, 2, '0', STR_PAD_LEFT);
-        return ($negative ? '-' : '') . ($withSymbol ? CURRENCY_SYMBOL : '') . $out;
+        return ($negative ? '-' : '') . ($withSymbol ? currency_symbol() : '') . $out;
     }
 }
 
