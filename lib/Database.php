@@ -20,6 +20,19 @@ final class Database
 {
     private static ?Database $instance = null;
 
+    /**
+     * Collation injected after the comparison operators of derived (function-call) string
+     * expressions, e.g. DATE_FORMAT(col, '%Y-%m') COLLATE utf8mb4_unicode_ci = :m.
+     *
+     * MySQL gives every function result the coercibility COERCIBLE and the *server* default
+     * collation. When the server default and the column collation differ (very common on
+     * shared hosting, where the tables are utf8mb4_unicode_ci but the server/connection
+     * defaults to utf8mb4_general_ci), any comparison between the two raises error 1267
+     * "Illegal mix of collations". Pinning the expression to the app collation fixes it.
+     * Empty means "not yet resolved" and false means "not applicable" (SQLite).
+     */
+    private string|false|null $expressionCollation = null;
+
     private PDO $pdo;
     private string $driver;
     private int $transactionLevel = 0;
@@ -87,6 +100,19 @@ final class Database
                         throw $e;
                     }
                 }
+                // The DSN charset only sets the character set; MySQL then applies that charset's
+                // *default* collation (utf8mb4_general_ci on 5.7/MariaDB). Every table in this
+                // schema is utf8mb4_unicode_ci, and comparing a parameter (utf8mb4_general_ci)
+                // with a column or expression (utf8mb4_unicode_ci) fails with 1267 "Illegal mix
+                // of collations". Pinning the connection collation keeps all sides in agreement.
+                $collation = (string) ($c['collation'] ?? '');
+                if (preg_match('/^[A-Za-z0-9_]+$/', $collation) === 1) {
+                    $this->pdo->exec(sprintf(
+                        'SET NAMES %s COLLATE %s',
+                        (string) ($c['charset'] ?? 'utf8mb4'),
+                        $collation
+                    ));
+                }
                 $this->pdo->exec("SET sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION'");
                 $this->pdo->exec("SET time_zone = '+05:30'");
             }
@@ -120,6 +146,83 @@ final class Database
     public function driver(): string
     {
         return $this->driver;
+    }
+
+    /**
+     * Collation that derived string expressions are pinned to.
+     *
+     * Order of preference: the configured connection collation (config/database.php, which is
+     * applied with SET NAMES ... COLLATE), then the actual collation of the `members` table,
+     * then utf8mb4_unicode_ci as a safe default. Returns false on SQLite.
+     */
+    public function expressionCollation(): string|false
+    {
+        if ($this->expressionCollation !== null) {
+            return $this->expressionCollation;
+        }
+        $this->expressionCollation = false;
+        if ($this->driver !== 'mysql') {
+            return false;
+        }
+        $configured = (string) ($this->config['collation'] ?? '');
+        if (preg_match('/^[A-Za-z0-9_]+$/', $configured) === 1 && str_starts_with($configured, 'utf8')) {
+            return $this->expressionCollation = $configured;
+        }
+        try {
+            $table = $this->pdo->prepare(
+                'SELECT TABLE_COLLATION FROM information_schema.TABLES
+                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t LIMIT 1'
+            );
+            $table->execute(['t' => 'members']);
+            $collation = (string) ($table->fetchColumn() ?: '');
+            if (preg_match('/^[A-Za-z0-9_]+$/', $collation) !== 1) {
+                // `members` missing or no collation recorded: fall back to the database default.
+                $collation = (string) ($this->pdo->query('SELECT @@collation_database')->fetchColumn() ?: '');
+            }
+            if (preg_match('/^[A-Za-z0-9_]+$/', $collation) === 1 && str_starts_with($collation, 'utf8')) {
+                $this->expressionCollation = $collation;
+            }
+        } catch (Throwable) {
+            // Fall through to the app-wide collation below.
+        }
+        if ($this->expressionCollation === false) {
+            // The lookup failed (no information_schema access, restricted account, or the
+            // tables are not created yet). Still pin the expression: an explicit COLLATE
+            // outranks a parameter's coercible collation, so any utf8mb4 collation resolves
+            // 1267. This app's schema is created with utf8mb4_unicode_ci throughout.
+            $this->expressionCollation = 'utf8mb4_unicode_ci';
+        }
+        return $this->expressionCollation;
+    }
+
+    /**
+     * Append a COLLATE clause to a derived string expression (MySQL only).
+     *
+     * MySQL assigns function results the server default collation instead of the column's, so
+     * `DATE_FORMAT(created_at, '%Y-%m') = :m` fails with 1267 on hosts where the two differ.
+     * Anything that is a plain column reference is returned untouched.
+     */
+    public function withExpressionCollation(string $expression): string
+    {
+        return self::collateExpression($expression, $this->expressionCollation());
+    }
+
+    /**
+     * Pure helper behind withExpressionCollation(): pin a derived expression to a collation.
+     *
+     * A plain column reference already carries its own collation, and an expression that
+     * states one explicitly must not be doubled up, so both are returned untouched.
+     */
+    public static function collateExpression(string $expression, string|false $collation): string
+    {
+        if ($collation === false
+            || $collation === ''
+            || !str_contains($expression, '(')
+            || preg_match('/\bCOLLATE\b/i', $expression) === 1
+            || preg_match('/^[A-Za-z0-9_]+$/', $collation) !== 1) {
+            return $expression;
+        }
+        return $expression . ' COLLATE ' . $collation;
     }
 
     /**
@@ -283,7 +386,7 @@ final class Database
         ), FILE_APPEND);
     }
 
-    private function prepare(string $sql, array $params): PDOStatement
+    private function prepare(string $sql, array $params, bool $allowCollationRetry = true): PDOStatement
     {
         $start = microtime(true);
         [$expandedSql, $aliases] = self::expandRepeatedPlaceholders($sql);
@@ -295,6 +398,18 @@ final class Database
             $this->logError($sql, $params, $e);
             throw $e;
         } catch (PDOException $e) {
+            // Error 1267 = "Illegal mix of collations". A database whose tables were created
+            // under different collations cannot compare its own strings. Rather than fail the
+            // page, normalise the collations once and retry the same query exactly one time.
+            if ($allowCollationRetry
+                && $this->transactionLevel === 0   // ALTER TABLE would implicitly commit an open transaction
+                && $this->driver === 'mysql'
+                && ((int) $e->errorInfo[1] === 1267 || str_contains($e->getMessage(), 'Illegal mix of collations'))) {
+                $this->logError($sql, $params, $e);
+                if ($this->repairCollations() !== []) {
+                    return $this->prepare($sql, $params, false);
+                }
+            }
             $this->logError($sql, $params, $e);
             throw new RuntimeException('Query failed: ' . $e->getMessage(), (int) $e->getCode(), $e);
         }
@@ -482,12 +597,76 @@ final class Database
 
     /**
      * Portable year-month grouping expression.
+     *
+     * MySQL only: the result is pinned to the column collation — see expressionCollation().
+     * Without it, comparing or grouping this value against a bound parameter throws
+     * "1267 Illegal mix of collations" whenever the server default differs from the table's.
      */
     public function monthExpression(string $column): string
     {
         return $this->driver === 'sqlite'
             ? "strftime('%Y-%m', $column)"
-            : "DATE_FORMAT($column, '%Y-%m')";
+            : $this->withExpressionCollation("DATE_FORMAT($column, '%Y-%m')");
+    }
+
+    /**
+     * Normalise every table to one charset/collation so string comparisons can never raise
+     * "1267 Illegal mix of collations" again.
+     *
+     * A shared-hosting database is often a mix: tables created by an installer at one point are
+     * utf8mb4_unicode_ci while tables created later (or by phpMyAdmin/another script) picked up
+     * the server default, usually utf8mb4_general_ci. MySQL refuses to compare columns with
+     * different collations, so such a mix breaks queries that join or compare user data.
+     *
+     * @return list<string> tables that were altered
+     */
+    public function repairCollations(?string $collation = null): array
+    {
+        if ($this->driver !== 'mysql') {
+            return [];
+        }
+        $collation = $collation ?: (string) ($this->expressionCollation() ?: '');
+        if (preg_match('/^[A-Za-z0-9_]+$/', $collation) !== 1) {
+            return [];
+        }
+        $charset = strstr($collation, '_', true) ?: 'utf8mb4';
+        $repaired = [];
+        foreach ($this->column('SELECT TABLE_NAME FROM information_schema.TABLES
+                                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = \'BASE TABLE\'') as $table) {
+            $table = (string) $table;
+            $current = (string) ($this->value(
+                'SELECT TABLE_COLLATION FROM information_schema.TABLES
+                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t',
+                ['t' => $table]
+            ) ?: '');
+            if ($current === $collation) {
+                continue;
+            }
+            try {
+                $this->pdo->exec(sprintf(
+                    'ALTER TABLE `%s` CONVERT TO CHARACTER SET %s COLLATE %s',
+                    str_replace('`', '', $table),
+                    $charset,
+                    $collation
+                ));
+                $repaired[] = $table;
+            } catch (Throwable) {
+                // A view or a table the account cannot alter is not fatal: the query-level
+                // COLLATE guard still keeps comparisons working.
+            }
+        }
+        return $repaired;
+    }
+
+    /**
+     * Portable date expression (Y-m-d), pinned to the column collation on MySQL for the same
+     * reason as monthExpression().
+     */
+    public function dateExpression(string $column): string
+    {
+        return $this->driver === 'sqlite'
+            ? "strftime('%Y-%m-%d', $column)"
+            : $this->withExpressionCollation("DATE($column)");
     }
 
     /**

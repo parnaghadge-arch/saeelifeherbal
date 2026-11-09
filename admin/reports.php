@@ -60,9 +60,10 @@ $topProducts = $db->select(
      GROUP BY i.product_name ORDER BY revenue DESC LIMIT 8",
     ['f' => $from . ' 00:00:00', 't' => $to . ' 23:59:59']
 );
+$monthExpression = $db->monthExpression('created_at');
 $monthly = $db->select(
-    "SELECT " . $db->monthExpression('created_at') . " AS m, COALESCE(SUM(grand_total),0) AS revenue, COUNT(*) AS orders
-     FROM orders WHERE payment_status = 'paid' GROUP BY " . $db->monthExpression('created_at') . " ORDER BY m DESC LIMIT 12"
+    "SELECT $monthExpression AS m, COALESCE(SUM(grand_total),0) AS revenue, COUNT(*) AS orders
+     FROM orders WHERE payment_status = 'paid' GROUP BY $monthExpression ORDER BY m DESC LIMIT 12"
 );
 $monthly = array_reverse($monthly);
 

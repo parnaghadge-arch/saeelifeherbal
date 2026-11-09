@@ -33,9 +33,12 @@ $kpi = $db->first(
     ['from' => $from . ' 00:00:00']
 );
 
+// The date expression is pinned to the column collation (see Database::dateExpression) so the
+// GROUP BY compare does not raise 1267 on hosts whose server default differs from the table's.
+$dayExpression = $db->dateExpression('created_at');
 $salesSeries = $db->select(
-    "SELECT DATE(created_at) AS d, COUNT(*) AS orders, COALESCE(SUM(grand_total),0) AS revenue
-     FROM orders WHERE created_at >= :from GROUP BY DATE(created_at) ORDER BY d",
+    "SELECT $dayExpression AS d, COUNT(*) AS orders, COALESCE(SUM(grand_total),0) AS revenue
+     FROM orders WHERE created_at >= :from GROUP BY $dayExpression ORDER BY d",
     ['from' => $from . ' 00:00:00']
 );
 $byDay = [];

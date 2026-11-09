@@ -28,11 +28,11 @@ final class ReportService
             $params['status'] = $filters['status'];
         }
         if (!empty($filters['from'])) {
-            $sql .= ' AND DATE(p.requested_at) >= :from';
+            $sql .= ' AND ' . $this->db->dateExpression('p.requested_at') . ' >= :from';
             $params['from'] = $filters['from'];
         }
         if (!empty($filters['to'])) {
-            $sql .= ' AND DATE(p.requested_at) <= :to';
+            $sql .= ' AND ' . $this->db->dateExpression('p.requested_at') . ' <= :to';
             $params['to'] = $filters['to'];
         }
         if (!empty($filters['member'])) {
@@ -89,11 +89,11 @@ final class ReportService
             $params['status'] = $filters['status'];
         }
         if (!empty($filters['from'])) {
-            $sql .= ' AND DATE(c.created_at) >= :from';
+            $sql .= ' AND ' . $this->db->dateExpression('c.created_at') . ' >= :from';
             $params['from'] = $filters['from'];
         }
         if (!empty($filters['to'])) {
-            $sql .= ' AND DATE(c.created_at) <= :to';
+            $sql .= ' AND ' . $this->db->dateExpression('c.created_at') . ' <= :to';
             $params['to'] = $filters['to'];
         }
         $sql .= ' ORDER BY c.id DESC LIMIT 20000';

@@ -327,7 +327,13 @@ final class MemberService
                     SUM(CASE WHEN kyc_status IN ('submitted','under_verification') THEN 1 ELSE 0 END) AS kyc_pending
              FROM members WHERE is_company = 0"
         ) ?? [];
-        $today = (int) $this->db->value("SELECT COUNT(*) FROM members WHERE DATE(created_at) = :d", ['d' => date('Y-m-d')]);
+        // Comparing a date expression against a bound parameter needs the expression pinned to
+        // the column collation on MySQL, otherwise a host whose server default is
+        // utf8mb4_general_ci fails with 1267 Illegal mix of collations.
+        $today = (int) $this->db->value(
+            'SELECT COUNT(*) FROM members WHERE ' . $this->db->dateExpression('created_at') . ' = :d',
+            ['d' => date('Y-m-d')]
+        );
         $month = (int) $this->db->value(
             'SELECT COUNT(*) FROM members WHERE ' . $this->db->monthExpression('created_at') . ' = :m',
             ['m' => date('Y-m')]

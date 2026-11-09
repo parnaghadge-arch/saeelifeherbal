@@ -38,6 +38,9 @@ $db = array_merge([
     'username' => 'root',
     'password' => '',
     'charset'  => 'utf8mb4',
+    // Connection collation. The DSN charset alone leaves MySQL on utf8mb4_general_ci, which
+    // does not match the utf8mb4_unicode_ci tables and raises SQLSTATE 1267 on comparisons.
+    'collation' => 'utf8mb4_unicode_ci',
     'sqlite_path' => STORAGE_PATH . DS . 'db' . DS . 'app.sqlite',
 ], array_filter([
     'driver' => $env('DB_DRIVER'),
@@ -46,6 +49,7 @@ $db = array_merge([
     'database' => $env('DB_DATABASE'),
     'username' => $env('DB_USERNAME'),
     'password' => $env('DB_PASSWORD', null),
+    'collation' => $env('DB_COLLATION', null),
 ], static fn ($v) => $v !== null), $config['db'] ?? []);
 
 if ($db['driver'] === 'sqlite' && !empty($db['sqlite_path']) && !str_starts_with($db['sqlite_path'], '/')) {

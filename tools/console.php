@@ -39,7 +39,7 @@ foreach (array_slice($argv, 2) as $arg) {
  */
 $dbConfig = (array) \Saee\Lib\Config::get('database.db');
 $driver = (string) ($dbConfig['driver'] ?? 'sqlite');
-$commands = ['install', 'upgrade', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
+$commands = ['install', 'upgrade', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'collation:repair', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
 
 if (!in_array($command, $commands, true)) {
     echo "Saee Life Herbal console\n\n";
@@ -48,6 +48,7 @@ if (!in_array($command, $commands, true)) {
     echo "      --admin-user=admin --admin-pass='Admin@12345'\n";
     echo "      --admin-email=a@b.com --admin-name='Name' --no-fresh\n";
     echo "  upgrade              create tables added by newer versions (safe to re-run)\n";
+    echo "  collation:repair     convert every table to one collation (fixes SQLSTATE 1267)\n";
     echo "  demo                 seed demo catalogue, members, orders and commissions\n";
     echo "  schema:mysql         write database/schema.sql from the schema definition\n";
     echo "  schema:sqlite        write database/schema.sqlite.sql\n";
@@ -179,6 +180,63 @@ if ($command === 'doctor') {
         echo 'Tables installed: ' . ($tableCount > 0 ? 'yes (settings seeded)' : 'schema present but empty — run: php tools/console.php install') . PHP_EOL;
     } catch (Throwable) {
         echo 'Tables installed: no — run: php tools/console.php install' . PHP_EOL;
+    }
+
+    // Collation mix: MySQL will not compare strings whose collations differ, so a database
+    // where some tables are utf8mb4_unicode_ci and others inherited the server default
+    // (usually utf8mb4_general_ci) throws \"1267 Illegal mix of collations\" on ordinary
+    // queries. That is a hosting artefact, not a code bug, so it is reported here.
+    echo PHP_EOL . 'Collations:' . PHP_EOL;
+    try {
+        $probeDb = Database::instance();
+        if ($probeDb->driver() !== 'mysql') {
+            echo '  [ -- ]   Collation mix — not applicable on SQLite' . PHP_EOL;
+        } else {
+            $tableCollations = $probeDb->select(
+                "SELECT TABLE_NAME AS t, TABLE_COLLATION AS c FROM information_schema.TABLES
+                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
+            );
+            $serverDefault = (string) ($probeDb->value('SELECT @@collation_server') ?: '?');
+            $distinct = [];
+            foreach ($tableCollations as $row) {
+                $distinct[(string) $row['c']][] = (string) $row['t'];
+            }
+            $mixed = count($distinct) > 1;
+            echo '  [ -- ]   Server default collation: ' . $serverDefault . PHP_EOL;
+            echo '  [ -- ]   Database default collation: ' . (string) ($probeDb->value('SELECT @@collation_database') ?: '?') . PHP_EOL;
+            foreach ($distinct as $collation => $tables) {
+                echo '  [ -- ]     ' . $collation . ': ' . count($tables) . ' table(s)'
+                    . ($mixed ? ' — e.g. ' . implode(', ', array_slice($tables, 0, 6)) . (count($tables) > 6 ? ', …' : '') : '')
+                    . PHP_EOL;
+            }
+            $connectionCollation = (string) ($probeDb->value('SELECT @@collation_connection') ?: '?');
+            echo '  [ -- ]   Connection collation: ' . $connectionCollation . PHP_EOL;
+            $line(!$mixed, 'Table collations consistent', $mixed
+                ? 'MIXED — comparisons can fail with SQLSTATE 1267. Run: php tools/console.php collation:repair'
+                : 'all tables use ' . (array_key_first($distinct) ?? 'n/a'));
+            if ($mixed) {
+                $ok = false;
+            }
+            $expression = $probeDb->monthExpression('created_at');
+            $line(str_contains($expression, 'COLLATE'), 'Derived expressions pinned', $expression);
+            if (!str_contains($expression, 'COLLATE')) {
+                $ok = false;
+            }
+            // The connection collation is what bound parameters are compared with, so it has to
+            // agree with the tables; otherwise SQLSTATE 1267 comes back on ordinary filters.
+            $distinctCollations = array_keys($distinct);
+            $connectionOk = count($distinctCollations) !== 1 || $connectionCollation === $distinctCollations[0];
+            $line($connectionOk, 'Connection collation matches tables', $connectionOk
+                ? $connectionCollation
+                : 'connection is ' . $connectionCollation . ' but tables are ' . implode('/', $distinctCollations)
+                  . ' — run: php tools/console.php collation:repair');
+            if (!$connectionOk) {
+                $ok = false;
+            }
+        }
+    } catch (Throwable $e) {
+        $line(false, 'Collations', 'could not inspect: ' . $e->getMessage());
+        $ok = false;
     }
 
     // Schema drift: a live database can be missing tables or columns that the current code
@@ -369,6 +427,21 @@ switch ($command) {
     case 'schema:sqlite':
         file_put_contents(APP_ROOT . '/database/schema.sqlite.sql', \Saee\Lib\Schema::sqliteScript());
         echo "Wrote database/schema.sqlite.sql" . PHP_EOL;
+        break;
+
+    case 'collation:repair':
+        if ($db->driver() !== 'mysql') {
+            echo "Not applicable: driver is \"" . $db->driver() . "\". Collations only affect MySQL/MariaDB." . PHP_EOL;
+            break;
+        }
+        $target = (string) ($opts['collation'] ?? '') ?: (string) ($db->expressionCollation() ?: 'utf8mb4_unicode_ci');
+        echo "Converting every table to $target ..." . PHP_EOL;
+        $repaired = $db->repairCollations($target);
+        if ($repaired === []) {
+            echo "Nothing to do: every table already uses $target." . PHP_EOL;
+        } else {
+            echo "Converted " . count($repaired) . " table(s): " . implode(', ', $repaired) . PHP_EOL;
+        }
         break;
 
     case 'commissions:process':

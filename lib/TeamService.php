@@ -139,11 +139,11 @@ final class TeamService
                 AND member_id IN ($placeholders)";
         $params = $ids;
         if ($from) {
-            $sql .= ' AND DATE(created_at) >= ?';
+            $sql .= ' AND ' . $this->db->dateExpression('created_at') . ' >= ?';
             $params[] = $from;
         }
         if ($to) {
-            $sql .= ' AND DATE(created_at) <= ?';
+            $sql .= ' AND ' . $this->db->dateExpression('created_at') . ' <= ?';
             $params[] = $to;
         }
         $row = $this->db->first($sql, $params) ?? [];

@@ -364,7 +364,7 @@ final class OrderService
                 ['m' => date('Y-m')]
             ) ?? 0),
             'today_sales' => (float) ($this->db->value(
-                "SELECT COALESCE(SUM(grand_total),0) FROM orders WHERE payment_status = 'paid' AND DATE(created_at) = :d",
+                "SELECT COALESCE(SUM(grand_total),0) FROM orders WHERE payment_status = 'paid' AND " . $this->db->dateExpression('created_at') . ' = :d',
                 ['d' => date('Y-m-d')]
             ) ?? 0),
         ];
