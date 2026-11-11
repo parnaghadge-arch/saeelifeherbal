@@ -48,6 +48,15 @@ final class Database
     /** Per-request cache of @@character_set_connection. */
     private ?string $connectionCharsetCache = null;
 
+    /** Per-request cache: collation -> the character set the server says it belongs to. */
+    private array $collationCharsets = [];
+
+    /** Last collation that had to be stripped, for the diagnostics page. */
+    private ?string $lastCollationReport = null;
+
+    /** Per-request cache of column charsets, keyed table.column. */
+    private array $columnCharsets = [];
+
     private PDO $pdo;
     private string $driver;
     private int $transactionLevel = 0;
@@ -650,19 +659,21 @@ final class Database
         if ($connectionCharset !== '' && !str_starts_with($connectionCharset, 'utf8')) {
             return false;
         }
-        $charset = $knownCharset ?: $connectionCharset;
-        if ($charset !== null && $charset !== '' && !str_starts_with($charset, 'utf8')) {
+        // The column being compared outranks the connection: a latin1 column compared with an
+        // explicit utf8mb4 collation is rejected by the server even when everything else is
+        // utf8mb4. This is the case that kept failing on payout_requests and orders.
+        if ($knownCharset !== null && $knownCharset !== '' && !str_starts_with($knownCharset, 'utf8')) {
             return false;
         }
         $collation = $this->expressionCollation();
         if ($collation === false) {
             return false;
         }
-        // Whatever we return must belong to the connection charset, otherwise the server
-        // rejects the statement with 1253.
-        if ($connectionCharset !== ''
-            && self::isCollationName($collation)
-            && self::charsetOfCollation($collation) !== $connectionCharset) {
+        // Whatever we return must belong to the charset it will be applied in, otherwise the
+        // server rejects the statement with 1253.
+        $effective = $knownCharset !== null && $knownCharset !== '' ? $knownCharset : $connectionCharset;
+        if ($effective !== '' && self::isCollationName($collation)
+            && self::charsetOfCollation($collation) !== $effective) {
             return false;
         }
         return $collation;
@@ -675,9 +686,34 @@ final class Database
      * `DATE_FORMAT(created_at, '%Y-%m') = :m` fails with 1267 on hosts where the two differ.
      * Anything that is a plain column reference is returned untouched.
      */
-    public function withExpressionCollation(string $expression): string
+    public function withExpressionCollation(string $expression, ?string $columnCharset = null): string
     {
-        return self::collateExpression($expression, $this->derivedCollation());
+        return self::collateExpression($expression, $this->derivedCollation($columnCharset));
+    }
+
+    /**
+     * Character set of a real column, read from the server. '' when it cannot be determined.
+     *
+     * This is the missing half of the 1253 story: the connection can be perfectly utf8mb4 while
+     * the column being compared is latin1 (legacy data, or a table created before the charset was
+     * pinned). Pinning such a comparison to utf8mb4_unicode_ci is rejected by the server, so the
+     * column wins over the connection for deciding whether a pin is legal at all.
+     */
+    public function columnCharset(string $table, string $column): string
+    {
+        if ($this->driver !== 'mysql') {
+            return '';
+        }
+        $key = $table . '.' . $column;
+        if (isset($this->columnCharsets[$key])) {
+            return $this->columnCharsets[$key];
+        }
+        $found = $this->metaLookup(
+            'SELECT CHARACTER_SET_NAME FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+            [$table, $column]
+        );
+        return $this->columnCharsets[$key] = (preg_match('/^[A-Za-z0-9_]+$/', $found) === 1 ? $found : '');
     }
 
     /**
@@ -879,19 +915,23 @@ final class Database
         if ($this->driver !== 'mysql' || stripos($sql, 'COLLATE') === false) {
             return $sql;
         }
-        $connectionCharset = $this->connectionCharset();
-        if ($connectionCharset === '') {
-            return $sql;
-        }
         $stripped = [];
         $clean = preg_replace_callback(
             '/\s+COLLATE\s+([A-Za-z0-9_]+)/i',
-            static function (array $m) use ($connectionCharset, &$stripped): string {
-                $charset = self::charsetOfCollation($m[1]);
-                if ($charset === '' || $charset === $connectionCharset) {
+            function (array $m) use (&$stripped): string {
+                // Ask the server what this collation really belongs to. A charset derived from
+                // the name is only a guess: a column can be in a charset the connection cannot
+                // use even when the connection itself reports utf8mb4, and this question has a
+                // single authoritative answer that costs nothing when the name is fine.
+                $verdict = $this->collationCharsetOnServer($m[1]);
+                if ($verdict === '') {
+                    return $m[0];   // server does not know it: let MySQL report the real error
+                }
+                $connection = $this->connectionCharset();
+                if ($connection === '' || $verdict === $connection) {
                     return $m[0];
                 }
-                $stripped[] = $m[1];
+                $stripped[] = $m[1] . ' (belongs to ' . $verdict . ', connection is ' . $connection . ')';
                 return '';
             },
             $sql
@@ -899,14 +939,72 @@ final class Database
         if ($stripped === []) {
             return $sql;
         }
-        error_log('[db] removed COLLATE ' . implode(', ', array_unique($stripped))
-            . ' because the connection charset is ' . $connectionCharset);
-        $this->logDiagnostic(
-            'STRIPPED COLLATE ' . implode(', ', array_unique($stripped)) . ' (connection charset ' . $connectionCharset . ')',
-            (string) $clean,
-            []
-        );
+        $this->explainStrippedCollations(array_unique($stripped));
         return (string) $clean;
+    }
+
+
+    /**
+     * Run a metadata query against information_schema, tolerating how the name is resolved.
+     *
+     * MySQL accepts `information_schema.X`; some servers and proxies only resolve the bare
+     * table name. A failed lookup must never be read as "nothing wrong" — that is exactly how a
+     * foreign COLLATE slipped through and produced 1253 on the reporting install.
+     *
+     * @param list<string> $params
+     */
+    private function metaLookup(string $sql, array $params): string
+    {
+        foreach ([$sql, str_replace('information_schema.', '', $sql)] as $statement) {
+            try {
+                $probe = $this->pdo->prepare($statement);
+                $probe->execute($params);
+                $value = (string) ($probe->fetchColumn() ?: '');
+            } catch (Throwable) {
+                continue;
+            }
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Ask information_schema which character set a collation belongs to.
+     *
+     * The name prefix is not reliable enough on its own, and this is the one fact that decides
+     * whether a COLLATE clause is legal, so it comes from the server. Cached per request.
+     */
+    private function collationCharsetOnServer(string $collation): string
+    {
+        if (isset($this->collationCharsets[$collation])) {
+            return $this->collationCharsets[$collation];
+        }
+        $found = $this->metaLookup(
+            'SELECT CHARACTER_SET_NAME FROM information_schema.COLLATIONS WHERE COLLATION_NAME = ? LIMIT 1',
+            [$collation]
+        );
+        // Still unknown: the name prefix is exact for every collation this app can emit.
+        if ($found === '') {
+            $found = self::charsetOfCollation($collation);
+        }
+        return $this->collationCharsets[$collation] = $found;
+    }
+
+    /**
+     * Record that a collation was removed, and why — on the page in debug, in the log always.
+     *
+     * Silently repairing is what made this hard to diagnose: the page worked, so nobody looked,
+     * and the reason (a column in a charset the connection cannot use) stayed hidden. Reporting
+     * it turns a mystery into a one-line diagnosis.
+     */
+    private function explainStrippedCollations(array $details): void
+    {
+        $summary = 'removed COLLATE ' . implode('; ', $details);
+        error_log('[db] ' . $summary);
+        $this->logDiagnostic('STRIPPED ' . $summary, '', []);
+        $this->lastCollationReport = $summary;
     }
 
     private function prepare(string $sql, array $params, bool $allowCollationRetry = true): PDOStatement
@@ -918,10 +1016,11 @@ final class Database
             $stmt = $this->pdo->prepare($expandedSql);
             $this->bindParams($stmt, $expandedSql, $params, $aliases);
             $stmt->execute();
-        } catch (RuntimeException $e) {
-            $this->logError($sql, $params, $e);
-            throw $e;
         } catch (PDOException $e) {
+            // MUST come before the RuntimeException branch: in PHP 8 PDOException extends
+            // RuntimeException, so catching the parent first would swallow every database error
+            // and rethrow it, making the collation recovery below unreachable. That is precisely
+            // why 1253 kept reaching the page after the recovery code had been added.
             // Error 1267 = "Illegal mix of collations". A database whose tables were created
             // under different collations cannot compare its own strings. Rather than fail the
             // page, normalise the collations once and retry the same query exactly one time.
@@ -944,8 +1043,27 @@ final class Database
                     }
                 }
             }
+            // Error 1253 = "COLLATION 'x' is not valid for CHARACTER SET 'y'". Whatever produced
+            // it (a pin, a legacy latin1 column, a hand-written query, a server that reports a
+            // different charset than it enforces), the remedy is always the same and always safe:
+            // remove the COLLATE clause and run the identical query again. The comparison then
+            // uses the connection collation, which is what the server would have used anyway.
+            if ($allowCollationRetry
+                && $this->driver === 'mysql'
+                && ((int) ($e->errorInfo[1] ?? 0) === 1253 || str_contains($e->getMessage(), 'is not valid for CHARACTER SET'))
+                && stripos($sql, 'COLLATE') !== false) {
+                $this->logError($sql, $params, $e);
+                $this->explainStrippedCollations(['all clauses (server said: ' . $e->getMessage() . ')']);
+                $withoutPins = (string) preg_replace('/\s+COLLATE\s+[A-Za-z0-9_]+/i', '', $sql);
+                if ($withoutPins !== $sql) {
+                    return $this->prepare($withoutPins, $params, false);
+                }
+            }
             $this->logError($sql, $params, $e);
             throw new RuntimeException('Query failed: ' . $e->getMessage(), (int) $e->getCode(), $e);
+        } catch (RuntimeException $e) {
+            $this->logError($sql, $params, $e);
+            throw $e;
         }
         if ($this->logQueries) {
             $this->queryLog[] = ['sql' => $sql, 'ms' => round((microtime(true) - $start) * 1000, 2)];
@@ -1138,9 +1256,56 @@ final class Database
      */
     public function monthExpression(string $column): string
     {
-        return $this->driver === 'sqlite'
-            ? "strftime('%Y-%m', $column)"
-            : $this->withExpressionCollation("DATE_FORMAT($column, '%Y-%m')");
+        if ($this->driver === 'sqlite') {
+            return "strftime('%Y-%m', $column)";
+        }
+        return $this->withExpressionCollation("DATE_FORMAT($column, '%Y-%m')", $this->charsetOfColumn($column));
+    }
+
+    /**
+     * Charset of a `table.column` or `column` reference, for deciding whether a COLLATE pin is
+     * legal. The table is taken from a `t.col` prefix when there is one, otherwise every table
+     * that has the column is checked and a disagreement returns '' (no pin).
+     */
+    private function charsetOfColumn(string $reference): string
+    {
+        if ($this->driver !== 'mysql') {
+            return '';
+        }
+        $reference = trim($reference, " \t`");
+        $table = '';
+        $column = $reference;
+        if (str_contains($reference, '.')) {
+            [$table, $column] = explode('.', $reference, 2);
+            $table = trim($table, " `");
+        }
+        $column = trim($column, " `");
+        if ($column === '' || !preg_match('/^[A-Za-z0-9_]+$/', $column)) {
+            return '';
+        }
+        if ($table !== '') {
+            return $this->columnCharset($table, $column);
+        }
+        // Unqualified: the tables are probed one by one and must agree, otherwise no pin.
+        $found = [];
+        try {
+            $tables = $this->pdo->query(
+                "SELECT TABLE_NAME FROM information_schema.TABLES
+                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'"
+            )->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        } catch (Throwable) {
+            $tables = [];
+        }
+        if ($tables === []) {
+            return '';
+        }
+        foreach ($tables as $table) {
+            $charset = $this->columnCharset((string) $table, $column);
+            if ($charset !== '') {
+                $found[$charset] = true;
+            }
+        }
+        return count($found) === 1 ? (string) array_key_first($found) : '';
     }
 
     /**
@@ -1196,7 +1361,25 @@ final class Database
             } catch (Throwable) {
                 continue;
             }
-            if ($current === $collation) {
+            // A table's own collation is not the whole story: a column can carry an older
+            // charset from before the schema was pinned (orders.created_at, payout_requests.
+            // requested_at were latin1 on the reporting install). Converting the table fixes
+            // those too, so check the columns before deciding there is nothing to do.
+            $needsWork = $current !== $collation;
+            if (!$needsWork) {
+                try {
+                    $colProbe = $this->pdo->prepare(
+                        'SELECT COUNT(*) FROM information_schema.COLUMNS
+                          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t
+                            AND CHARACTER_SET_NAME IS NOT NULL AND CHARACTER_SET_NAME <> :cs'
+                    );
+                    $colProbe->execute(['t' => $table, 'cs' => $charset]);
+                    $needsWork = (int) $colProbe->fetchColumn() > 0;
+                } catch (Throwable) {
+                    $needsWork = false;
+                }
+            }
+            if (!$needsWork) {
                 continue;
             }
             try {
@@ -1229,9 +1412,10 @@ final class Database
      */
     public function dateExpression(string $column): string
     {
-        return $this->driver === 'sqlite'
-            ? "strftime('%Y-%m-%d', $column)"
-            : $this->withExpressionCollation("DATE($column)");
+        if ($this->driver === 'sqlite') {
+            return "strftime('%Y-%m-%d', $column)";
+        }
+        return $this->withExpressionCollation("DATE($column)", $this->charsetOfColumn($column));
     }
 
     /**

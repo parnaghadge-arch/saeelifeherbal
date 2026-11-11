@@ -39,8 +39,12 @@ foreach (array_slice($argv, 2) as $arg) {
  */
 $dbConfig = (array) \Saee\Lib\Config::get('database.db');
 $driver = (string) ($dbConfig['driver'] ?? 'sqlite');
-$commands = ['install', 'upgrade', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'collation:repair', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
-$commands = ['install', 'upgrade', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'collation:repair', 'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
+$commands = [
+    'install', 'upgrade', 'demo', 'doctor', 'selftest',
+    'schema:mysql', 'schema:sqlite',
+    'collation:repair', 'collation:heal',
+    'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap',
+];
 
 if (!in_array($command, $commands, true)) {
     echo "Saee Life Herbal console\n\n";
@@ -50,6 +54,7 @@ if (!in_array($command, $commands, true)) {
     echo "      --admin-email=a@b.com --admin-name='Name' --no-fresh\n";
     echo "  upgrade              create tables added by newer versions (safe to re-run)\n";
     echo "  collation:repair     convert every table to one collation (fixes SQLSTATE 1267)\n";
+    echo "  collation:heal       fix a connection/tables charset mismatch (fixes 1253)\n";
     echo "  logs                  show recent PHP errors (use a code from the error page)\n";
     echo "      --tail=40 --grep=ERR-XXXXXXXX --clear\n";
     echo "  demo                 seed demo catalogue, members, orders and commissions\n";
