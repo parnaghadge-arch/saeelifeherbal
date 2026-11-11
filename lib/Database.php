@@ -84,22 +84,7 @@ final class Database
                 $this->pdo->exec('PRAGMA busy_timeout = 5000');
             } else {
                 $c = $this->config;
-                $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=%s', $c['host'], (int) $c['port'], $c['database'], $c['charset'] ?? 'utf8mb4');
-                try {
-                    $this->pdo = new PDO($dsn, $c['username'], $c['password'], $options);
-                } catch (PDOException $e) {
-                    // 1049 = unknown database. A fresh XAMPP user usually has not created it yet,
-                    // so create it once (utf8mb4) and reconnect instead of failing the install.
-                    if ((int) $e->getCode() === 1049 || str_contains($e->getMessage(), 'Unknown database')) {
-                        $serverDsn = sprintf('mysql:host=%s;port=%d;charset=%s', $c['host'], (int) $c['port'], $c['charset'] ?? 'utf8mb4');
-                        $server = new PDO($serverDsn, $c['username'], $c['password'], $options);
-                        $name = str_replace('`', '', (string) $c['database']);
-                        $server->exec('CREATE DATABASE IF NOT EXISTS `' . $name . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-                        $this->pdo = new PDO($dsn, $c['username'], $c['password'], $options);
-                    } else {
-                        throw $e;
-                    }
-                }
+                $this->pdo = $this->connectMysql($c, $options);
                 // The DSN charset only sets the character set; MySQL then applies that charset's
                 // *default* collation (utf8mb4_general_ci on 5.7/MariaDB). Every table in this
                 // schema is utf8mb4_unicode_ci, and comparing a parameter (utf8mb4_general_ci)
@@ -121,6 +106,88 @@ final class Database
         }
     }
 
+    /**
+     * Open the MySQL connection, tolerating the two failure modes that only appear on live
+     * hosting and are invisible on a local XAMPP box.
+     *
+     * 1. "Operation not permitted" ([2002]). Shared hosts commonly run MySQL on a unix socket
+     *    while the app connects with host=127.0.0.1, so the client tries a TCP socket the host
+     *    forbids. It is also the error a per-account connection limit produces. Retrying is
+     *    safe: the failure happens before any query runs, so no work is repeated.
+     * 2. The whole failure is transient — one failed handshake should not blow up a page that
+     *    will work a second later, which is why a single failed attempt surfaces as an error
+     *    on click and then disappears on refresh.
+     *
+     * Config keys (all optional): attempts (default 3), connect_timeout (default 5 seconds)
+     * and the SAEE_DB_ATTEMPTS / SAEE_DB_TIMEOUT env vars.
+     */
+    private function connectMysql(array $c, array $options): PDO
+    {
+        $charset = (string) ($c['charset'] ?? 'utf8mb4');
+        $database = (string) ($c['database'] ?? '');
+        $options[PDO::ATTR_TIMEOUT] = (int) ($c['connect_timeout']
+            ?? (getenv('SAEE_DB_TIMEOUT') ?: 5));
+
+        // Candidate connection strings, tried in order. Shared hosting often only permits one
+        // of them: "Operation not permitted" ([2002]) is what you get when TCP is blocked but a
+        // unix socket would work.
+        $targets = [];
+        $socket = trim((string) ($c['socket'] ?? ''));
+        if ($socket !== '') {
+            $targets[] = sprintf('mysql:unix_socket=%s;dbname=%s;charset=%s', $socket, $database, $charset);
+        }
+        $hosts = [(string) $c['host']];
+        // 127.0.0.1 and localhost are not interchangeable on MySQL: "localhost" selects the
+        // unix socket, an IP forces TCP. Trying both covers a host that only allows one.
+        if (in_array(strtolower((string) $c['host']), ['localhost', '127.0.0.1', '::1'], true)) {
+            $hosts[] = ((string) $c['host'] === 'localhost') ? '127.0.0.1' : 'localhost';
+        }
+        foreach (array_unique($hosts) as $host) {
+            $targets[] = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=%s', $host, (int) $c['port'], $database, $charset);
+        }
+
+        $attempts = max(1, (int) ($c['attempts'] ?? (getenv('SAEE_DB_ATTEMPTS') ?: 3)));
+        $firstError = null;
+
+        foreach ($targets as $targetIndex => $dsn) {
+            for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+                try {
+                    $pdo = new PDO($dsn, $c['username'], $c['password'], $options);
+                    if ($targetIndex > 0) {
+                        error_log('[db] connected through fallback target #' . $targetIndex . ' (the configured one was unreachable)');
+                    }
+                    return $pdo;
+                } catch (PDOException $e) {
+                    $firstError ??= $e;
+                    // 1049 = unknown database. A fresh XAMPP user usually has not created it
+                    // yet, so create it once (utf8mb4) and reconnect instead of failing.
+                    if ((int) $e->getCode() === 1049 || str_contains($e->getMessage(), 'Unknown database')) {
+                        $serverDsn = (string) preg_replace('/;dbname=[^;]*/', '', $dsn);
+                        $server = new PDO($serverDsn, $c['username'], $c['password'], $options);
+                        $name = str_replace('`', '', $database);
+                        $server->exec('CREATE DATABASE IF NOT EXISTS `' . $name . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+                        return new PDO($dsn, $c['username'], $c['password'], $options);
+                    }
+                    // Only connection-level failures are worth retrying; a bad password
+                    // (1045) or an unknown database will fail just as fast next time.
+                    $retryable = (int) $e->getCode() === 2002
+                        || (int) $e->getCode() === 2006
+                        || str_contains($e->getMessage(), 'Operation not permitted')
+                        || str_contains($e->getMessage(), 'Too many connections')
+                        || str_contains($e->getMessage(), 'Connection refused');
+                    if (!$retryable) {
+                        throw $e;
+                    }
+                    if ($attempt < $attempts) {
+                        usleep(min(200000, 40000 * $attempt) * ($attempt > 1 ? 2 : 1));
+                    }
+                }
+            }
+        }
+
+        throw $firstError ?? new PDOException('MySQL connection failed for unknown reasons.');
+    }
+
     public function pdo(): PDO
     {
         return $this->pdo;
@@ -135,7 +202,11 @@ final class Database
         }
         $hint = match (true) {
             (int) $e->getCode() === 1045 || str_contains($raw, 'Access denied') => 'MySQL rejected the username/password. On XAMPP the default is user "root" with an empty password.',
-            (int) $e->getCode() === 2002 || str_contains($raw, 'No such file or directory') || str_contains($raw, 'refused') => 'MySQL is not running or is listening on another port (usually 3306). Start MySQL in the XAMPP control panel.',
+            // "Operation not permitted" is NOT "MySQL is down" — on shared Linux hosting it
+            // almost always means TCP to the database is blocked and only a unix socket is
+            // allowed, so it must not be described as a stopped service.
+            str_contains($raw, 'Operation not permitted') => 'The host refused the TCP connection to MySQL. On shared hosting MySQL usually listens on a unix socket only — set DB_SOCKET in .env (e.g. /var/lib/mysql/mysql.sock) or ask your host for the socket path and the database host name. This is also what a full connection limit looks like, so retrying is often enough.',
+            (int) $e->getCode() === 2002 || str_contains($raw, 'No such file or directory') || str_contains($raw, 'refused') => 'MySQL is not reachable on this host/port. Locally this means MySQL is not running or is on another port (usually 3306 — start it in the XAMPP control panel); on shared hosting check the database host name given in your control panel.',
             (int) $e->getCode() === 1049 => 'The database does not exist and could not be created. Create it in phpMyAdmin (utf8mb4) or use an account allowed to CREATE DATABASE.',
             str_contains($raw, 'could not find driver') => 'The pdo_mysql extension is disabled. Uncomment extension=pdo_mysql in php.ini and restart.',
             default => '',

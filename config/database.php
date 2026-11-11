@@ -50,6 +50,13 @@ $db = array_merge([
     'username' => $env('DB_USERNAME'),
     'password' => $env('DB_PASSWORD', null),
     'collation' => $env('DB_COLLATION', null),
+    // Unix socket: on shared hosting this is often the only way in, and is what makes
+    // "SQLSTATE[HY000] [2002] Operation not permitted" go away. e.g. /var/lib/mysql/mysql.sock
+    'socket' => $env('DB_SOCKET', null),
+    // Retries and the per-attempt timeout for a cold MySQL. Hosts that cap concurrent
+    // connections answer with 2002 "Operation not permitted"; retrying rides it out.
+    'attempts' => $env('DB_ATTEMPTS', null),
+    'connect_timeout' => $env('DB_TIMEOUT', null),
 ], static fn ($v) => $v !== null), $config['db'] ?? []);
 
 if ($db['driver'] === 'sqlite' && !empty($db['sqlite_path']) && !str_starts_with($db['sqlite_path'], '/')) {

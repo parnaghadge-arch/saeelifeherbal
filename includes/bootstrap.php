@@ -107,7 +107,10 @@ if (PHP_SAPI !== 'cli' && getenv('SAEE_SKIP_DB_CHECK') !== '1') {
             echo '<pre style="padding:24px;background:#111;color:#eee;white-space:pre-wrap">';
             echo htmlspecialchars('Database connection failed (' . $driver . '): ' . $e->getMessage());
             echo '</pre>';
-            return;
+            // Must EXIT, not return: returning lets the including page (member/_guard.php,
+            // admin/includes/layout.php, ...) carry on, hit Database::instance() itself, throw
+            // again and print a second copy of this message with a stack trace on top of it.
+            exit;
         }
         http_response_code(503);
         $hint = $driver === 'mysql'
@@ -121,7 +124,7 @@ if (PHP_SAPI !== 'cli' && getenv('SAEE_SKIP_DB_CHECK') !== '1') {
             . '<p style="color:#5a6b60">' . htmlspecialchars($hint) . '</p>'
             . '<p style="color:#5a6b60;font-size:14px">Driver: <code>' . htmlspecialchars($driver) . '</code>. '
             . 'Set <code>SAEE_DEBUG=1</code> in <code>.env</code> to see the exact error.</p></div></body></html>';
-        return;
+        exit;
     }
 }
 
