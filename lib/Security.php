@@ -271,6 +271,25 @@ final class Security
         if (session_status() === PHP_SESSION_ACTIVE) {
             return;
         }
+        // PHP's own garbage collector deletes session files older than session.gc_maxlifetime,
+        // which defaults to 24 minutes — far shorter than this app's SESSION_LIFETIME. Shared
+        // hosts run the collector often, so a session that sat idle for half an hour was being
+        // swept: the user got an error on the next click (expired CSRF token / logged out) and
+        // it "worked again after a refresh" once a new session was created. Align the two.
+        @ini_set('session.gc_maxlifetime', (string) max(SESSION_LIFETIME, 86400));
+        if (defined('STORAGE_PATH')) {
+            $ownPath = STORAGE_PATH . DS . 'sessions';
+            $current = (string) ini_get('session.save_path');
+            // Prefer a directory this application controls when the host's is missing or not
+            // writable (a very common cause of "session data lost between requests").
+            $currentWritable = $current !== '' && is_dir($current) && is_writable($current);
+            if (!is_dir($ownPath)) {
+                @mkdir($ownPath, 0775, true);
+            }
+            if (!$currentWritable && is_dir($ownPath) && is_writable($ownPath)) {
+                @ini_set('session.save_path', $ownPath);
+            }
+        }
         $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
         session_name(SESSION_NAME);

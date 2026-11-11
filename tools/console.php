@@ -182,6 +182,20 @@ if ($command === 'doctor') {
         echo 'Tables installed: no — run: php tools/console.php install' . PHP_EOL;
     }
 
+    // Sessions: a host whose session directory is unwritable, or whose GC lifetime is shorter
+    // than the app's idle window, silently loses logins and CSRF tokens between requests.
+    echo PHP_EOL . 'Sessions:' . PHP_EOL;
+    $savePath = (string) ini_get('session.save_path');
+    $gcLife = (int) ini_get('session.gc_maxlifetime');
+    $writable = $savePath !== '' && is_dir($savePath) && is_writable($savePath);
+    echo '  [ -- ]   save_path: ' . ($savePath !== '' ? $savePath : '(system default)') . PHP_EOL;
+    $line($writable || $savePath === '', 'Session directory writable', $writable ? 'yes' : 'no — logins and form tokens will not persist; set session.save_path in php.ini or make storage/sessions writable');
+    $line($gcLife >= SESSION_LIFETIME, 'GC lifetime vs idle timeout', 'gc_maxlifetime ' . $gcLife . 's vs app ' . SESSION_LIFETIME . 's'
+        . ($gcLife >= SESSION_LIFETIME ? '' : ' — sessions are collected while still considered valid; the app raises gc_maxlifetime at runtime, but the host may override it'));
+    if (!$writable && $savePath !== '') {
+        $ok = false;
+    }
+
     // Collation mix: MySQL will not compare strings whose collations differ, so a database
     // where some tables are utf8mb4_unicode_ci and others inherited the server default
     // (usually utf8mb4_general_ci) throws \"1267 Illegal mix of collations\" on ordinary
