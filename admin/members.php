@@ -79,8 +79,12 @@ $pageTitle = 'Members';
 $pageHeading = 'Members';
 $pageSub = $total . ' member(s) · ' . (int) ($stats['active'] ?? 0) . ' active';
 $activeModule = 'members';
-$pageActions = AdminAuth::can('members.export')
-    ? '<a class="btn btn-sm btn-outline-secondary" href="?export=csv"><i class="fa-solid fa-file-csv me-1"></i>Export CSV</a>' : '';
+$pageActions = (AdminAuth::can('members.manage')
+        ? '<a class="btn btn-sm btn-primary" href="member-create.php"><i class="fa-solid fa-user-plus me-1"></i>Add member</a>'
+        : '')
+    . (AdminAuth::can('members.export')
+        ? ' <a class="btn btn-sm btn-outline-secondary" href="?export=csv"><i class="fa-solid fa-file-csv me-1"></i>Export CSV</a>'
+        : '');
 require __DIR__ . '/includes/layout.php';
 ?>
 <div class="row g-3 mb-3">

@@ -248,7 +248,7 @@ final class MemberPurchaseService
             $orderId = $this->db->transaction(function (Database $db) use (
                 $beneficiary, $beneficiaryId, $items, $subtotal, $taxTotal, $shipping, $grandTotal,
                 $paymentMethod, $paymentStatus, $status, $orderNumber, $invoiceNumber,
-                $shippingAddress, $mode, $walletDebit, $role, $actorMemberId, $source, $data
+                $shippingAddress, $mode, $walletDebit, $role, $actorMemberId, $source, $data, $paidNow
             ) {
                 $now = date('Y-m-d H:i:s');
                 $orderId = $db->insert('orders', [

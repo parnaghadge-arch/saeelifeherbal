@@ -55,4 +55,11 @@ if (!$result['ok']) {
 
 // Auto sign-in after registration.
 MemberAuth::attempt((string) $v->value('mobile'), (string) Request::raw('password'), false);
-Response::success($result['message'], ['member_code' => $result['member']['member_code'], 'redirect' => Url::member('dashboard')]);
+
+// 'welcome' carries the login credentials and share link so a client can show the one-time
+// "save your details" card. It is only ever present in this response.
+Response::success($result['message'], [
+    'member_code' => $result['member']['member_code'],
+    'redirect' => Url::member('dashboard'),
+    'welcome' => $result['welcome'] ?? [],
+]);

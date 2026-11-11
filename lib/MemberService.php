@@ -86,18 +86,31 @@ final class MemberService
         }
 
         $sponsorInput = trim((string) ($input['sponsor_code'] ?? ''));
+        // allow_root lets an administrator deliberately create a member with NO sponsor, which
+        // starts a new tree. Self-registration never does this: a public registrant with no
+        // sponsor code is still attached to the company sponsor.
+        $allowRoot = !empty($input['allow_root']);
         $sponsor = $this->resolveSponsor($sponsorInput);
         if ($sponsorInput !== '' && !$sponsor) {
             return ['ok' => false, 'message' => 'The sponsor ID you entered does not exist.', 'errors' => ['sponsor_code' => ['Invalid sponsor ID.']]];
         }
-        if (!$sponsor) {
+        if (!$sponsor && !$allowRoot) {
             $sponsor = $this->companySponsor();
         }
-        if (!$sponsor) {
+        if (!$sponsor && !$allowRoot) {
             return ['ok' => false, 'message' => 'Company sponsor is not configured. Please contact the administrator.'];
         }
-        if (isset($input['member_id']) && (int) $input['member_id'] === (int) $sponsor['id']) {
+        if ($sponsor && isset($input['member_id']) && (int) $input['member_id'] === (int) $sponsor['id']) {
             return ['ok' => false, 'message' => 'A member cannot sponsor themselves.', 'errors' => ['sponsor_code' => ['Invalid sponsor.']]];
+        }
+        // A sponsor who is inactive or suspended would receive commissions they cannot use, and
+        // a suspended sponsor's tree is frozen by policy.
+        if ($sponsor && (string) $sponsor['status'] !== 'active' && empty($input['force_status_sponsor'])) {
+            return [
+                'ok' => false,
+                'message' => "That sponsor's account is " . $sponsor['status'] . ', so members cannot be added under it.',
+                'errors' => ['sponsor_code' => ['Sponsor is not active.']],
+            ];
         }
 
         $maxDirect = (int) MlmSettings::get('max_direct_referrals', 0);
@@ -116,8 +129,8 @@ final class MemberService
 
                 $memberId = $db->insert('members', [
                     'member_code' => $code,
-                    'sponsor_id' => (int) $sponsor['id'],
-                    'original_sponsor_id' => (int) $sponsor['id'],
+                    'sponsor_id' => $sponsor !== null ? (int) $sponsor['id'] : null,
+                    'original_sponsor_id' => $sponsor !== null ? (int) $sponsor['id'] : null,
                     'name' => trim((string) $input['name']),
                     'email' => $email !== '' ? $email : null,
                     'mobile' => $mobile,
@@ -154,22 +167,25 @@ final class MemberService
 
                 $db->insert('member_sponsors', [
                     'member_id' => $memberId,
-                    'sponsor_id' => (int) $sponsor['id'],
-                    'original_sponsor_id' => (int) $sponsor['id'],
+                    'sponsor_id' => $sponsor !== null ? (int) $sponsor['id'] : null,
+                    'original_sponsor_id' => $sponsor !== null ? (int) $sponsor['id'] : null,
                     'relationship' => 'direct',
                     'assigned_at' => $now,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
 
-                $db->insert('member_referrals', [
-                    'sponsor_id' => (int) $sponsor['id'],
-                    'referred_member_id' => $memberId,
-                    'referral_code' => null,
-                    'source' => $meta['source'] ?? 'direct',
-                    'ip_address' => $meta['ip'] ?? Request::ip(),
-                    'created_at' => $now,
-                ]);
+                // A root member (no sponsor) has no referral record: there is no one to credit.
+                if ($sponsor !== null) {
+                    $db->insert('member_referrals', [
+                        'sponsor_id' => (int) $sponsor['id'],
+                        'referred_member_id' => $memberId,
+                        'referral_code' => null,
+                        'source' => $meta['source'] ?? 'direct',
+                        'ip_address' => $meta['ip'] ?? Request::ip(),
+                        'created_at' => $now,
+                    ]);
+                }
 
                 $db->insert('wallet_accounts', [
                     'member_id' => $memberId,
@@ -198,17 +214,172 @@ final class MemberService
         $this->ensureCustomerRecord($member);
 
         Notification::send('member', $memberId, 'registration_welcome', 'Welcome to Saee Life Herbal',
-            'Your partner account ' . $member['member_code'] . ' is active. Your sponsor is ' . ($sponsor['name'] ?? '') . '.',
-            ['member_code' => $member['member_code'], 'sponsor_name' => $sponsor['name'] ?? '', 'referral_link' => Url::absoluteBase() . '/member/register?ref=' . $member['referral_code']],
+            'Your partner account ' . $member['member_code'] . ' is active.'
+                . ($sponsor !== null ? ' Your sponsor is ' . $sponsor['name'] . '.' : ' You are the top of your own tree.'),
+            ['member_code' => $member['member_code'], 'sponsor_name' => $sponsor['name'] ?? '', 'referral_link' => self::shareLink($member['referral_code'])],
             ['link' => 'dashboard', 'type' => 'success', 'icon' => 'fa-hand-sparkles']);
-        if ((int) $sponsor['is_company'] !== 1) {
+        if ($sponsor !== null && (int) $sponsor['is_company'] !== 1) {
             Notification::send('member', (int) $sponsor['id'], 'new_referral', 'New Team Member Joined',
                 $member['name'] . ' (' . $member['member_code'] . ') joined your team.',
                 ['member_name' => $member['name'], 'member_code' => $member['member_code']],
                 ['link' => 'referrals', 'type' => 'success', 'icon' => 'fa-user-plus']);
         }
 
-        return ['ok' => true, 'message' => 'Registration successful. Your member ID is ' . $member['member_code'] . '.', 'member' => $member];
+        return [
+            'ok' => true,
+            'message' => 'Registration successful. Your member ID is ' . $member['member_code'] . '.',
+            'member' => $member,
+            // Everything the "save your details" card needs, gathered in one place so the
+            // registration page, the admin create form and the API all show the same thing.
+            'welcome' => $this->welcomeDetails(
+                $member,
+                (string) ($input['password'] ?? ''),
+                $sponsor,
+                $sponsor === null
+            ),
+        ];
+    }
+
+    /**
+     * The shareable referral link for a member's code.
+     *
+     * Absolute, because it is copied into WhatsApp and must work pasted anywhere.
+     */
+    public static function shareLink(?string $referralCode): string
+    {
+        $code = trim((string) $referralCode);
+        return $code === '' ? '' : Url::absoluteBase() . '/member/register?ref=' . rawurlencode($code);
+    }
+
+    /**
+     * Details a new member needs to keep: login credentials, sponsor, member ID and share link.
+     *
+     * The plain password is only ever available at this moment, which is why the card is shown
+     * immediately after creation and never again. Nothing here is persisted.
+     *
+     * @return array<string,mixed>
+     */
+    public function welcomeDetails(array $member, string $plainPassword, ?array $sponsor, bool $noSponsor = false): array
+    {
+        $code = (string) ($member['member_code'] ?? '');
+        return [
+            'member_id' => (int) ($member['id'] ?? 0),
+            'member_code' => $code,
+            'name' => (string) ($member['name'] ?? ''),
+            'username' => self::usernameFor($member),
+            'password' => $plainPassword,
+            'mobile' => (string) ($member['mobile'] ?? ''),
+            'email' => (string) ($member['email'] ?? ''),
+            'role' => ucfirst((string) ($member['role'] ?? '')),
+            'status' => (string) ($member['status'] ?? ''),
+            'joined_at' => (string) ($member['joined_at'] ?? ''),
+            'sponsor_code' => $sponsor !== null ? (string) ($sponsor['member_code'] ?? '') : '',
+            'sponsor_name' => $sponsor !== null ? (string) ($sponsor['name'] ?? '') : '',
+            'root_of_own_tree' => $noSponsor || $sponsor === null,
+            'referral_code' => (string) ($member['referral_code'] ?? ''),
+            'share_link' => self::shareLink((string) ($member['referral_code'] ?? '')),
+            'login_url' => Url::absoluteBase() . '/member/login',
+        ];
+    }
+
+    /**
+     * What a member signs in with.
+     *
+     * MemberAuth::attempt() accepts the member code, the mobile number or the email, so all three
+     * are valid "usernames". The member code is shown as the primary one.
+     */
+    public static function usernameFor(array $member): string
+    {
+        return (string) ($member['member_code'] ?? '');
+    }
+
+    /**
+     * Create a member and, optionally, buy products in their name — as one unit of work.
+     *
+     * Used by the admin "new member" screen. Without this the two steps could half-succeed: a
+     * member created with no order, or an order against a member that does not exist. The member
+     * is created first (registration runs its own transaction), then the purchase; if the
+     * purchase fails the member is removed again and the whole attempt is reported as failed.
+     *
+     * MLM and payout rules are not re-implemented here: the purchase goes through
+     * MemberPurchaseService, so commissions, wallet movements and royalty are calculated exactly
+     * as they are for any other order.
+     *
+     * @param array<string,mixed> $input    member fields, see register()
+     * @param array<int,int>      $lines    productId => quantity (empty = member only)
+     * @param array<string,mixed> $purchase payment_mode plus optional customer/address fields
+     * @param array<string,mixed> $meta     source and ip
+     * @return array<string,mixed>
+     */
+    public function createWithPurchase(array $input, array $lines, array $purchase, array $meta = []): array
+    {
+        $result = $this->register($input, $meta);
+        if (empty($result['ok'])) {
+            return $result;
+        }
+
+        $member = (array) $result['member'];
+        $memberId = (int) $member['id'];
+        $quantities = [];
+        foreach ($lines as $productId => $qty) {
+            if ((int) $qty > 0) {
+                $quantities[(int) $productId] = (int) $qty;
+            }
+        }
+        if ($quantities === []) {
+            // Members-only creation: nothing else to do.
+            $result['purchase'] = null;
+            return $result;
+        }
+
+        $details = [
+            'payment_mode' => (string) ($purchase['payment_mode'] ?? ''),
+            'notes' => (string) ($purchase['notes'] ?? 'Opening purchase for ' . ($member['member_code'] ?? '')),
+            'customer_name' => (string) ($purchase['customer_name'] ?? ($member['name'] ?? '')),
+            'customer_mobile' => (string) ($purchase['customer_mobile'] ?? ($member['mobile'] ?? '')),
+            'address_line1' => (string) ($purchase['address_line1'] ?? ''),
+            'city' => (string) ($purchase['city'] ?? ''),
+            'state' => (string) ($purchase['state'] ?? ''),
+            'pincode' => (string) ($purchase['pincode'] ?? ''),
+        ];
+
+        $order = (new MemberPurchaseService($this->db))->create(0, 'admin', $memberId, $quantities, $details);
+        if (empty($order['ok'])) {
+            // Roll the member back so the admin can correct the basket and try again, instead of
+            // being left with an account nobody meant to create.
+            $this->removeNewMember($memberId);
+            return [
+                'ok' => false,
+                'message' => 'The purchase failed, so the member was not created: ' . (string) ($order['message'] ?? 'unknown error'),
+                'errors' => [],
+            ];
+        }
+
+        $result['purchase'] = $order;
+        $result['message'] = 'Member ' . ($member['member_code'] ?? '') . ' created, and ' . ($order['message'] ?? 'the opening purchase was recorded.');
+        return $result;
+    }
+
+    /**
+     * Delete a member created moments ago, when the rest of the operation failed.
+     *
+     * Deliberately narrow: only rows this very operation created are removed, and any remaining
+     * order is left untouched (it cannot exist, because the purchase is what failed).
+     */
+    private function removeNewMember(int $memberId): void
+    {
+        try {
+            $this->db->transaction(function (Database $db) use ($memberId): void {
+                foreach (['member_profiles', 'member_sponsors', 'member_referrals', 'wallet_accounts', 'member_kyc'] as $table) {
+                    $column = $table === 'member_referrals' ? 'referred_member_id' : 'member_id';
+                    $db->execute(sprintf('DELETE FROM %s WHERE %s = :id', $db->quoteIdentifier($table), $db->quoteIdentifier($column)), ['id' => $memberId]);
+                }
+                $db->execute('DELETE FROM customers WHERE member_id = :id', ['id' => $memberId]);
+                $db->execute('DELETE FROM members WHERE id = :id', ['id' => $memberId]);
+            });
+        } catch (\Throwable $e) {
+            error_log('could not roll back member #' . $memberId . ': ' . $e->getMessage());
+        }
     }
 
     /** Members automatically get a customer record so checkout works with one account. */

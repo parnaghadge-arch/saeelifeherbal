@@ -82,13 +82,19 @@ if (is_post()) {
         ], ['ip' => client_ip(), 'source' => $ref !== '' ? 'referral' : 'direct']);
 
         if ($result['ok']) {
+            // Sign the member in, then keep them on this page for one render so the credentials
+            // card can be shown. The password is not recoverable afterwards, so redirecting
+            // straight to the dashboard would lose it for good. The card offers a continue link.
             MemberAuth::attempt((string) $v->value('mobile'), (string) Request::raw('password'));
-            Session::success('Welcome aboard! Your member ID is ' . $result['member']['member_code'] . '.');
-            Request::redirect('dashboard.php');
-        }
-        $errors['general'] = [$result['message']];
-        foreach ($result['errors'] ?? [] as $field => $messages) {
-            $errors[$field] = $messages;
+            $welcome = (array) ($result['welcome'] ?? []);
+            $welcomeContext = 'self';
+            $registeredCode = (string) ($result['member']['member_code'] ?? '');
+            Session::success('Welcome aboard! Your member ID is ' . $registeredCode . '.');
+        } else {
+            $errors['general'] = [$result['message']];
+            foreach ($result['errors'] ?? [] as $field => $messages) {
+                $errors[$field] = $messages;
+            }
         }
     } else {
         $errors = $v->errors();
@@ -106,7 +112,25 @@ echo page_hero('Register as a Partner', 'Free registration. No joining fee. No r
     <div class="row g-4">
       <div class="col-lg-8">
         <div class="panel p-4">
-          <?php if ((int) MlmSettings::get('registration_enabled', 1) !== 1): ?>
+          <?php if (!empty($welcome)): ?>
+            <div class="text-center py-4">
+              <div class="welcome-tick mb-3"><i class="fa-solid fa-check"></i></div>
+              <h2 class="h5 mb-2">You are registered</h2>
+              <p class="text-muted small mb-3">
+                Your partner ID is <strong><?= e((string) ($welcome['member_code'] ?? '')) ?></strong>.
+                Your login details are shown in the window &mdash; save them before continuing.
+              </p>
+              <div class="d-flex flex-wrap gap-2 justify-content-center">
+                <button type="button" class="btn btn-outline-secondary"
+                        onclick="bootstrap.Modal.getOrCreateInstance(document.getElementById('memberWelcomeCard')).show()">
+                  <i class="fa-solid fa-id-card me-1"></i>Show my details again
+                </button>
+                <a class="btn btn-primary" href="<?= e(Url::member('dashboard.php')) ?>">
+                  Go to dashboard <i class="fa-solid fa-arrow-right ms-1"></i>
+                </a>
+              </div>
+            </div>
+          <?php elseif ((int) MlmSettings::get('registration_enabled', 1) !== 1): ?>
             <div class="alert alert-warning mb-0">Registrations are temporarily paused. Please check back soon.</div>
           <?php else: ?>
           <?php if (!empty($errors['general'])): ?><div class="alert alert-danger"><?= e($errors['general'][0]) ?></div><?php endif; ?>
@@ -248,4 +272,10 @@ echo page_hero('Register as a Partner', 'Free registration. No joining fee. No r
     </div>
   </div>
 </section>
+<?php if (!empty($welcome)): ?>
+  <?php require INCLUDES_PATH . '/member-welcome-card.php'; ?>
+  <style>
+    .welcome-tick{width:64px;height:64px;border-radius:50%;background:#E8F5E9;color:#14532D;display:inline-flex;align-items:center;justify-content:center;font-size:26px}
+  </style>
+<?php endif; ?>
 <?php require INCLUDES_PATH . '/footer.php'; ?>
