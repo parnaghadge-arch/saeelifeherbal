@@ -33,6 +33,9 @@ final class Database
      */
     private string|false|null $expressionCollation = null;
 
+    /** True once the collation repair has been attempted for this connection. */
+    private bool $collationRepairAttempted = false;
+
     private PDO $pdo;
     private string $driver;
     private int $transactionLevel = 0;
@@ -86,17 +89,29 @@ final class Database
                 $c = $this->config;
                 $this->pdo = $this->connectMysql($c, $options);
                 // The DSN charset only sets the character set; MySQL then applies that charset's
-                // *default* collation (utf8mb4_general_ci on 5.7/MariaDB). Every table in this
-                // schema is utf8mb4_unicode_ci, and comparing a parameter (utf8mb4_general_ci)
-                // with a column or expression (utf8mb4_unicode_ci) fails with 1267 "Illegal mix
-                // of collations". Pinning the connection collation keeps all sides in agreement.
-                $collation = (string) ($c['collation'] ?? '');
+                // *default* collation (utf8mb4_general_ci on 5.7/MariaDB). Bound parameters and
+                // function results inherit that, so comparing them to a utf8mb4_unicode_ci column
+                // fails with 1267 "Illegal mix of collations".
+                //
+                // The connection must be pinned to the collation the TABLE actually uses — not to
+                // whatever the config says. Forcing unicode_ci on a database whose tables are
+                // general_ci would break every comparison instead of fixing them, so the table is
+                // inspected first and the configuration is only a fallback.
+                $collation = $this->detectTableCollation()
+                    ?: (string) ($c['collation'] ?? '');
                 if (preg_match('/^[A-Za-z0-9_]+$/', $collation) === 1) {
-                    $this->pdo->exec(sprintf(
-                        'SET NAMES %s COLLATE %s',
-                        (string) ($c['charset'] ?? 'utf8mb4'),
-                        $collation
-                    ));
+                    try {
+                        $this->pdo->exec(sprintf(
+                            'SET NAMES %s COLLATE %s',
+                            (string) ($c['charset'] ?? 'utf8mb4'),
+                            $collation
+                        ));
+                        $this->expressionCollation = $collation;
+                    } catch (Throwable $collationError) {
+                        // A collation the server does not know must never fail the connection:
+                        // the server default is still usable and the query layer pins expressions.
+                        error_log('[db] could not apply connection collation ' . $collation . ': ' . $collationError->getMessage());
+                    }
                 }
                 $this->pdo->exec("SET sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION'");
                 $this->pdo->exec("SET time_zone = '+05:30'");
@@ -220,6 +235,38 @@ final class Database
     }
 
     /**
+     * Collation actually used by the application tables, read straight from the server.
+     *
+     * Whatever answers this decides the connection collation, because matching the tables is
+     * the only thing that makes comparisons legal. Returns '' when it cannot be determined.
+     */
+    private function detectTableCollation(): string
+    {
+        if ($this->driver !== 'mysql') {
+            return '';
+        }
+        try {
+            // Most common collation among the real tables; ties resolve to the smaller name so
+            // the result is stable between requests.
+            $sql = "SELECT TABLE_COLLATION AS c, COUNT(*) AS n
+                      FROM information_schema.TABLES
+                     WHERE TABLE_SCHEMA = DATABASE()
+                       AND TABLE_TYPE = 'BASE TABLE'
+                       AND TABLE_COLLATION IS NOT NULL
+                     GROUP BY TABLE_COLLATION
+                     ORDER BY n DESC, c ASC
+                     LIMIT 1";
+            $value = (string) ($this->pdo->query($sql)->fetchColumn() ?: '');
+            if (preg_match('/^[A-Za-z0-9_]+$/', $value) === 1 && str_starts_with($value, 'utf8')) {
+                return $value;
+            }
+        } catch (Throwable) {
+            // Fall back to configuration.
+        }
+        return '';
+    }
+
+    /**
      * Collation that derived string expressions are pinned to.
      *
      * Order of preference: the configured connection collation (config/database.php, which is
@@ -234,6 +281,11 @@ final class Database
         $this->expressionCollation = false;
         if ($this->driver !== 'mysql') {
             return false;
+        }
+        // What the tables actually use always wins over configuration.
+        $detected = $this->detectTableCollation();
+        if ($detected !== '') {
+            return $this->expressionCollation = $detected;
         }
         $configured = (string) ($this->config['collation'] ?? '');
         if (preg_match('/^[A-Za-z0-9_]+$/', $configured) === 1 && str_starts_with($configured, 'utf8')) {
@@ -475,10 +527,16 @@ final class Database
             if ($allowCollationRetry
                 && $this->transactionLevel === 0   // ALTER TABLE would implicitly commit an open transaction
                 && $this->driver === 'mysql'
-                && ((int) $e->errorInfo[1] === 1267 || str_contains($e->getMessage(), 'Illegal mix of collations'))) {
+                && ((int) ($e->errorInfo[1] ?? 0) === 1267 || str_contains($e->getMessage(), 'Illegal mix of collations'))) {
                 $this->logError($sql, $params, $e);
-                if ($this->repairCollations() !== []) {
-                    return $this->prepare($sql, $params, false);
+                // Latch the repair so a failing statement can never start a second one: the
+                // per-table ALTERs themselves throw on tables the account cannot modify, and
+                // without the latch each of those would call back into this branch.
+                if (!$this->collationRepairAttempted) {
+                    $this->collationRepairAttempted = true;
+                    if ($this->repairCollations() !== []) {
+                        return $this->prepare($sql, $params, false);
+                    }
                 }
             }
             $this->logError($sql, $params, $e);
@@ -702,21 +760,35 @@ final class Database
         }
         $charset = strstr($collation, '_', true) ?: 'utf8mb4';
         $repaired = [];
-        foreach ($this->column('SELECT TABLE_NAME FROM information_schema.TABLES
-                                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = \'BASE TABLE\'') as $table) {
-            $table = (string) $table;
-            $current = (string) ($this->value(
-                'SELECT TABLE_COLLATION FROM information_schema.TABLES
-                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t',
-                ['t' => $table]
-            ) ?: '');
+        // Deliberately the raw PDO API, not $this->select(): going through the query layer would
+        // re-enter the 1267 handler that calls this method.
+        try {
+            $tables = $this->pdo->query(
+                "SELECT TABLE_NAME FROM information_schema.TABLES
+                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'"
+            )->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        } catch (Throwable) {
+            return [];
+        }
+        foreach ($tables as $table) {
+            $table = str_replace('`', '', (string) $table);
+            try {
+                $probe = $this->pdo->prepare(
+                    'SELECT TABLE_COLLATION FROM information_schema.TABLES
+                      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t'
+                );
+                $probe->execute(['t' => $table]);
+                $current = (string) ($probe->fetchColumn() ?: '');
+            } catch (Throwable) {
+                continue;
+            }
             if ($current === $collation) {
                 continue;
             }
             try {
                 $this->pdo->exec(sprintf(
                     'ALTER TABLE `%s` CONVERT TO CHARACTER SET %s COLLATE %s',
-                    str_replace('`', '', $table),
+                    $table,
                     $charset,
                     $collation
                 ));

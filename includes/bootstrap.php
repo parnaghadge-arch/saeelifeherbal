@@ -37,9 +37,27 @@ require_once LIB_PATH . '/Helpers.php';
 use Saee\Lib\Config;
 use Saee\Lib\Settings;
 
+/**
+ * Short, quotable error reference: "ERR-8F3A21C4".
+ *
+ * A generic "Something went wrong" page is impossible to support: the operator sees no detail
+ * and the developer gets no clue which request failed. Every uncaught error now gets a code
+ * that is written to the log AND shown on the error page, so the message the user sends is
+ * enough to find the exact line in storage/logs/php-error.log.
+ */
+if (!defined('SAEE_ERROR_REF')) {
+    define('SAEE_ERROR_REF', 'ERR-' . strtoupper(bin2hex(random_bytes(4))));
+}
+
 // Friendly error page for uncaught exceptions in production.
 set_exception_handler(static function (Throwable $e): void {
-    error_log('[uncaught] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    // Log the reference on its own line first so it can be grepped for directly.
+    error_log('[' . SAEE_ERROR_REF . '] ' . get_class($e) . ': ' . $e->getMessage()
+        . ' in ' . $e->getFile() . ':' . $e->getLine()
+        . ' | ' . ($_SERVER['REQUEST_METHOD'] ?? 'CLI') . ' ' . ($_SERVER['REQUEST_URI'] ?? '-')
+        . ' | admin=' . (int) (\Saee\Lib\AdminAuth::id() ?? 0)
+        . ' member=' . (int) (\Saee\Lib\Session::get('member_id') ?? 0));
+    error_log('[' . SAEE_ERROR_REF . '] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 
     // On the command line always show the real error: a CLI user (installer, cron)
     // has no browser to look at, and a friendly message would hide the cause.
@@ -62,7 +80,7 @@ set_exception_handler(static function (Throwable $e): void {
     if (APP_DEBUG) {
         http_response_code(500);
         echo '<pre style="padding:24px;background:#111;color:#eee;white-space:pre-wrap">';
-        echo htmlspecialchars($e->getMessage() . "\n\n" . $e->getFile() . ':' . $e->getLine() . "\n\n" . $e->getTraceAsString());
+        echo htmlspecialchars('[' . SAEE_ERROR_REF . ']' . "\n" . $e->getMessage() . "\n\n" . $e->getFile() . ':' . $e->getLine() . "\n\n" . $e->getTraceAsString());
         echo '</pre>';
         return;
     }
@@ -71,7 +89,17 @@ set_exception_handler(static function (Throwable $e): void {
     if (is_file($path)) {
         include $path;
     } else {
-        echo 'Something went wrong. Please try again later.';
+        // Standalone fallback: no layout, no database, nothing that can fail again.
+        echo '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>Something went wrong</title></head>'
+            . '<body style="font-family:system-ui,Segoe UI,Arial,sans-serif;background:#F6F8F6;color:#26332B;padding:48px 16px">'
+            . '<div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #DFE8E1;border-radius:14px;padding:28px 32px">'
+            . '<h1 style="font-size:20px;margin-top:0">Something went wrong</h1>'
+            . '<p>We could not complete that request. Please try again in a moment.</p>'
+            . '<p style="color:#5A6B60;font-size:14px">If it keeps happening, quote this reference to support: '
+            . '<strong>' . htmlspecialchars(SAEE_ERROR_REF) . '</strong></p>'
+            . '</div></body></html>';
     }
 });
 

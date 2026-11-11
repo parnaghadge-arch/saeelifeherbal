@@ -40,6 +40,7 @@ foreach (array_slice($argv, 2) as $arg) {
 $dbConfig = (array) \Saee\Lib\Config::get('database.db');
 $driver = (string) ($dbConfig['driver'] ?? 'sqlite');
 $commands = ['install', 'upgrade', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'collation:repair', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
+$commands = ['install', 'upgrade', 'demo', 'doctor', 'selftest', 'schema:mysql', 'schema:sqlite', 'collation:repair', 'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap'];
 
 if (!in_array($command, $commands, true)) {
     echo "Saee Life Herbal console\n\n";
@@ -49,6 +50,8 @@ if (!in_array($command, $commands, true)) {
     echo "      --admin-email=a@b.com --admin-name='Name' --no-fresh\n";
     echo "  upgrade              create tables added by newer versions (safe to re-run)\n";
     echo "  collation:repair     convert every table to one collation (fixes SQLSTATE 1267)\n";
+    echo "  logs                  show recent PHP errors (use a code from the error page)\n";
+    echo "      --tail=40 --grep=ERR-XXXXXXXX --clear\n";
     echo "  demo                 seed demo catalogue, members, orders and commissions\n";
     echo "  schema:mysql         write database/schema.sql from the schema definition\n";
     echo "  schema:sqlite        write database/schema.sqlite.sql\n";
@@ -441,6 +444,52 @@ switch ($command) {
     case 'schema:sqlite':
         file_put_contents(APP_ROOT . '/database/schema.sqlite.sql', \Saee\Lib\Schema::sqliteScript());
         echo "Wrote database/schema.sqlite.sql" . PHP_EOL;
+        break;
+
+    case 'logs':
+        // The production error page shows a reference like ERR-8F3A21C4. This is where it
+        // leads: a readable view of storage/logs so an operator never has to ask the host for
+        // an error log path.
+        $dir = LOG_PATH;
+        $files = glob($dir . '/*.log') ?: [];
+        if ($files === []) {
+            echo "No log files in " . $dir . PHP_EOL;
+            break;
+        }
+        if (!empty($opts['clear'])) {
+            foreach ($files as $file) {
+                @file_put_contents($file, '');
+            }
+            echo "Cleared " . count($files) . " log file(s)." . PHP_EOL;
+            break;
+        }
+        $tail = max(1, (int) ($opts['tail'] ?? 40));
+        $grep = (string) ($opts['grep'] ?? '');
+        foreach ($files as $file) {
+            $name = basename($file);
+            if ($grep !== '') {
+                $lines = [];
+                foreach (file($file, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+                    if (stripos($line, $grep) !== false) {
+                        $lines[] = $line;
+                    }
+                }
+                if ($lines === []) {
+                    continue;
+                }
+                $lines = array_slice($lines, -$tail);
+                echo PHP_EOL . '== ' . $name . ' — ' . count($lines) . ' line(s) matching "' . $grep . '" ==' . PHP_EOL;
+            } else {
+                $all = file($file, FILE_IGNORE_NEW_LINES) ?: [];
+                $lines = array_slice($all, -$tail);
+                echo PHP_EOL . '== ' . $name . ' (last ' . count($lines) . ' of ' . count($all) . ') ==' . PHP_EOL;
+            }
+            foreach ($lines as $line) {
+                echo '  ' . $line . PHP_EOL;
+            }
+        }
+        echo PHP_EOL . 'Tip: the reference on the error page (ERR-XXXXXXXX) is on the matching line, '
+            . 'e.g. php tools/console.php logs --grep=ERR-8F3A21C4' . PHP_EOL;
         break;
 
     case 'collation:repair':
