@@ -160,15 +160,25 @@ final class Request
         if (preg_match('#^(admin|member|api|pwa|ajax)/#', ltrim($url, '/'))) {
             return $base . '/' . ltrim($url, '/');
         }
+        // A bare file name belongs to the sub-application the request came from.
         if (!str_contains($url, '/')) {
-            // Keep redirects inside the sub-application the request came from, without
-            // appending the folder twice when the base already ends with it.
             $dir = Url::currentDir();
-            if ($dir !== '' && !str_ends_with($base, $dir)) {
-                $base .= $dir;
+            // Url::currentDir() returns "/member" (leading slash), and this code used to
+            // concatenate it directly, so "payouts.php" became "/member" . "/" . "payouts.php"
+            // in the common case but "memberpayouts.php" whenever the two were joined without a
+            // separator. Normalise first, then join exactly once, whatever the input shape.
+            $dir = trim($dir, '/');
+            if ($dir !== '' && !preg_match('#(?:^|/)' . preg_quote($dir, '#') . '$#', $base)) {
+                $base .= '/' . $dir;
+            }
+            $url = ltrim($url, '/');
+            // Never produce a URL that is a folder glued to a file name ("memberpayouts.php").
+            // If the base already ends with a folder and the target repeats it, drop the repeat.
+            if ($dir !== '' && str_starts_with($url, $dir) && !str_contains(substr($url, strlen($dir)), '/')) {
+                $url = substr($url, strlen($dir));
             }
         }
-        return $base . '/' . ltrim($url, '/');
+        return rtrim($base, '/') . '/' . ltrim($url, '/');
     }
 
     public static function redirect(string $url, int $code = 302): never

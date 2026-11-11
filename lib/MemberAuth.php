@@ -109,9 +109,20 @@ final class MemberAuth
             if (Request::isAjax()) {
                 Response::error('Your session has expired. Please sign in again.', [], 401);
             }
-            // Store a sub-app relative target (admin/member redirects must not re-append the
-            // install prefix): Request::uri() is the full web path and broke sub-directory installs.
-            Session::set('member_redirect', ltrim(Url::currentDir() . basename(Request::uri()), '/'));
+            // Store the target as a plain file name, with no folder prefix.
+            //
+            // Request::uri() is the full web path, so storing it appended the install prefix a
+            // second time on sub-directory installs. The previous fix over-corrected: it glued
+            // Url::currentDir() (which returns "/member", leading slash) straight onto the
+            // basename, producing "memberpayouts.php" — which Request::resolveRedirect() then
+            // turned into /member/memberpayouts.php, a 404. The folder is already implied: the
+            // redirect is resolved relative to the sub-application the request came from, and
+            // resolveRedirect() re-adds it. This now matches AdminAuth::requireLogin().
+            $target = basename((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH));
+            if ($target === '' || $target === '/') {
+                $target = 'dashboard.php';
+            }
+            Session::set('member_redirect', $target);
             Session::flash('warning', 'Please sign in to your partner account.');
             Request::redirect('login');
         }
