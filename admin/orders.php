@@ -46,7 +46,8 @@ $pageTitle = 'Orders';
 $pageHeading = 'Orders';
 $pageSub = $total . ' order(s) · ' . money((float) ($totals['amount'] ?? 0)) . ' total';
 $activeModule = 'orders';
-$pageActions = '<a class="btn btn-sm btn-outline-secondary" href="?export=csv"><i class="fa-solid fa-file-csv me-1"></i>Export</a>';
+$pageActions = '<a class="btn btn-sm btn-primary" href="purchase.php"><i class="fa-solid fa-cart-plus me-1"></i>Record purchase</a>'
+    . '<a class="btn btn-sm btn-outline-secondary ms-2" href="?export=csv"><i class="fa-solid fa-file-csv me-1"></i>Export</a>';
 require __DIR__ . '/includes/layout.php';
 ?>
 <div class="panel p-3 p-md-4">

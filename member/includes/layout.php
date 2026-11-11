@@ -19,6 +19,7 @@ $kycStatus = $member['kyc_status'] ?? 'not_submitted';
 $navGroups = [
     'Main' => [
         ['dashboard', 'Dashboard', 'fa-gauge-high', 'dashboard.php'],
+        ['buy-products', 'Buy Products', 'fa-cart-plus', 'buy-products.php'],
         ['referrals', 'My Referrals', 'fa-user-group', 'referrals.php'],
         ['team', 'My Team', 'fa-sitemap', 'team.php'],
         ['genealogy', 'Genealogy Tree', 'fa-network-wired', 'genealogy.php'],

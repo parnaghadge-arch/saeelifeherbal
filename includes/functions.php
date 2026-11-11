@@ -553,5 +553,6 @@ function invalid_class(array $errors, string $field): string
 /** Human readable payment method. */
 function payment_label(?string $method): string
 {
-    return PAYMENT_METHODS[$method ?? ''] ?? ucfirst((string) $method);
+    $labels = PAYMENT_METHODS + ['wallet' => 'Wallet Balance'];
+    return $labels[$method ?? ''] ?? ucfirst(str_replace('_', ' ', (string) $method));
 }

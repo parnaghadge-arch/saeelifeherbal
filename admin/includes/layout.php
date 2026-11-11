@@ -28,6 +28,7 @@ $menu = [
     ['label' => 'Products', 'icon' => 'fa-seedling', 'href' => 'products.php', 'key' => 'products', 'perm' => 'products.manage'],
     ['label' => 'Categories', 'icon' => 'fa-layer-group', 'href' => 'categories.php', 'key' => 'categories', 'perm' => 'categories.manage'],
     ['label' => 'Orders', 'icon' => 'fa-bag-shopping', 'href' => 'orders.php', 'key' => 'orders', 'perm' => 'orders.view'],
+    ['label' => 'Record Purchase', 'icon' => 'fa-cart-plus', 'href' => 'purchase.php', 'key' => 'purchase', 'perm' => 'orders.view'],
     ['label' => 'Enquiries', 'icon' => 'fa-envelope-open-text', 'href' => 'enquiries.php', 'key' => 'enquiries', 'perm' => 'enquiries.view'],
     ['label' => 'B2B Leads', 'icon' => 'fa-handshake', 'href' => 'b2b-leads.php', 'key' => 'b2b-leads', 'perm' => 'b2b.view'],
     ['label' => 'Pages', 'icon' => 'fa-file-lines', 'href' => 'pages.php', 'key' => 'pages', 'perm' => 'cms.pages'],

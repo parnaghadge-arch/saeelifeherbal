@@ -67,6 +67,9 @@ const MEMBER_ROLES = ['farmer' => 'Farmer', 'distributor' => 'Distributor', 'ret
 
 // Payments
 const PAYMENT_METHODS = ['cod' => 'Cash on Delivery', 'razorpay' => 'Razorpay', 'upi' => 'UPI', 'bank_transfer' => 'Bank Transfer'];
+// Payment mode used only by assisted purchases (admin/sponsor buying for a member) that are
+// settled from the member's own wallet balance.
+const PAYMENT_METHOD_WALLET = 'wallet';
 const PAYMENT_GATEWAYS = ['razorpay', 'cod', 'upi', 'bank_transfer'];
 
 // Enquiry status

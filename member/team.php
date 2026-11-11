@@ -6,6 +6,7 @@ require __DIR__ . '/_guard.php';
 use Saee\Lib\Pager;
 use Saee\Lib\Request;
 use Saee\Lib\TeamService;
+use Saee\Lib\Url;
 
 $team = new TeamService(db());
 $search = trim((string) Request::query('q', ''));
@@ -60,7 +61,7 @@ require __DIR__ . '/includes/layout.php';
       <select class="form-select form-select-sm" name="level">
         <option value="0">All levels</option>
         <?php foreach ($levelOptions as $lvl => $count): ?>
-          <option value="<?= (int) $lvl ?>" <?= $level === (int) $lvl ? 'selected' : '' ?>>Level <?= (int) $lvl ?> (<?= (int) $count ?>)</option>
+          <option value="<?= (int) $lvl ?>"<?= $level === (int) $lvl ? ' selected' : '' ?>>Level <?= (int) $lvl ?> (<?= (int) $count ?>)</option>
         <?php endforeach; ?>
       </select>
     </div>
@@ -74,7 +75,7 @@ require __DIR__ . '/includes/layout.php';
   <?php else: ?>
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0 data-table">
-      <thead><tr><th>Member</th><th>Joined</th><th>Status</th><th>Directs</th><th class="text-end">Team size</th></tr></thead>
+      <thead><tr><th>Member</th><th>Joined</th><th>Status</th><th>Directs</th><th class="text-end">Team size</th><th class="text-end">Action</th></tr></thead>
       <tbody>
       <?php foreach ($rows as $row): ?>
         <tr>
@@ -86,6 +87,13 @@ require __DIR__ . '/includes/layout.php';
           <td data-label="Status"><?= status_badge((string) $row['status']) ?></td>
           <td data-label="Directs" class="small"><?= (int) $row['direct_referral_count'] ?></td>
           <td data-label="Team" class="text-end small"><?= (int) $row['downline_count'] ?></td>
+          <td data-label="Action" class="text-end">
+            <?php if ((string) $row['status'] === 'active'): ?>
+              <a class="btn btn-sm btn-outline-primary" href="<?= e(Url::to('member/buy-products.php?for=' . (int) $row['id'])) ?>">Buy for</a>
+            <?php else: ?>
+              <span class="small text-muted"><?= e(ucfirst((string) $row['status'])) ?></span>
+            <?php endif; ?>
+          </td>
         </tr>
       <?php endforeach; ?>
       </tbody>
