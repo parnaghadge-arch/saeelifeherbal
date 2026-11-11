@@ -14,10 +14,21 @@ final class ReportService
     {
     }
 
-    /** Payout register with masked or full bank details depending on permission. */
-    public function payouts(array $filters = [], bool $fullBank = false): array
+    /**
+     * Payout register, as raw rows.
+     *
+     * Deliberately raw (joined column names, one row per payout request): this is the shape the
+     * payout report page renders and the shape exports need. It used to return human-labelled
+     * keys ("Member ID", "Net Payable"), which forced every caller to know that — and
+     * admin/payout-reports.php did not, so it read $row['net_amount'] off an array that only had
+     * "Net Payable" and produced a wall of "Undefined array key" warnings. The labelled form is
+     * now derived from this one by payoutExportRows(), so the two cannot drift apart again.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function payoutRows(array $filters = []): array
     {
-        $sql = "SELECT p.*, m.member_code, m.name AS member_name, m.mobile, k.pan_number
+        $sql = "SELECT p.*, m.member_code, m.name AS name, m.mobile, k.pan_number
                 FROM payout_requests p
                 JOIN members m ON m.id = p.member_id
                 LEFT JOIN member_kyc k ON k.member_id = m.id
@@ -44,28 +55,41 @@ final class ReportService
             $params['bank'] = '%' . $filters['bank'] . '%';
         }
         $sql .= ' ORDER BY p.id DESC';
-        $rows = $this->db->select($sql, $params);
+        return $this->db->select($sql, $params);
+    }
 
+    /**
+     * Payout register with labelled columns for exports, masked unless the caller may see banks.
+     *
+     * Kept because admin/reports.php exports these labels verbatim; it is built from
+     * payoutRows() so there is a single query and a single notion of "a payout row".
+     *
+     * @return list<array<string,string>>
+     */
+    public function payouts(array $filters = [], bool $fullBank = false): array
+    {
         $out = [];
-        foreach ($rows as $row) {
-            $bank = json_decode((string) $row['bank_snapshot'], true) ?: [];
+        foreach ($this->payoutRows($filters) as $row) {
+            $bank = json_decode((string) ($row['bank_snapshot'] ?? ''), true) ?: [];
             $out[] = [
-                'Member ID' => $row['member_code'],
-                'Member Name' => $row['member_name'],
-                'Mobile' => $row['mobile'],
-                'PAN' => $fullBank ? (string) $row['pan_number'] : Security::maskPan((string) $row['pan_number']),
-                'Bank Name' => $bank['bank_name'] ?? '',
-                'Account Holder' => $bank['account_holder_name'] ?? '',
+                'Member ID' => (string) ($row['member_code'] ?? ''),
+                'Member Name' => (string) ($row['name'] ?? ''),
+                'Mobile' => (string) ($row['mobile'] ?? ''),
+                'PAN' => $fullBank
+                    ? (string) ($row['pan_number'] ?? '')
+                    : Security::maskPan((string) ($row['pan_number'] ?? '')),
+                'Bank Name' => (string) ($bank['bank_name'] ?? ''),
+                'Account Holder' => (string) ($bank['account_holder_name'] ?? ''),
                 'Account Number' => $fullBank
                     ? (string) ($bank['account_number'] ?? '')
                     : Security::maskAccount((string) ($bank['account_number'] ?? '')),
-                'IFSC' => $bank['ifsc_code'] ?? '',
-                'Payout Amount' => number_format((float) $row['amount'], 2, '.', ''),
-                'Deduction' => number_format((float) $row['deduction_amount'], 2, '.', ''),
-                'Net Payable' => number_format((float) $row['net_amount'], 2, '.', ''),
-                'Payout Status' => ucfirst((string) $row['status']),
+                'IFSC' => (string) ($bank['ifsc_code'] ?? ''),
+                'Payout Amount' => number_format((float) ($row['amount'] ?? 0), 2, '.', ''),
+                'Deduction' => number_format((float) ($row['deduction_amount'] ?? 0), 2, '.', ''),
+                'Net Payable' => number_format((float) ($row['net_amount'] ?? 0), 2, '.', ''),
+                'Payout Status' => ucfirst((string) ($row['status'] ?? '')),
                 'Transaction Reference' => (string) ($row['utr_number'] ?? ''),
-                'Requested On' => (string) $row['requested_at'],
+                'Requested On' => (string) ($row['requested_at'] ?? ''),
                 'Payout Date' => (string) ($row['paid_at'] ?? ''),
             ];
         }
@@ -100,19 +124,23 @@ final class ReportService
         $rows = $this->db->select($sql, $params);
         $out = [];
         foreach ($rows as $row) {
+            // Every read is defaulted. A report must degrade to a blank cell if the live schema
+            // is missing a column, never spray "Undefined array key" across the page.
             $out[] = [
-                'Transaction ID' => $row['transaction_code'],
-                'Member ID' => $row['member_code'],
-                'Member Name' => $row['member_name'],
-                'Commission Type' => ucwords(str_replace('_', ' ', (string) $row['commission_type'])),
+                'Transaction ID' => (string) ($row['transaction_code'] ?? ''),
+                'Member ID' => (string) ($row['member_code'] ?? ''),
+                'Member Name' => (string) ($row['member_name'] ?? ''),
+                'Commission Type' => ucwords(str_replace('_', ' ', (string) ($row['commission_type'] ?? ''))),
                 'Order No' => (string) ($row['order_number'] ?? ''),
-                'Product' => (string) $row['product_name'],
-                'Buyer' => (string) $row['buyer_name'],
-                'Basis' => number_format((float) $row['basis_amount'], 2, '.', ''),
-                'Rate' => ($row['commission_type_rate'] === 'percent' ? $row['rate_value'] . '%' : $row['rate_value']),
-                'Amount' => number_format((float) $row['amount'], 2, '.', ''),
-                'Status' => ucfirst((string) $row['status']),
-                'Date' => (string) $row['created_at'],
+                'Product' => (string) ($row['product_name'] ?? ''),
+                'Buyer' => (string) ($row['buyer_name'] ?? ''),
+                'Basis' => number_format((float) ($row['basis_amount'] ?? 0), 2, '.', ''),
+                'Rate' => (($row['commission_type_rate'] ?? '') === 'percent'
+                    ? ($row['rate_value'] ?? '') . '%'
+                    : (string) ($row['rate_value'] ?? '')),
+                'Amount' => number_format((float) ($row['amount'] ?? 0), 2, '.', ''),
+                'Status' => ucfirst((string) ($row['status'] ?? '')),
+                'Date' => (string) ($row['created_at'] ?? ''),
             ];
         }
         return $out;
@@ -143,18 +171,18 @@ final class ReportService
         $out = [];
         foreach ($rows as $row) {
             $out[] = [
-                'Member ID' => $row['member_code'],
-                'Name' => $row['name'],
-                'Mobile' => $row['mobile'],
-                'Email' => (string) $row['email'],
-                'Sponsor' => (string) $row['sponsor_code'],
-                'Status' => ucfirst((string) $row['status']),
-                'KYC Status' => ucwords(str_replace('_', ' ', (string) $row['kyc_status'])),
-                'Direct Referrals' => (int) $row['direct_referral_count'],
-                'Downline' => (int) $row['downline_count'],
-                'Total Earned' => number_format((float) $row['wallet_earned'], 2, '.', ''),
-                'Available Balance' => number_format((float) $row['available_balance'], 2, '.', ''),
-                'Joined On' => (string) $row['joined_at'],
+                'Member ID' => (string) ($row['member_code'] ?? ''),
+                'Name' => (string) ($row['name'] ?? ''),
+                'Mobile' => (string) ($row['mobile'] ?? ''),
+                'Email' => (string) ($row['email'] ?? ''),
+                'Sponsor' => (string) ($row['sponsor_code'] ?? ''),
+                'Status' => ucfirst((string) ($row['status'] ?? '')),
+                'KYC Status' => ucwords(str_replace('_', ' ', (string) ($row['kyc_status'] ?? ''))),
+                'Direct Referrals' => (int) ($row['direct_referral_count'] ?? 0),
+                'Downline' => (int) ($row['downline_count'] ?? 0),
+                'Total Earned' => number_format((float) ($row['wallet_earned'] ?? 0), 2, '.', ''),
+                'Available Balance' => number_format((float) ($row['available_balance'] ?? 0), 2, '.', ''),
+                'Joined On' => (string) ($row['joined_at'] ?? ''),
             ];
         }
         return $out;

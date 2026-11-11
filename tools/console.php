@@ -43,7 +43,7 @@ $commands = [
     'install', 'upgrade', 'demo', 'doctor', 'selftest',
     'schema:mysql', 'schema:sqlite',
     'collation:repair', 'collation:heal',
-    'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap',
+    'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap', 'seed-payouts', 'warn:scan',
 ];
 
 if (!in_array($command, $commands, true)) {
@@ -65,6 +65,8 @@ if (!in_array($command, $commands, true)) {
     echo "  backups:run          write a database backup into storage/backups (cron)\n";
     echo "  sitemap              regenerate sitemap.xml (cron)\n";
     echo "  doctor               check PHP version, extensions, folders and database connectivity\n";
+    echo "  warn:scan            list template array reads that lack a ?? fallback\n";
+    echo "      --path=admin (default) or --path=member\n";
     echo "  selftest             run a quick query-binding smoke test against the database\n\n";
     echo "Active database driver: " . $driver . PHP_EOL;
     exit(0);
@@ -566,6 +568,85 @@ switch ($command) {
         } else {
             echo "Converted " . count($repaired) . " table(s): " . implode(', ', $repaired) . PHP_EOL;
         }
+        break;
+
+    case 'warn:scan':
+        // Static pass for the bug class behind the payout-report warning wall: a template reading
+        // $row['key'] directly is fine only while the query keeps returning that exact key. Report
+        // the unguarded reads so a schema change surfaces here instead of on a user's screen.
+        $targets = $opts['path'] ?? 'admin';
+        $dir = APP_ROOT . DIRECTORY_SEPARATOR . $targets;
+        if (!is_dir($dir)) {
+            echo 'No such directory: ' . $targets . PHP_EOL;
+            break;
+        }
+        $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+        $total = 0;
+        $flagged = 0;
+        foreach ($files as $file) {
+            if (!$file->isFile() || $file->getExtension() !== 'php') {
+                continue;
+            }
+            $total++;
+            $lines = file($file->getPathname()) ?: [];
+            $hits = [];
+            foreach ($lines as $n => $line) {
+                // $row['x'], $r['x'] etc. with no ?? and no array_key_exists/isset guard on the line.
+                if (preg_match_all('/\$(?:row|r|item|record)\s*\[\s*\'([a-z0-9_]+)\'\s*\]/i', $line, $m)) {
+                    if (str_contains($line, '??') || stripos($line, 'isset(') !== false || stripos($line, 'array_key_exists') !== false) {
+                        continue;
+                    }
+                    $hits[] = ($n + 1) . ': ' . trim($line);
+                }
+            }
+            if ($hits !== []) {
+                $flagged++;
+                echo PHP_EOL . str_replace(APP_ROOT . DIRECTORY_SEPARATOR, '', $file->getPathname()) . PHP_EOL;
+                foreach (array_slice($hits, 0, 12) as $h) {
+                    echo '  ' . $h . PHP_EOL;
+                }
+                if (count($hits) > 12) {
+                    echo '  ... ' . (count($hits) - 12) . ' more' . PHP_EOL;
+                }
+            }
+        }
+        echo PHP_EOL . $total . ' file(s) scanned, ' . $flagged . ' with unguarded array reads.' . PHP_EOL;
+        echo 'These are correct only while the query returns those exact keys; add ?? when a query changes.' . PHP_EOL;
+        break;
+
+    case 'seed-payouts':
+        // Development helper: the demo seed creates payouts only if a member has a bank
+        // account, so report pages can render with zero rows and hide their own bugs.
+        if ($db->driver() !== 'sqlite') {
+            echo 'Refusing: this seeds test rows, so it only runs on the SQLite development database.' . PHP_EOL;
+            break;
+        }
+        $member = $db->first('SELECT id, member_code FROM members ORDER BY id LIMIT 1');
+        if (!$member) {
+            echo 'No members: run php tools/console.php demo first.' . PHP_EOL;
+            break;
+        }
+        $made = 0;
+        foreach ([['pending', null], ['approved', null], ['paid', 'UTR1234567890'], ['rejected', null]] as $i => [$status, $utr]) {
+            $code = 'PR' . date('ymd') . strtoupper(bin2hex(random_bytes(2)));
+            $net = 1000 + $i * 250;
+            $db->insert('payout_requests', [
+                'request_code' => $code,
+                'member_id' => (int) $member['id'],
+                'amount' => $net + 50,
+                'deduction_amount' => 50,
+                'net_amount' => $net,
+                'status' => $status,
+                'bank_snapshot' => json_encode(['bank_name' => 'Test Bank', 'account_holder_name' => 'Test Holder', 'account_number' => '123456789012', 'ifsc_code' => 'TEST0000123']),
+                'requested_at' => date('Y-m-d H:i:s', strtotime('-' . ($i * 3) . ' days')),
+                'paid_at' => $status === 'paid' ? date('Y-m-d H:i:s', strtotime('-1 day')) : null,
+                'utr_number' => $utr,
+                'created_at' => date('Y-m-d H:i:s', strtotime('-' . ($i * 3) . ' days')),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $made++;
+        }
+        echo "Seeded $made payout request(s) for " . $member['member_code'] . '.' . PHP_EOL;
         break;
 
     case 'collation:heal':

@@ -16,13 +16,22 @@ $format = (string) Request::query('format', '');
 $fullBank = AdminAuth::can('bank.view');
 
 $service = new ReportService($db);
-$rows = $service->payouts(['status' => $status, 'from' => $from, 'to' => $to], $fullBank);
+// Raw rows: the page renders columns, it does not consume export labels.
+$rows = $service->payoutRows(['status' => $status, 'from' => $from, 'to' => $to]);
 
 if ($format !== '') {
     $headers = ['Request', 'Member', 'Member ID', 'Status', 'Gross', 'Deductions', 'Net', 'UTR', 'Requested', 'Paid'];
     $data = array_map(static fn ($r) => [
-        $r['request_code'], $r['name'], $r['member_code'], $r['status'], $r['amount'], $r['deduction_amount'], $r['net_amount'],
-        (string) ($r['utr_number'] ?? ''), $r['requested_at'], (string) ($r['paid_at'] ?? ''),
+        (string) ($r['request_code'] ?? ''),
+        (string) ($r['name'] ?? ''),
+        (string) ($r['member_code'] ?? ''),
+        (string) ($r['status'] ?? ''),
+        (string) ($r['amount'] ?? ''),
+        (string) ($r['deduction_amount'] ?? ''),
+        (string) ($r['net_amount'] ?? ''),
+        (string) ($r['utr_number'] ?? ''),
+        (string) ($r['requested_at'] ?? ''),
+        (string) ($r['paid_at'] ?? ''),
     ], $rows);
     $filename = 'payout-report-' . $from . '-' . $to;
     if ($format === 'csv') {
@@ -42,7 +51,7 @@ if ($format !== '') {
     }
 }
 
-$totalNet = array_sum(array_map(static fn ($r) => (float) $r['net_amount'], $rows));
+$totalNet = array_sum(array_map(static fn ($r) => (float) ($r['net_amount'] ?? 0), $rows));
 
 $pageTitle = 'Payout Reports';
 $pageHeading = 'Payout Reports';
@@ -75,13 +84,13 @@ require __DIR__ . '/includes/layout.php';
       <tbody>
       <?php foreach ($rows as $row): ?>
         <tr>
-          <td data-label="Request" class="small fw-semibold"><?= e((string) $row['request_code']) ?><div class="text-muted"><?= e(format_date((string) $row['requested_at'], 'd M Y')) ?></div></td>
-          <td data-label="Member" class="small"><?= e((string) $row['name']) ?><div class="text-muted"><?= e((string) $row['member_code']) ?></div></td>
-          <td data-label="Status"><?= status_badge((string) $row['status']) ?></td>
-          <td data-label="Gross" class="text-end small"><?= money((float) $row['amount']) ?></td>
-          <td data-label="Net" class="text-end small fw-semibold"><?= money((float) $row['net_amount']) ?></td>
-          <td data-label="UTR" class="small"><?= e((string) ($row['utr_number'] ?? '—')) ?></td>
-          <td data-label="Paid" class="small"><?= $row['paid_at'] ? e(format_date((string) $row['paid_at'], 'd M Y')) : '—' ?></td>
+          <td data-label="Request" class="small fw-semibold"><?= e((string) ($row['request_code'] ?? '—')) ?><div class="text-muted"><?= e($row['requested_at'] ?? '' ? format_date((string) $row['requested_at'], 'd M Y') : '—') ?></div></td>
+          <td data-label="Member" class="small"><?= e((string) ($row['name'] ?? '—')) ?><div class="text-muted"><?= e((string) ($row['member_code'] ?? '')) ?></div></td>
+          <td data-label="Status"><?= status_badge((string) ($row['status'] ?? 'pending')) ?></td>
+          <td data-label="Gross" class="text-end small"><?= money((float) ($row['amount'] ?? 0)) ?></td>
+          <td data-label="Net" class="text-end small fw-semibold"><?= money((float) ($row['net_amount'] ?? 0)) ?></td>
+          <td data-label="UTR" class="small"><?= e((string) (($row['utr_number'] ?? '') !== '' ? $row['utr_number'] : '—')) ?></td>
+          <td data-label="Paid" class="small"><?= !empty($row['paid_at']) ? e(format_date((string) $row['paid_at'], 'd M Y')) : '—' ?></td>
         </tr>
       <?php endforeach; ?>
       <?php if (!$rows): ?><tr><td colspan="7" class="small text-muted">No payouts in this period.</td></tr><?php endif; ?>
