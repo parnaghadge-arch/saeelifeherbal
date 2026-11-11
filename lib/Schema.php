@@ -1366,6 +1366,34 @@ final class Schema
         return $out;
     }
 
+    /**
+     * Character set new MySQL tables are created with.
+     *
+     * Defaults to utf8mb4 (the app stores Hindi and Marathi text) but follows DB_CHARSET when
+     * one is configured, so an install never creates tables in a charset its connection cannot
+     * compare against.
+     */
+    private static function mysqlCharset(): string
+    {
+        $value = (string) (getenv('DB_CHARSET') ?: 'utf8mb4');
+        return preg_match('/^[A-Za-z0-9_]+$/', $value) === 1 ? $value : 'utf8mb4';
+    }
+
+    /**
+     * Collation new MySQL tables are created with: the configured one when it belongs to the
+     * charset, otherwise the charset's conventional default.
+     */
+    private static function mysqlCollation(): string
+    {
+        $charset = self::mysqlCharset();
+        $configured = (string) (getenv('DB_COLLATION') ?: '');
+        if (preg_match('/^[A-Za-z0-9_]+$/', $configured) === 1
+            && str_starts_with($configured, $charset . '_')) {
+            return $configured;
+        }
+        return $charset === 'utf8mb4' ? 'utf8mb4_unicode_ci' : $charset . '_general_ci';
+    }
+
     public static function createTableSql(string $driver, string $table, array $definition): string
     {
         $columns = [];
@@ -1439,9 +1467,14 @@ final class Schema
         $parts = array_merge($columnDefs, $constraints, $inlineIndexes);
         if ($driver === 'mysql') {
             $sql = sprintf(
-                "CREATE TABLE IF NOT EXISTS %s (\n  %s\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+                "CREATE TABLE IF NOT EXISTS %s (\n  %s\n) ENGINE=InnoDB DEFAULT CHARSET=%s COLLATE=%s",
                 self::ident($driver, $table),
-                implode(",\n  ", $parts)
+                implode(",\n  ", $parts),
+                // HARDCODING utf8mb4_unicode_ci here is what made a latin1-configured install
+                // create tables whose collation the connection could not use (error 1253).
+                // The engine default is always valid for the charset it is paired with.
+                self::mysqlCharset(),
+                self::mysqlCollation()
             );
             return $sql;
         }

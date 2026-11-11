@@ -36,6 +36,18 @@ final class Database
     /** True once the collation repair has been attempted for this connection. */
     private bool $collationRepairAttempted = false;
 
+    /** True when the tables' collation could not be applied to the connection. */
+    private bool $collationMismatch = false;
+
+    /** Charset of the tables, learned from the last information_schema probe. */
+    private ?string $knownCharset = null;
+
+    /** Per-request cache: charset -> the collation the server treats as its default. */
+    private array $defaultCollations = [];
+
+    /** Per-request cache of @@character_set_connection. */
+    private ?string $connectionCharsetCache = null;
+
     private PDO $pdo;
     private string $driver;
     private int $transactionLevel = 0;
@@ -97,22 +109,7 @@ final class Database
                 // whatever the config says. Forcing unicode_ci on a database whose tables are
                 // general_ci would break every comparison instead of fixing them, so the table is
                 // inspected first and the configuration is only a fallback.
-                $collation = $this->detectTableCollation()
-                    ?: (string) ($c['collation'] ?? '');
-                if (preg_match('/^[A-Za-z0-9_]+$/', $collation) === 1) {
-                    try {
-                        $this->pdo->exec(sprintf(
-                            'SET NAMES %s COLLATE %s',
-                            (string) ($c['charset'] ?? 'utf8mb4'),
-                            $collation
-                        ));
-                        $this->expressionCollation = $collation;
-                    } catch (Throwable $collationError) {
-                        // A collation the server does not know must never fail the connection:
-                        // the server default is still usable and the query layer pins expressions.
-                        error_log('[db] could not apply connection collation ' . $collation . ': ' . $collationError->getMessage());
-                    }
-                }
+                $this->applyConnectionCollation($c);
                 $this->pdo->exec("SET sql_mode='STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION'");
                 $this->pdo->exec("SET time_zone = '+05:30'");
             }
@@ -235,10 +232,180 @@ final class Database
     }
 
     /**
+     * Character set a collation belongs to: "utf8mb4_unicode_ci" -> "utf8mb4".
+     *
+     * MySQL names every collation <charset>_<...>, so the charset is the text before the first
+     * underscore. 'binary' is its own charset and must not be split.
+     */
+    private static function charsetOfCollation(string $collation): string
+    {
+        if ($collation === 'binary' || $collation === '') {
+            return $collation === 'binary' ? 'binary' : '';
+        }
+        $charset = strstr($collation, '_', true);
+        return $charset === false ? '' : $charset;
+    }
+
+    /** True for a syntactic collation name we are willing to interpolate into SQL. */
+    private static function isCollationName(string $collation): bool
+    {
+        return preg_match('/^[A-Za-z0-9_]+$/', $collation) === 1
+            && self::charsetOfCollation($collation) !== '';
+    }
+
+    /**
+     * Pin the connection charset/collation to what the tables actually use.
+     *
+     * The charset is always derived from the collation, never read from configuration
+     * independently. `SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci` and
+     * `SET NAMES latin1 COLLATE utf8mb4_unicode_ci` are the same statement to the calling code
+     * but the second is rejected by MySQL with
+     *
+     *   1253 COLLATION 'utf8mb4_unicode_ci' is not valid for CHARACTER SET 'latin1'
+     *
+     * and that is what broke the admin dashboard, the members list and the payout report while
+     * leaving the public pages working.
+     *
+     * Nothing here is fatal. If the collation cannot be applied the connection keeps a charset
+     * the server does accept, and the tables are converted to that collation so comparisons stay
+     * legal (see repairCollations()).
+     */
+    private function applyConnectionCollation(array $c): void
+    {
+        $detected = $this->detectTableCollation();
+        $configured = (string) ($c['collation'] ?? '');
+        // The app charset is a hard requirement: it is what the content is written in. The
+        // collation is what adapts to the server.
+        $appCharset = (string) ($c['charset'] ?? '');
+        $charset = $appCharset !== '' ? $appCharset : (self::charsetOfCollation($configured) ?: self::charsetOfCollation($detected));
+        $plan = self::planConnectionCollation($detected, $configured, $appCharset, $this->collationForCharset($charset));
+
+        $applied = null;
+        foreach ($plan as [$planCharset, $planCollation]) {
+            if ($this->execConnectionCharset($planCharset, $planCollation)) {
+                $applied = [$planCharset, $planCollation];
+                break;
+            }
+        }
+
+        if ($applied === null) {
+            // Nothing worked (no information_schema, no permission to SET NAMES). Leave the
+            // server defaults alone; derived expressions are then pinned to the connection.
+            $connection = $this->connectionCollation();
+            $this->expressionCollation = $connection !== '' ? $connection : false;
+            return;
+        }
+
+        [$appliedCharset, $appliedCollation] = $applied;
+        $this->knownCharset = $appliedCharset;
+        $this->expressionCollation = $appliedCollation !== '' ? $appliedCollation : $this->collationForCharset($appliedCharset);
+        if ($this->expressionCollation === '') {
+            $this->expressionCollation = false;
+        }
+        if ($detected !== '' && $detected !== $appliedCollation) {
+            // Tables and connection disagree; comparisons would mix charsets. Convert the
+            // tables to what the connection now uses so future requests are clean.
+            $this->collationMismatch = true;
+            error_log('[db] table collation ' . $detected . ' is not valid for the connection (charset '
+                . $appliedCharset . '); pinned to ' . ($appliedCollation !== '' ? $appliedCollation : 'charset default')
+                . ' and converting tables to match');
+            if ($this->expressionCollation !== false) {
+                $this->collationRepairAttempted = true;
+                $this->repairCollations((string) $this->expressionCollation);
+            }
+        }
+    }
+
+    /**
+     * Ordered `SET NAMES` attempts for a connection, safest first.
+     *
+     * Pure so the rule can be tested without a server. Two invariants hold for every attempt:
+     *
+     *  1. the collation always belongs to the charset it is paired with (or is omitted), which is
+     *     the fix for 1253 "COLLATION 'utf8mb4_unicode_ci' is not valid for CHARACTER SET 'latin1'";
+     *  2. the charset is the one the *application* is built for (utf8mb4), never whatever a table
+     *     happens to use — the app stores Hindi and Marathi product names, so a latin1 connection
+     *     would corrupt every read. Tables are converted to the app charset instead.
+     *
+     * @param string $detected         collation of the tables ('' when unknown)
+     * @param string $configuredColl   DB_COLLATION ('' when unset)
+     * @param string $appCharset       DB_CHARSET, the charset the application requires
+     * @param string $charsetDefault   the server's default collation for $appCharset
+     * @return list<array{0:string,1:string}> [charset, collation]; '' means "charset only"
+     */
+    private static function planConnectionCollation(
+        string $detected,
+        string $configuredColl,
+        string $appCharset,
+        string $charsetDefault
+    ): array {
+        // Which charset to run the connection in.
+        $appCharset = preg_match('/^[A-Za-z0-9_]+$/', $appCharset) === 1 ? $appCharset : '';
+        if ($appCharset === '') {
+            $appCharset = self::charsetOfCollation($configuredColl) ?: self::charsetOfCollation($detected);
+        }
+        if ($appCharset === '') {
+            return [];
+        }
+
+        $plan = [];
+        // Best: the tables already agree with the app charset, so keep their exact collation.
+        if (self::isCollationName($detected) && self::charsetOfCollation($detected) === $appCharset) {
+            $plan[] = [$appCharset, $detected];
+        }
+        // Next: the configured collation, if it belongs to the app charset.
+        if (self::isCollationName($configuredColl) && self::charsetOfCollation($configuredColl) === $appCharset) {
+            $plan[] = [$appCharset, $configuredColl];
+        }
+        // Next: the server's own default collation for that charset — always legal.
+        if (self::isCollationName($charsetDefault) && self::charsetOfCollation($charsetDefault) === $appCharset) {
+            $plan[] = [$appCharset, $charsetDefault];
+        }
+        // Last resort: charset only, letting MySQL choose. Still legal, never 1253.
+        $plan[] = [$appCharset, ''];
+
+        // De-duplicate while preserving order.
+        $seen = [];
+        $unique = [];
+        foreach ($plan as $attempt) {
+            $key = $attempt[0] . '|' . $attempt[1];
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $unique[] = $attempt;
+        }
+        return $unique;
+    }
+
+    /**
+     * Run `SET NAMES <charset> [COLLATE <collation>]`; returns false if MySQL rejected it.
+     *
+     * Both identifiers are validated before interpolation.
+     */
+    private function execConnectionCharset(string $charset, string $collation): bool
+    {
+        if (preg_match('/^[A-Za-z0-9_]+$/', $charset) !== 1) {
+            return false;
+        }
+        $sql = $collation !== ''
+            ? sprintf('SET NAMES %s COLLATE %s', $charset, $collation)
+            : sprintf('SET NAMES %s', $charset);
+        try {
+            $this->pdo->exec($sql);
+            return true;
+        } catch (Throwable $e) {
+            error_log('[db] ' . $sql . ' was rejected: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Collation actually used by the application tables, read straight from the server.
      *
      * Whatever answers this decides the connection collation, because matching the tables is
-     * the only thing that makes comparisons legal. Returns '' when it cannot be determined.
+     * the only thing that makes comparisons legal. Returns '' when it cannot be determined
+     * (no tables yet, or no information_schema access).
      */
     private function detectTableCollation(): string
     {
@@ -257,13 +424,72 @@ final class Database
                      ORDER BY n DESC, c ASC
                      LIMIT 1";
             $value = (string) ($this->pdo->query($sql)->fetchColumn() ?: '');
-            if (preg_match('/^[A-Za-z0-9_]+$/', $value) === 1 && str_starts_with($value, 'utf8')) {
+            if (self::isCollationName($value)) {
+                $this->knownCharset = self::charsetOfCollation($value);
                 return $value;
             }
         } catch (Throwable) {
-            // Fall back to configuration.
+            // Fall back to the connection/configuration.
         }
         return '';
+    }
+
+    /**
+     * The collation the server treats as the default for a character set.
+     *
+     * Asked of the server rather than assumed: `utf8mb4_general_ci` is the default on MariaDB
+     * and on XAMPP's bundled MySQL, `utf8mb4_0900_ai_ci` on MySQL 8. Assuming
+     * `utf8mb4_unicode_ci` is what made the app emit a collation the server did not accept.
+     */
+    private function collationForCharset(string $charset): string
+    {
+        if ($charset === '' || preg_match('/^[A-Za-z0-9_]+$/', $charset) !== 1) {
+            return '';
+        }
+        if (isset($this->defaultCollations[$charset])) {
+            return $this->defaultCollations[$charset];
+        }
+        // A collation the live connection already uses is by definition valid for it.
+        $connection = $this->connectionCollation();
+        if ($connection !== '' && self::charsetOfCollation($connection) === $charset) {
+            return $this->defaultCollations[$charset] = $connection;
+        }
+        $found = '';
+        try {
+            $probe = $this->pdo->prepare(
+                'SELECT COLLATION_NAME FROM information_schema.COLLATIONS
+                  WHERE CHARACTER_SET_NAME = ? ORDER BY IS_DEFAULT DESC, COLLATION_NAME ASC LIMIT 1'
+            );
+            // A `?` placeholder is COLLATE-ineligible, so this comparison can never raise 1263.
+            $probe->execute([$charset]);
+            $found = (string) ($probe->fetchColumn() ?: '');
+        } catch (Throwable) {
+            $found = '';
+        }
+        if (self::isCollationName($found) && self::charsetOfCollation($found) === $charset) {
+            return $this->defaultCollations[$charset] = $found;
+        }
+        // information_schema unavailable. unicode_ci exists on every utf8mb4 server this app
+        // supports, and charset-only SET NAMES remains as the final fallback.
+        return $this->defaultCollations[$charset] = ($charset === 'utf8mb4' ? 'utf8mb4_unicode_ci' : '');
+    }
+
+    /** True when the server accepts this collation for this character set. */
+    private function collationIsValid(string $collation, string $charset): bool
+    {
+        if ($charset === '' || self::charsetOfCollation($collation) !== $charset) {
+            return false;
+        }
+        try {
+            $probe = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM information_schema.COLLATIONS
+                  WHERE CHARACTER_SET_NAME = ? AND COLLATION_NAME = ?'
+            );
+            $probe->execute([$charset, $collation]);
+            return (int) $probe->fetchColumn() > 0;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -287,35 +513,80 @@ final class Database
         if ($detected !== '') {
             return $this->expressionCollation = $detected;
         }
+        // Fall back to the connection: its charset is authoritative, and a collation belonging
+        // to a different charset (the 1253 case) must never be emitted into SQL.
+        $connection = $this->connectionCollation();
+        if ($connection !== '') {
+            return $this->expressionCollation = $connection;
+        }
         $configured = (string) ($this->config['collation'] ?? '');
-        if (preg_match('/^[A-Za-z0-9_]+$/', $configured) === 1 && str_starts_with($configured, 'utf8')) {
-            return $this->expressionCollation = $configured;
+        if (self::isCollationName($configured)) {
+            $charset = $this->knownCharset ?? '';
+            if ($charset === '' || self::charsetOfCollation($configured) === $charset) {
+                return $this->expressionCollation = $configured;
+            }
+        }
+        // The lookup failed (no information_schema access, restricted account, or the
+        // tables are not created yet). Pin to the charset default, which is always legal.
+        $default = $this->collationForCharset($this->knownCharset ?? (string) ($this->config['charset'] ?? ''));
+        return $this->expressionCollation = ($default !== '' ? $default : false);
+    }
+
+    /** Collation of the live connection, read from the server. '' when unavailable. */
+    private function connectionCollation(): string
+    {
+        try {
+            $value = (string) ($this->pdo->query('SELECT @@collation_connection')->fetchColumn() ?: '');
+        } catch (Throwable) {
+            return '';
+        }
+        return self::isCollationName($value) ? $value : '';
+    }
+
+    /** Charset of the live connection, read from the server. '' when unavailable. */
+    private function connectionCharset(): string
+    {
+        if ($this->connectionCharsetCache !== null) {
+            return $this->connectionCharsetCache;
         }
         try {
-            $table = $this->pdo->prepare(
-                'SELECT TABLE_COLLATION FROM information_schema.TABLES
-                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t LIMIT 1'
-            );
-            $table->execute(['t' => 'members']);
-            $collation = (string) ($table->fetchColumn() ?: '');
-            if (preg_match('/^[A-Za-z0-9_]+$/', $collation) !== 1) {
-                // `members` missing or no collation recorded: fall back to the database default.
-                $collation = (string) ($this->pdo->query('SELECT @@collation_database')->fetchColumn() ?: '');
-            }
-            if (preg_match('/^[A-Za-z0-9_]+$/', $collation) === 1 && str_starts_with($collation, 'utf8')) {
-                $this->expressionCollation = $collation;
-            }
+            $value = (string) ($this->pdo->query('SELECT @@character_set_connection')->fetchColumn() ?: '');
         } catch (Throwable) {
-            // Fall through to the app-wide collation below.
+            return $this->connectionCharsetCache = '';
         }
-        if ($this->expressionCollation === false) {
-            // The lookup failed (no information_schema access, restricted account, or the
-            // tables are not created yet). Still pin the expression: an explicit COLLATE
-            // outranks a parameter's coercible collation, so any utf8mb4 collation resolves
-            // 1267. This app's schema is created with utf8mb4_unicode_ci throughout.
-            $this->expressionCollation = 'utf8mb4_unicode_ci';
+        return $this->connectionCharsetCache = (preg_match('/^[A-Za-z0-9_]+$/', $value) === 1 ? $value : '');
+    }
+
+    /**
+     * Collation to pin a derived expression to, in the charset the expression really uses.
+     *
+     * `expressionCollation()` alone is not enough: `CONCAT(a, b)` returns the connection charset
+     * while a column returns its own, so the pin has to be clamped to the charset of the thing
+     * being compared — otherwise the server answers 1253 instead of the 1267 we were avoiding.
+     */
+    private function derivedCollation(?string $knownCharset = null): string|false
+    {
+        if ($this->driver !== 'mysql') {
+            return false;
         }
-        return $this->expressionCollation;
+        $collation = $this->expressionCollation();
+        if ($collation === false) {
+            return false;
+        }
+        // The connection charset is the hard limit: MySQL rejects a COLLATE belonging to another
+        // character set with 1253 before it ever evaluates the comparison.
+        $charset = $knownCharset ?: ($this->connectionCharset() ?: $this->knownCharset);
+        if ($charset !== null && $charset !== '' && self::charsetOfCollation($collation) !== $charset) {
+            $replacement = $this->collationForCharset($charset);
+            if ($replacement === '') {
+                return false;
+            }
+            if (self::isCollationName($collation) && $this->collationIsValid($collation, $charset)) {
+                return $collation;
+            }
+            return $replacement;
+        }
+        return $collation;
     }
 
     /**
@@ -327,7 +598,7 @@ final class Database
      */
     public function withExpressionCollation(string $expression): string
     {
-        return self::collateExpression($expression, $this->expressionCollation());
+        return self::collateExpression($expression, $this->derivedCollation());
     }
 
     /**
@@ -534,7 +805,11 @@ final class Database
                 // without the latch each of those would call back into this branch.
                 if (!$this->collationRepairAttempted) {
                     $this->collationRepairAttempted = true;
-                    if ($this->repairCollations() !== []) {
+                    // Convert to the collation the *connection* uses, not to whatever the tables
+                    // happen to say: if they disagree, converting tables to their own collation
+                    // would leave the mismatch in place.
+                    $target = $this->connectionCollation();
+                    if ($this->repairCollations($target !== '' ? $target : null) !== []) {
                         return $this->prepare($sql, $params, false);
                     }
                 }
@@ -755,10 +1030,19 @@ final class Database
             return [];
         }
         $collation = $collation ?: (string) ($this->expressionCollation() ?: '');
-        if (preg_match('/^[A-Za-z0-9_]+$/', $collation) !== 1) {
+        // Callers may pass either a collation (utf8mb4_unicode_ci) or a bare charset (utf8mb4),
+        // because a charset alone is all that is needed to convert a table.
+        if ($collation !== '' && !str_contains($collation, '_') && preg_match('/^[A-Za-z0-9_]+$/', $collation) === 1) {
+            $charset = $collation;
+            $collation = $this->collationForCharset($charset);
+        }
+        if ($collation === '' || !self::isCollationName($collation)) {
             return [];
         }
-        $charset = strstr($collation, '_', true) ?: 'utf8mb4';
+        $charset = self::charsetOfCollation($collation);
+        if ($charset === '') {
+            return [];
+        }
         $repaired = [];
         // Deliberately the raw PDO API, not $this->select(): going through the query layer would
         // re-enter the 1267 handler that calls this method.
@@ -795,8 +1079,16 @@ final class Database
                 $repaired[] = $table;
             } catch (Throwable) {
                 // A view or a table the account cannot alter is not fatal: the query-level
-                // COLLATE guard still keeps comparisons working.
+                // COLLATE guard still keeps comparisons working. Log it so the operator can
+                // see which table still disagrees instead of guessing.
+                error_log('[db] could not convert `' . $table . '` to ' . $charset . '/' . $collation . ': ' . $e->getMessage());
             }
+        }
+        if ($repaired !== []) {
+            // The cached answers describe the tables as they were a moment ago.
+            $this->expressionCollation = null;
+            $this->knownCharset = $charset;
+            $this->collationMismatch = false;
         }
         return $repaired;
     }

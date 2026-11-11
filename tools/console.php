@@ -234,7 +234,26 @@ if ($command === 'doctor') {
             if ($mixed) {
                 $ok = false;
             }
+            // The 1253 check: every collation the app can emit must belong to the connection's
+            // charset. A mismatch here is what produced
+            // "COLLATION 'utf8mb4_unicode_ci' is not valid for CHARACTER SET 'latin1'".
+            $connectionCharset = (string) ($probeDb->value('SELECT @@character_set_connection') ?: '');
+            $connectionCollationCharset = strstr($connectionCollation, '_', true) ?: $connectionCollation;
+            $charsetOk = $connectionCharset === '' || $connectionCollationCharset === $connectionCharset;
+            $line($charsetOk, 'Connection charset and collation agree', $charsetOk
+                ? $connectionCharset . ' / ' . $connectionCollation
+                : 'charset is ' . $connectionCharset . ' but collation is ' . $connectionCollation
+                  . ' (error 1253) — check DB_CHARSET/DB_COLLATION in .env, then run collation:repair');
+            if (!$charsetOk) {
+                $ok = false;
+            }
             $expression = $probeDb->monthExpression('created_at');
+            $expressionCharset = strstr((string) preg_replace('/^.*COLLATE\s+/', '', $expression), '_', true);
+            $expressionOk = $expressionCharset === false || $expressionCharset === ''
+                || $connectionCharset === '' || $expressionCharset === $connectionCharset;
+            $line($expressionOk, 'Derived expressions use the connection charset', $expressionOk
+                ? $expression
+                : $expression . ' — belongs to ' . $expressionCharset . ' but connection is ' . $connectionCharset);
             $line(str_contains($expression, 'COLLATE'), 'Derived expressions pinned', $expression);
             if (!str_contains($expression, 'COLLATE')) {
                 $ok = false;
@@ -497,7 +516,28 @@ switch ($command) {
             echo "Not applicable: driver is \"" . $db->driver() . "\". Collations only affect MySQL/MariaDB." . PHP_EOL;
             break;
         }
-        $target = (string) ($opts['collation'] ?? '') ?: (string) ($db->expressionCollation() ?: 'utf8mb4_unicode_ci');
+        // The target must be a collation the live connection can actually use: converting to a
+        // collation outside the connection's charset is what produces
+        // 1253 COLLATION 'utf8mb4_unicode_ci' is not valid for CHARACTER SET 'latin1'.
+        $target = (string) ($opts['collation'] ?? '') ?: (string) ($db->expressionCollation() ?: '');
+        if ($target === '') {
+            $target = (string) ($db->value('SELECT @@collation_connection') ?: '');
+        }
+        if ($target === '') {
+            echo 'Could not determine a collation to use. Pass one explicitly: '
+                . 'php tools/console.php collation:repair --collation=utf8mb4_unicode_ci' . PHP_EOL;
+            break;
+        }
+        $connectionCharset = (string) ($db->value('SELECT @@character_set_connection') ?: '');
+        $targetCharset = strstr($target, '_', true) ?: $target;
+        if ($connectionCharset !== '' && $targetCharset !== $connectionCharset) {
+            echo 'Refusing to convert: the connection charset is ' . $connectionCharset
+                . ' but ' . $target . ' belongs to ' . $targetCharset . '.' . PHP_EOL
+                . 'That combination is rejected by MySQL with error 1253.' . PHP_EOL
+                . 'Pass a collation of the connection charset, e.g. --collation='
+                . $connectionCharset . '_' . ($connectionCharset === 'utf8mb4' ? 'unicode_ci' : 'general_ci') . PHP_EOL;
+            break;
+        }
         echo "Converting every table to $target ..." . PHP_EOL;
         $repaired = $db->repairCollations($target);
         if ($repaired === []) {
