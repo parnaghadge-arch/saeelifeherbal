@@ -269,7 +269,9 @@ unilevel with unlimited direct referrals (binary is not supported); commissions 
 
 | Symptom | Fix |
 | --- | --- |
-| 500 on every page | Check `storage/logs/`, set `APP_DEBUG=true` temporarily |
+| A page says **"Something went wrong"** and shows a reference like `ERR-1F6BDB10` | Copy the reference and run `php tools/console.php logs --grep=ERR-1F6BDB10`. The matching log line has the class, message, file:line, route and the signed-in admin/member id. This covers **fatal** errors too (undefined function, out of memory, timeout, a failed `require`), which PHP cannot throw as exceptions. |
+| A page says "Something went wrong" but shows **no** reference | Not our error page: the web server itself failed (PHP not running, or a 502/504 from the proxy). Check `storage/logs/`, the Apache/PHP-FPM log, and `php tools/console.php doctor`. |
+| An AJAX endpoint returns `{"ok":false,"error":"Something went wrong on our side..."}` | API endpoints fail as JSON deliberately, so the browser's JavaScript never receives an HTML page. Read `reference` from the JSON and grep the log the same way. |
 | "Security token expired" on every form | Session directory not writable; check `session.save_path` |
 | Images not showing | `storage/uploads` permissions, or wrong `APP_URL` |
 | Razorpay callback fails signature | Key secret / webhook secret mismatch |

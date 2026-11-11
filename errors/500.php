@@ -8,7 +8,7 @@
  *
  * $e is in scope when included from the handler.
  */
-$ref = defined('SAEE_ERROR_REF') ? SAEE_ERROR_REF : '';
+$ref = $GLOBALS['saee_error_ref'] ?? (defined('SAEE_ERROR_REF') ? SAEE_ERROR_REF : '');
 http_response_code(500);
 ?><!DOCTYPE html>
 <html lang="en">
