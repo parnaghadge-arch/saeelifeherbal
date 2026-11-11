@@ -240,10 +240,26 @@ if ($command === 'doctor') {
             $connectionCharset = (string) ($probeDb->value('SELECT @@character_set_connection') ?: '');
             $connectionCollationCharset = strstr($connectionCollation, '_', true) ?: $connectionCollation;
             $charsetOk = $connectionCharset === '' || $connectionCollationCharset === $connectionCharset;
+            // A connection in a different charset than the tables cannot use their collation at
+            // all — no COLLATE clause can bridge two character sets (error 1253).
+            $tableCharsets = array_values(array_unique(array_map(
+                static fn (string $c): string => strstr($c, '_', true) ?: $c,
+                array_keys($distinct)
+            )));
+            $charsetMatchesTables = $connectionCharset === ''
+                || $tableCharsets === []
+                || in_array($connectionCharset, $tableCharsets, true);
+            $line($charsetMatchesTables, 'Connection charset matches tables', $charsetMatchesTables
+                ? $connectionCharset . ' (tables: ' . implode('/', $tableCharsets) . ')'
+                : 'connection is ' . $connectionCharset . ' but tables are ' . implode('/', $tableCharsets)
+                  . ' — run: php tools/console.php collation:heal');
+            if (!$charsetMatchesTables) {
+                $ok = false;
+            }
             $line($charsetOk, 'Connection charset and collation agree', $charsetOk
                 ? $connectionCharset . ' / ' . $connectionCollation
                 : 'charset is ' . $connectionCharset . ' but collation is ' . $connectionCollation
-                  . ' (error 1253) — check DB_CHARSET/DB_COLLATION in .env, then run collation:repair');
+                  . ' (error 1253) — run: php tools/console.php collation:heal');
             if (!$charsetOk) {
                 $ok = false;
             }
@@ -545,6 +561,38 @@ switch ($command) {
         } else {
             echo "Converted " . count($repaired) . " table(s): " . implode(', ', $repaired) . PHP_EOL;
         }
+        break;
+
+    case 'collation:heal':
+        // One-shot repair for a database whose connection charset and tables disagree. This is
+        // the state behind "COLLATION 'utf8mb4_unicode_ci' is not valid for CHARACTER SET
+        // 'latin1'" on installs that were imported with a different server default.
+        if ($db->driver() !== 'mysql') {
+            echo 'Not applicable: driver is "' . $db->driver() . '".' . PHP_EOL;
+            break;
+        }
+        echo 'Connection charset: ' . (string) ($db->value('SELECT @@character_set_connection') ?: '?') . PHP_EOL;
+        echo 'Connection collation: ' . (string) ($db->value('SELECT @@collation_connection') ?: '?') . PHP_EOL;
+        $tables = $db->column(
+            "SELECT DISTINCT TABLE_COLLATION FROM information_schema.TABLES
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' AND TABLE_COLLATION IS NOT NULL"
+        );
+        echo 'Table collations: ' . (implode(', ', $tables) ?: 'none') . PHP_EOL;
+        if (!$db->hasCharsetMismatch()) {
+            echo 'Nothing to do: connection and tables already agree.' . PHP_EOL;
+            break;
+        }
+        echo 'Mismatch detected — converting tables to the application charset ...' . PHP_EOL;
+        $changed = $db->healCharsetMismatch();
+        if ($changed === []) {
+            echo 'No table was converted. The database account probably lacks ALTER permission.' . PHP_EOL
+                . 'Fix it manually in phpMyAdmin: Operations → Collation → utf8mb4_general_ci, or ask your host.' . PHP_EOL;
+            exit(1);
+        }
+        echo 'Converted ' . count($changed) . ' table(s): ' . implode(', ', $changed) . PHP_EOL;
+        echo 'Connection now: ' . (string) ($db->value('SELECT @@character_set_connection') ?: '?')
+            . ' / ' . (string) ($db->value('SELECT @@collation_connection') ?: '?') . PHP_EOL;
+        echo 'Done. Reload the page.' . PHP_EOL;
         break;
 
     case 'commissions:process':

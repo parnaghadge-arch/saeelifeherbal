@@ -297,6 +297,16 @@ final class Database
         }
 
         [$appliedCharset, $appliedCollation] = $applied;
+        // Belt and braces: a host can ignore SET NAMES entirely. If the connection still is not
+        // in the application's charset, convert it explicitly and record that it happened.
+        if ($appliedCharset !== '') {
+            $actual = $this->connectionCharset(true);
+            if ($actual !== '' && $actual !== $appliedCharset) {
+                error_log('[db] SET NAMES ' . $appliedCharset . ' did not take effect (connection is '
+                    . $actual . '); converting the connection explicitly');
+                $this->execConnectionCharset($appliedCharset, '');
+            }
+        }
         $this->knownCharset = $appliedCharset;
         $this->expressionCollation = $appliedCollation !== '' ? $appliedCollation : $this->collationForCharset($appliedCharset);
         if ($this->expressionCollation === '') {
@@ -314,6 +324,68 @@ final class Database
                 $this->repairCollations((string) $this->expressionCollation);
             }
         }
+    }
+
+    /**
+     * True when the connection and the tables are in different character sets.
+     *
+     * This is the state that produces 1253 / 1267 pairs: the connection cannot express the
+     * collation the tables use, and no COLLATE clause can bridge two charsets.
+     */
+    public function hasCharsetMismatch(): bool
+    {
+        if ($this->driver !== 'mysql') {
+            return false;
+        }
+        $connection = $this->connectionCharset();
+        $tables = $this->detectTableCollation();
+        if ($connection === '' || $tables === '') {
+            return false;
+        }
+        return self::charsetOfCollation($tables) !== $connection;
+    }
+
+    /**
+     * Make the connection and the tables agree, converting the tables when that is safe.
+     *
+     * The application content is UTF-8 (Hindi/Marathi product names), so when the connection is
+     * something narrower the tables are converted rather than the connection: dragging the
+     * connection down to latin1 would corrupt every read. Returns the tables converted.
+     *
+     * Used by the emergency repair and by `collation:repair`, not on every request.
+     *
+     * @return list<string>
+     */
+    public function healCharsetMismatch(): array
+    {
+        if ($this->driver !== 'mysql') {
+            return [];
+        }
+        $appCharset = (string) ($this->config['charset'] ?? 'utf8mb4');
+        if (preg_match('/^[A-Za-z0-9_]+$/', $appCharset) !== 1) {
+            $appCharset = 'utf8mb4';
+        }
+        $connection = $this->connectionCharset();
+        if ($connection === '') {
+            return [];
+        }
+        if ($connection !== $appCharset) {
+            // Try to lift the connection first; it is free and fixes the common case.
+            $this->execConnectionCharset($appCharset, '');
+            $this->connectionCharsetCache = null;
+            $this->expressionCollation = null;
+            if ($this->connectionCharset() === $appCharset) {
+                // Connection moved; the tables may already be right.
+                if (!$this->hasCharsetMismatch()) {
+                    return [];
+                }
+            } else {
+                // The connection cannot leave its charset: convert the tables to match it.
+                $appCharset = $this->connectionCharset();
+            }
+        }
+        $target = $this->collationForCharset($appCharset);
+        return $target === '' ? [] : $this->repairCollations($target);
     }
 
     /**
@@ -544,9 +616,9 @@ final class Database
     }
 
     /** Charset of the live connection, read from the server. '' when unavailable. */
-    private function connectionCharset(): string
+    private function connectionCharset(bool $fresh = false): string
     {
-        if ($this->connectionCharsetCache !== null) {
+        if ($this->connectionCharsetCache !== null && !$fresh) {
             return $this->connectionCharsetCache;
         }
         try {
@@ -569,22 +641,29 @@ final class Database
         if ($this->driver !== 'mysql') {
             return false;
         }
+        // The ONLY reason to pin an expression is to stop utf8mb4_unicode_ci and
+        // utf8mb4_general_ci from mixing. On any other connection charset the pin is a
+        // liability: MySQL answers 1253 "COLLATION 'utf8mb4_unicode_ci' is not valid for
+        // CHARACTER SET 'latin1'" before the query even runs. No pin is strictly better than a
+        // wrong pin, so a non-utf8mb4 connection gets its expressions left alone.
+        $connectionCharset = $this->connectionCharset();
+        if ($connectionCharset !== '' && !str_starts_with($connectionCharset, 'utf8')) {
+            return false;
+        }
+        $charset = $knownCharset ?: $connectionCharset;
+        if ($charset !== null && $charset !== '' && !str_starts_with($charset, 'utf8')) {
+            return false;
+        }
         $collation = $this->expressionCollation();
         if ($collation === false) {
             return false;
         }
-        // The connection charset is the hard limit: MySQL rejects a COLLATE belonging to another
-        // character set with 1253 before it ever evaluates the comparison.
-        $charset = $knownCharset ?: ($this->connectionCharset() ?: $this->knownCharset);
-        if ($charset !== null && $charset !== '' && self::charsetOfCollation($collation) !== $charset) {
-            $replacement = $this->collationForCharset($charset);
-            if ($replacement === '') {
-                return false;
-            }
-            if (self::isCollationName($collation) && $this->collationIsValid($collation, $charset)) {
-                return $collation;
-            }
-            return $replacement;
+        // Whatever we return must belong to the connection charset, otherwise the server
+        // rejects the statement with 1253.
+        if ($connectionCharset !== ''
+            && self::isCollationName($collation)
+            && self::charsetOfCollation($collation) !== $connectionCharset) {
+            return false;
         }
         return $collation;
     }
@@ -780,9 +859,60 @@ final class Database
         ), FILE_APPEND);
     }
 
+    /**
+     * Remove any COLLATE clause that belongs to a charset the connection cannot use.
+     *
+     * This is the last line of defence for
+     *   1253 COLLATION 'utf8mb4_unicode_ci' is not valid for CHARACTER SET 'latin1'
+     * — the failure that kept coming back because the clause can be introduced from several
+     * directions (a derived-expression pin, a repair target, a hand-written query). Rather than
+     * trust every caller, the statement is inspected here, immediately before it is handed to
+     * MySQL, and a collation of another character set is dropped. Dropping it is always safe:
+     * the comparison then uses the connection collation, which is what the server would have
+     * used anyway.
+     *
+     * The connection charset is read once per request, and SQL without the keyword costs a
+     * single str_contains() check.
+     */
+    private function sanitiseCollateClauses(string $sql): string
+    {
+        if ($this->driver !== 'mysql' || stripos($sql, 'COLLATE') === false) {
+            return $sql;
+        }
+        $connectionCharset = $this->connectionCharset();
+        if ($connectionCharset === '') {
+            return $sql;
+        }
+        $stripped = [];
+        $clean = preg_replace_callback(
+            '/\s+COLLATE\s+([A-Za-z0-9_]+)/i',
+            static function (array $m) use ($connectionCharset, &$stripped): string {
+                $charset = self::charsetOfCollation($m[1]);
+                if ($charset === '' || $charset === $connectionCharset) {
+                    return $m[0];
+                }
+                $stripped[] = $m[1];
+                return '';
+            },
+            $sql
+        );
+        if ($stripped === []) {
+            return $sql;
+        }
+        error_log('[db] removed COLLATE ' . implode(', ', array_unique($stripped))
+            . ' because the connection charset is ' . $connectionCharset);
+        $this->logDiagnostic(
+            'STRIPPED COLLATE ' . implode(', ', array_unique($stripped)) . ' (connection charset ' . $connectionCharset . ')',
+            (string) $clean,
+            []
+        );
+        return (string) $clean;
+    }
+
     private function prepare(string $sql, array $params, bool $allowCollationRetry = true): PDOStatement
     {
         $start = microtime(true);
+        $sql = $this->sanitiseCollateClauses($sql);
         [$expandedSql, $aliases] = self::expandRepeatedPlaceholders($sql);
         try {
             $stmt = $this->pdo->prepare($expandedSql);
