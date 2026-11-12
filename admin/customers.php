@@ -49,7 +49,7 @@ $rows = $db->select(
 $pageTitle = 'Customers';
 $pageHeading = 'Customers';
 $pageSub = $total . ' storefront customer(s)';
-$activeModule = 'members';
+$activeModule = 'customers';
 $pageActions = '<a class="btn btn-sm btn-outline-secondary" href="?export=csv">Export CSV</a>';
 require __DIR__ . '/includes/layout.php';
 ?>

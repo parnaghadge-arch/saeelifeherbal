@@ -50,6 +50,7 @@ if (is_post()) {
             'customer_mobile' => (string) Request::input('customer_mobile', ''),
             'address_line1' => (string) Request::input('address_line1', ''),
             'city' => (string) Request::input('city', ''),
+            'district' => (string) Request::input('district', ''),
             'state' => (string) Request::input('state', ''),
             'pincode' => (string) Request::input('pincode', ''),
         ]);
@@ -68,13 +69,38 @@ if ($memberId < 1 && $members !== []) {
     $memberId = (int) array_key_first($members);
 }
 $beneficiary = $memberId > 0 ? $db->first('SELECT * FROM members WHERE id = :id', ['id' => $memberId]) : null;
+// Everything recorded about the member, so the operator can see who they are buying for before
+// they commit the order. Address fields come from member_profiles and are used to pre-fill the
+// delivery block below.
+$beneficiaryProfile = $beneficiary
+    ? ($db->first('SELECT * FROM member_profiles WHERE member_id = :id', ['id' => $memberId]) ?? [])
+    : [];
+$beneficiarySponsor = ($beneficiary && !empty($beneficiary['sponsor_id']))
+    ? $db->first('SELECT name, member_code FROM members WHERE id = :id', ['id' => (int) $beneficiary['sponsor_id']])
+    : null;
+$beneficiaryKyc = $beneficiary
+    ? $db->first('SELECT status FROM member_kyc WHERE member_id = :id', ['id' => $memberId])
+    : null;
+$beneficiaryBank = $beneficiary
+    ? $db->first('SELECT account_number, ifsc_code, bank_name, status FROM member_bank_accounts WHERE member_id = :id ORDER BY is_primary DESC, id DESC LIMIT 1', ['id' => $memberId])
+    : null;
+// Fall back through profile -> member row for each address part.
+$delivery = [
+    'name' => (string) ($beneficiary['name'] ?? ''),
+    'mobile' => (string) ($beneficiary['mobile'] ?? ''),
+    'address_line1' => (string) ($beneficiaryProfile['address'] ?? $beneficiary['address'] ?? ''),
+    'city' => (string) ($beneficiaryProfile['taluka'] ?? ''),
+    'district' => (string) ($beneficiaryProfile['district'] ?? ''),
+    'state' => (string) ($beneficiaryProfile['state'] ?? $beneficiary['state'] ?? ''),
+    'pincode' => (string) ($beneficiaryProfile['pincode'] ?? $beneficiary['pincode'] ?? ''),
+];
 $products = $service->products($search);
 $walletBalance = $memberId > 0 ? $service->walletBalance($memberId) : 0.0;
 
 $pageTitle = 'Record Purchase';
 $pageHeading = 'Record Purchase for a Member';
 $pageSub = 'Buy on behalf of any member — commissions and payout rules are applied automatically';
-$activeModule = 'orders';
+$activeModule = 'purchase';
 $pageActions = '<a class="btn btn-sm btn-outline-secondary" href="orders.php">All orders</a>';
 require __DIR__ . '/includes/layout.php';
 ?>
@@ -99,9 +125,86 @@ require __DIR__ . '/includes/layout.php';
 <?php if (!$members): ?>
   <div class="panel p-3 p-md-4"><p class="small text-muted mb-0">No members matched.</p></div>
 <?php elseif ($beneficiary): ?>
-  <div class="alert alert-light border small d-flex flex-wrap gap-3 justify-content-between">
-    <span>Recording for <strong><?= e((string) $beneficiary['name']) ?></strong> (<?= e((string) $beneficiary['member_code']) ?>) · sponsor line gets the commission</span>
-    <span>Wallet balance: <strong><?= money($walletBalance) ?></strong></span>
+  <div class="panel p-3 p-md-4 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+      <div>
+        <h2 class="h6 mb-1">
+          <?= e((string) $beneficiary['name']) ?>
+          <span class="text-muted fw-normal">(<?= e((string) $beneficiary['member_code']) ?>)</span>
+        </h2>
+        <div class="small text-muted">Recording a purchase for this member — their sponsor line receives the commission.</div>
+      </div>
+      <div class="text-end">
+        <div class="small text-muted">Wallet</div>
+        <div class="fw-semibold"><?= money($walletBalance) ?></div>
+      </div>
+    </div>
+    <div class="row g-3 small">
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="text-muted">Mobile</div>
+        <div class="fw-semibold"><?= e((string) ($beneficiary['mobile'] ?? '—')) ?></div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="text-muted">Email</div>
+        <div class="fw-semibold text-break"><?= e((string) ($beneficiary['email'] ?? '')) !== '' ? e((string) $beneficiary['email']) : '—' ?></div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="text-muted">Status</div>
+        <div class="fw-semibold">
+          <?= e(ucfirst((string) ($beneficiary['status'] ?? ''))) ?>
+          <?php if ($beneficiaryKyc): ?>
+            · KYC <?= e((string) ($beneficiaryKyc['status'] ?? '')) ?>
+          <?php endif; ?>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="text-muted">Joined</div>
+        <div class="fw-semibold"><?= e(format_date((string) ($beneficiary['joined_at'] ?? $beneficiary['created_at'] ?? ''), 'd M Y')) ?></div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="text-muted">Sponsor</div>
+        <div class="fw-semibold">
+          <?php if ($beneficiarySponsor): ?>
+            <?= e((string) $beneficiarySponsor['name']) ?><br>
+            <span class="text-muted fw-normal"><?= e((string) $beneficiarySponsor['member_code']) ?></span>
+          <?php else: ?>
+            <span class="text-muted">No sponsor (tree root)</span>
+          <?php endif; ?>
+        </div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="text-muted">Role</div>
+        <div class="fw-semibold"><?= e(ucfirst((string) ($beneficiary['role'] ?? '—'))) ?></div>
+      </div>
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="text-muted">Bank on file</div>
+        <div class="fw-semibold">
+          <?php if ($beneficiaryBank): ?>
+            <?= e((string) ($beneficiaryBank['bank_name'] ?? '—')) ?>
+            <span class="text-muted fw-normal"><?= e(Security::maskAccount((string) (Security::decrypt((string) ($beneficiaryBank['account_number'] ?? '')) ?? ''))) ?></span>
+            <?= (string) ($beneficiaryBank['status'] ?? '') === 'verified' ? '<span class="badge bg-success">Verified</span>' : '<span class="badge bg-secondary">' . e(ucfirst((string) ($beneficiaryBank['status'] ?? 'pending'))) . '</span>' ?>
+          <?php else: ?>
+            <span class="text-muted">None</span>
+          <?php endif; ?>
+        </div>
+      </div>
+      <div class="col-12 col-xl-6">
+        <div class="text-muted">Delivery address</div>
+        <div class="fw-semibold">
+          <?php
+            $addressParts = array_filter([
+                $beneficiaryProfile['address'] ?? '',
+                $beneficiaryProfile['village'] ?? '',
+                $beneficiaryProfile['taluka'] ?? '',
+                $beneficiaryProfile['district'] ?? '',
+                $beneficiaryProfile['state'] ?? '',
+                $beneficiaryProfile['pincode'] ?? '',
+            ], static fn ($v): bool => trim((string) $v) !== '');
+          ?>
+          <?= $addressParts !== [] ? e(implode(', ', array_map('strval', $addressParts))) : '<span class="text-muted fw-normal">Not on file — fill it in below</span>' ?>
+        </div>
+      </div>
+    </div>
   </div>
 
   <form method="post">
@@ -169,17 +272,19 @@ require __DIR__ . '/includes/layout.php';
           <h2 class="h6 mb-3">Delivery details</h2>
           <div class="row g-2">
             <div class="col-12"><label class="form-label small mb-1">Name</label>
-              <input class="form-control form-control-sm" name="customer_name" value="<?= e((string) $beneficiary['name']) ?>"></div>
+              <input class="form-control form-control-sm" name="customer_name" value="<?= e($delivery['name']) ?>"></div>
             <div class="col-12"><label class="form-label small mb-1">Mobile</label>
-              <input class="form-control form-control-sm" name="customer_mobile" value="<?= e((string) $beneficiary['mobile']) ?>"></div>
+              <input class="form-control form-control-sm" name="customer_mobile" value="<?= e($delivery['mobile']) ?>"></div>
             <div class="col-12"><label class="form-label small mb-1">Address</label>
-              <input class="form-control form-control-sm" name="address_line1" value="<?= e((string) ($beneficiary['address'] ?? '')) ?>"></div>
-            <div class="col-6"><label class="form-label small mb-1">City</label>
-              <input class="form-control form-control-sm" name="city" value=""></div>
+              <input class="form-control form-control-sm" name="address_line1" value="<?= e($delivery['address_line1']) ?>"></div>
+            <div class="col-6"><label class="form-label small mb-1">City / Taluka</label>
+              <input class="form-control form-control-sm" name="city" value="<?= e($delivery['city']) ?>"></div>
             <div class="col-6"><label class="form-label small mb-1">Pincode</label>
-              <input class="form-control form-control-sm" name="pincode" value=""></div>
-            <div class="col-12"><label class="form-label small mb-1">State</label>
-              <input class="form-control form-control-sm" name="state" value="<?= e((string) ($beneficiary['state'] ?? '')) ?>"></div>
+              <input class="form-control form-control-sm" name="pincode" value="<?= e($delivery['pincode']) ?>"></div>
+            <div class="col-6"><label class="form-label small mb-1">District</label>
+              <input class="form-control form-control-sm" name="district" value="<?= e($delivery['district']) ?>"></div>
+            <div class="col-6"><label class="form-label small mb-1">State</label>
+              <input class="form-control form-control-sm" name="state" value="<?= e($delivery['state']) ?>"></div>
             <div class="col-12"><label class="form-label small mb-1">Internal note</label>
               <input class="form-control form-control-sm" name="notes" value=""></div>
           </div>

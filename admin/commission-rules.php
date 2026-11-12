@@ -107,9 +107,26 @@ $rows = $db->select(
     $params
 );
 
+// Products that carry commission but have no rule version yet (added before product saves
+// started snapshotting a rule, or imported). They still pay commission — the engine falls back to
+// the product's own columns — so they must be visible here rather than silently missing.
+$unversioned = $db->select(
+    "SELECT p.id, p.name, p.sku, p.direct_commission_type, p.direct_commission_value,
+            p.grand_direct_commission_type, p.grand_direct_commission_value, p.commission_basis
+       FROM products p
+      WHERE p.mlm_enabled = 1
+        AND NOT EXISTS (SELECT 1 FROM mlm_commission_rules r WHERE r.product_id = p.id AND r.is_active = 1)
+      ORDER BY p.name ASC"
+);
+if ($productFilter) {
+    $unversioned = array_values(array_filter($unversioned, static fn (array $p): bool => (int) $p['id'] === $productFilter));
+}
+$activeCount = (int) $db->value('SELECT COUNT(*) FROM mlm_commission_rules WHERE is_active = 1');
+
 $pageTitle = 'Commission Rules';
 $pageHeading = 'Commission Rules';
-$pageSub = $total . ' rule versions · per product, effective-dated, never overwritten';
+$pageSub = $total . ' rule version(s) · ' . $activeCount . ' active · '
+    . count($unversioned) . ' product(s) using the default from the product form';
 $activeModule = 'commission-rules';
 $formOpen = admin_form_open($rule, $errors);
 $pageActions = $formOpen
@@ -185,6 +202,31 @@ require __DIR__ . '/includes/layout.php';
           <?php endforeach; ?>
         </select>
       </form>
+      <?php if ($unversioned !== []): ?>
+        <div class="alert alert-light border small">
+          <strong><?= count($unversioned) ?> product(s)</strong> have commission switched on but no versioned
+          rule yet. They are paying the defaults set on the product form. Saving the product, or adding a
+          version below, pins them to a dated rule.
+        </div>
+        <div class="table-responsive mb-3">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Product</th><th>Direct</th><th>Grand direct</th><th>Basis</th></tr></thead>
+            <tbody>
+            <?php foreach ($unversioned as $p): ?>
+              <tr>
+                <td class="small">
+                  <div class="fw-semibold"><?= e((string) $p['name']) ?></div>
+                  <div class="text-muted"><?= e((string) ($p['sku'] ?? '')) ?></div>
+                </td>
+                <td class="small"><?= e((string) $p['direct_commission_value']) ?><?= $p['direct_commission_type'] === 'percent' ? '%' : ' ' . currency_symbol() ?></td>
+                <td class="small"><?= e((string) $p['grand_direct_commission_value']) ?><?= $p['grand_direct_commission_type'] === 'percent' ? '%' : ' ' . currency_symbol() ?></td>
+                <td class="small text-muted"><?= e(str_replace('_', ' ', (string) $p['commission_basis'])) ?></td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 data-table">
           <thead><tr><th>Product / version</th><th>Direct</th><th>Grand direct</th><th>Window</th><th>Status</th><th class="text-end"></th></tr></thead>

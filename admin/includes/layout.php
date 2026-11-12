@@ -36,7 +36,7 @@ $menu = [
     ['label' => 'Blogs', 'icon' => 'fa-newspaper', 'href' => 'blogs.php', 'key' => 'blogs', 'perm' => 'cms.blogs'],
     ['label' => 'Blog Categories', 'icon' => 'fa-tags', 'href' => 'blog-categories.php', 'key' => 'blog-categories', 'perm' => 'cms.blogs'],
     ['label' => 'Gallery & Videos', 'icon' => 'fa-photo-film', 'href' => 'gallery.php', 'key' => 'gallery', 'perm' => 'cms.gallery'],
-    ['label' => 'FAQs & Testimonials', 'icon' => 'fa-circle-question', 'href' => 'content.php', 'key' => 'content', 'perm' => 'cms.content'],
+    ['label' => 'FAQs & Testimonials', 'icon' => 'fa-circle-question', 'href' => 'faqs.php', 'key' => 'content', 'perm' => 'cms.content'],
     ['label' => 'Founder & Team', 'icon' => 'fa-people-group', 'href' => 'team.php', 'key' => 'team', 'perm' => 'cms.content'],
     ['label' => 'Navigation', 'icon' => 'fa-bars-staggered', 'href' => 'navigation.php', 'key' => 'navigation', 'perm' => 'cms.navigation'],
     ['label' => 'Media Library', 'icon' => 'fa-folder-open', 'href' => 'media.php', 'key' => 'media', 'perm' => 'cms.media'],

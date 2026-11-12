@@ -5,6 +5,7 @@ require __DIR__ . '/includes/_guard.php';
 admin_require('products.manage');
 
 use Saee\Lib\Audit;
+use Saee\Lib\MlmCommissionEngine;
 use Saee\Lib\Pager;
 use Saee\Lib\Request;
 use Saee\Lib\Security;
@@ -145,6 +146,14 @@ if (is_post()) {
                 Audit::log('create', 'products', 'Created product ' . $data['name'], 'products', $productId);
                 Session::success('Product created.');
             }
+
+            // Keep the versioned commission rule in step with what the admin just saved.
+            // Without this the rule is only ever created by the demo seeder, so a product added
+            // by hand has commission that works at order time (the engine falls back to the
+            // product columns) but never appears on Commission Rules.
+            (new MlmCommissionEngine($db))->versionRuleForProduct(
+                $db->first('SELECT * FROM products WHERE id = :id', ['id' => $productId]) ?? []
+            );
 
             // Gallery images
             if (!empty($_FILES['gallery']['name'][0])) {

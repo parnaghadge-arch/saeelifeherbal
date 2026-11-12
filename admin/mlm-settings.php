@@ -13,7 +13,12 @@ use Saee\Lib\Settings;
 use Saee\Lib\Url;
 
 $db = db();
-if (is_post()) {
+// Each form on this page posts its own 'form' key. Dispatch on it: the plan form and the payout
+// form used to share one handler, so saving payout policy fell into the plan branch, reported
+// "MLM settings saved", and switched every plan CHECKBOX off (an unticked box is absent from
+// $POST, which the flag loop read as "off").
+$form = is_post() ? (string) Request::input('form', '') : '';
+if ($form === 'plan') {
     Security::verifyCsrf();
     $fields = [
         'mlm_plan_enabled', 'mlm_company_sponsor_code', 'mlm_commission_hold_days', 'mlm_credit_status',
@@ -26,6 +31,9 @@ if (is_post()) {
         }
         Settings::set($field, (string) Request::input($field, ''));
     }
+    // Flags are only written here, in the plan branch, because only the plan form renders them.
+    // A checkbox that is genuinely unchecked is absent from $POST, which is a real "off" for this
+    // form alone.
     foreach (['mlm_plan_enabled', 'mlm_plan_public', 'mlm_registration_enabled', 'mlm_show_earnings_public'] as $flag) {
         Settings::set($flag, Request::bool($flag) ? '1' : '0', 'boolean');
     }
@@ -49,9 +57,9 @@ $current = [
 ];
 $payoutSettings = $db->first('SELECT * FROM payout_settings ORDER BY id ASC LIMIT 1');
 
-if (is_post() && Request::input('form') === 'payout') {
+if ($form === 'payout') {
     Security::verifyCsrf();
-    $db->update('payout_settings', [
+    $policy = [
         'min_withdrawal_amount' => round((float) Request::input('min_withdrawal_amount', 0), 2),
         'max_withdrawal_amount' => round((float) Request::input('max_withdrawal_amount', 0), 2),
         'withdrawal_fee_type' => Request::input('withdrawal_fee_type') === 'fixed' ? 'fixed' : 'percent',
@@ -63,8 +71,42 @@ if (is_post() && Request::input('form') === 'payout') {
         'auto_approve' => Request::bool('auto_approve') ? 1 : 0,
         'payouts_enabled' => Request::bool('payouts_enabled') ? 1 : 0,
         'updated_at' => date('Y-m-d H:i:s'),
-    ], 'id = :id', ['id' => (int) $payoutSettings['id']]);
-    Audit::log('update', 'mlm', 'Payout settings updated', 'payout_settings', (int) $payoutSettings['id']);
+    ];
+    // Refuse nonsense rather than storing it: these numbers gate real withdrawals.
+    $payoutErrors = [];
+    if ($policy['min_withdrawal_amount'] < 0) {
+        $payoutErrors[] = 'Minimum withdrawal cannot be negative.';
+    }
+    if ($policy['max_withdrawal_amount'] > 0 && $policy['max_withdrawal_amount'] < $policy['min_withdrawal_amount']) {
+        $payoutErrors[] = 'Maximum per request must be at least the minimum withdrawal.';
+    }
+    if ($policy['tds_percent'] < 0 || $policy['tds_percent'] > 100) {
+        $payoutErrors[] = 'TDS must be between 0 and 100 percent.';
+    }
+    if ($policy['withdrawal_fee_value'] < 0) {
+        $payoutErrors[] = 'Withdrawal fee cannot be negative.';
+    }
+    if ($policy['withdrawal_fee_type'] === 'percent' && $policy['withdrawal_fee_value'] > 100) {
+        $payoutErrors[] = 'A percentage withdrawal fee cannot exceed 100 percent.';
+    }
+    if ($policy['processing_days'] < 0 || $policy['processing_days'] > 90) {
+        $payoutErrors[] = 'Processing days must be between 0 and 90.';
+    }
+
+    if ($payoutErrors !== []) {
+        Session::error(implode(' ', $payoutErrors));
+        Request::redirect('mlm-settings.php');
+    }
+
+    if ($payoutSettings) {
+        $db->update('payout_settings', $policy, 'id = :id', ['id' => (int) $payoutSettings['id']]);
+        $payoutRowId = (int) $payoutSettings['id'];
+    } else {
+        // The installer normally seeds this row; if it is missing, create it instead of silently
+        // doing nothing and still saying "saved".
+        $payoutRowId = (int) $db->insert('payout_settings', $policy + ['created_at' => date('Y-m-d H:i:s')]);
+    }
+    Audit::log('update', 'mlm', 'Payout settings updated', 'payout_settings', $payoutRowId, $policy);
     Session::success('Payout settings saved.');
     Request::redirect('mlm-settings.php');
 }
@@ -81,6 +123,7 @@ require __DIR__ . '/includes/layout.php';
       <h2 class="h6 mb-3">Compensation plan</h2>
       <form method="post">
         <?= csrf_field() ?>
+        <input type="hidden" name="form" value="plan">
         <div class="row g-3">
           <div class="col-12">
             <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="mlm_plan_enabled" value="1" id="pe" <?= $current['mlm_plan_enabled'] === '1' ? 'checked' : '' ?>><label class="form-check-label small" for="pe">Compensation plan active (commission engine runs on paid orders)</label></div>
