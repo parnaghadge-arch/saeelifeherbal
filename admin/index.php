@@ -26,7 +26,7 @@ $kpi = $db->first(
         (SELECT COALESCE(SUM(grand_total),0) FROM orders WHERE payment_status = 'paid') AS revenue_total,
         (SELECT COUNT(*) FROM products WHERE status = 'active') AS products,
         (SELECT COUNT(*) FROM contact_enquiries WHERE status = 'new') AS new_enquiries,
-        (SELECT COUNT(*) FROM payout_requests WHERE status = 'pending') AS pending_payouts,
+        (SELECT COUNT(*) FROM payout_requests WHERE status IN ('pending','approved','processing')) AS pending_payouts,
         (SELECT COUNT(*) FROM member_kyc WHERE status IN ('submitted','under_verification')) AS kyc_pending,
         (SELECT COALESCE(SUM(amount),0) FROM commission_transactions WHERE status IN ('available','approved','paid')) AS commission_liability,
         (SELECT COUNT(*) FROM page_views WHERE created_at >= :from) AS visits",

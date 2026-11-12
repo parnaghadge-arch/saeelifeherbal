@@ -145,7 +145,13 @@ Add `razorpay_key_id`, `razorpay_key_secret` and the webhook secret in admin →
 the gateway, and point the Razorpay dashboard webhook to
 `https://your-domain/api/orders/razorpay-webhook.php` for `payment.captured`,
 `payment.failed` and `refund.processed`. Cash on Delivery is always available and can be capped
-by amount. Payouts are manual (NEFT/UPI/bank) with UTR + proof capture in admin → Payouts.
+by amount. Payouts are **automatic**: earnings at/above the minimum appear in admin → Payout Reports
+without any member request. Downloading the report (bank schedule / CSV / Excel / PDF) moves them to
+**In Progress**; the admin pays via bank and marks them paid with UTR + proof in admin → Payouts, after
+which the member sees **Payment Completed** and a full payout statement (member → Payout Statement).
+Members also get a product Purchase History with line items and invoices. Run
+`php tools/console.php upgrade` after updating (adds the `processing` status + auto-payout columns),
+and add `payouts:auto` to cron (see `docs/INSTALLATION.md`) to keep the register current between page loads.
 
 ---
 

@@ -19,7 +19,7 @@ $contact = defined('APP_ROOT') ? \Saee\Lib\Url::to('contact-us') : '/contact-us'
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,follow">
 <title>Page not found | Saee Life Herbal</title>
 <link rel="icon" type="image/png" href="<?= htmlspecialchars(rtrim($home, '/') . '/assets/images/logo-square.png', ENT_QUOTES) ?>">

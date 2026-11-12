@@ -128,7 +128,7 @@ if (!function_exists('saee_render_failure')) {
             include $path;
         } else {
             echo '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-                . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                . '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
                 . '<title>Something went wrong</title></head>'
                 . '<body style="font-family:system-ui,Segoe UI,Arial,sans-serif;background:#F6F8F6;color:#26332B;padding:48px 16px">'
                 . '<div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #DFE8E1;border-radius:14px;padding:28px 32px">'

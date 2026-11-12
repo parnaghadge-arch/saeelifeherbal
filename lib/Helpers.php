@@ -196,6 +196,10 @@ if (!function_exists('status_badge')) {
             'negotiation' => 'warning', 'won' => 'success', 'lost' => 'danger',
         ];
         $label = ucwords(str_replace('_', ' ', (string) ($status ?: 'unknown')));
+        // Payouts read better as "In Progress" than the raw enum word "Processing".
+        if (($status ?? '') === 'processing') {
+            $label = 'In Progress';
+        }
         $class = $map[$status ?? ''] ?? 'secondary';
         return '<span class="badge badge-status bg-' . $class . '-subtle text-' . ($class === 'dark' ? 'light' : $class) . ' border border-' . ($class === 'dark' ? 'dark' : $class) . '-subtle">' . e($label) . '</span>';
     }

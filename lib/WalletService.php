@@ -145,9 +145,11 @@ final class WalletService
                 ['m' => $memberId]
             )));
             // Requests still being processed are reserved but not yet debited from the ledger,
-            // so only those have to be subtracted from the balance.
+            // so only those have to be subtracted from the balance. 'processing' means the
+            // admin has downloaded the payout report and payment is in progress — the amount
+            // stays locked until markPaid() debits it.
             $lockedPending = self::fromPaise(self::toPaise((float) $db->value(
-                "SELECT COALESCE(SUM(net_amount),0) FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved')",
+                "SELECT COALESCE(SUM(net_amount),0) FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved','processing')",
                 ['m' => $memberId]
             )));
             $available = self::fromPaise(self::toPaise($balance) - self::toPaise($lockedPending));

@@ -32,8 +32,13 @@ $recentReferrals = $db->select(
      FROM members m WHERE m.sponsor_id = :s ORDER BY m.id DESC LIMIT 5",
     ['s' => $currentMemberId]
 );
+try {
+    (new PayoutService($db))->syncAutoPayoutForMember($currentMemberId);
+} catch (\Throwable $e) {
+    error_log('member auto payout sync failed: ' . $e->getMessage());
+}
 $pendingPayout = $db->first(
-    "SELECT * FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved') ORDER BY id DESC LIMIT 1",
+    "SELECT * FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved','processing') ORDER BY id DESC LIMIT 1",
     ['m' => $currentMemberId]
 );
 $pendingRoyalty = $db->first(
@@ -139,8 +144,8 @@ require __DIR__ . '/includes/layout.php';
       <div class="list-item">
         <div class="list-icon"><i class="fa-solid fa-money-bill-transfer"></i></div>
         <div class="flex-grow-1">
-          <div class="fw-semibold">Payout <?= e((string) $pendingPayout['request_code']) ?> is <?= e((string) $pendingPayout['status']) ?></div>
-          <div class="small text-muted"><?= money((float) $pendingPayout['amount']) ?> requested <?= e(format_date((string) $pendingPayout['created_at'], 'd M Y')) ?></div>
+          <div class="fw-semibold">Auto payout <?= e((string) $pendingPayout['request_code']) ?> · <?= (string) $pendingPayout['status'] === 'processing' ? 'In Progress' : ucfirst((string) $pendingPayout['status']) ?></div>
+          <div class="small text-muted"><?= money((float) $pendingPayout['net_amount']) ?> net · added <?= e(format_date((string) $pendingPayout['created_at'], 'd M Y')) ?> · no request needed</div>
         </div>
         <a class="btn btn-sm btn-light-green" href="<?= e(Url::member('payouts.php')) ?>">View</a>
       </div>
@@ -214,7 +219,7 @@ require __DIR__ . '/includes/layout.php';
 </div>
 
 <div class="quick-grid mt-3">
-  <a class="quick-tile" href="<?= e(Url::member('payout-request.php')) ?>"><i class="fa-solid fa-money-bill-transfer"></i><span>Request payout</span></a>
+  <a class="quick-tile" href="<?= e(Url::member('payouts.php')) ?>"><i class="fa-solid fa-money-bill-transfer"></i><span>Payout statement</span></a>
   <a class="quick-tile" href="<?= e(Url::member('genealogy.php')) ?>"><i class="fa-solid fa-network-wired"></i><span>Genealogy</span></a>
   <a class="quick-tile" href="<?= e(Url::member('statements.php')) ?>"><i class="fa-solid fa-file-arrow-down"></i><span>Statements</span></a>
   <a class="quick-tile" href="<?= e(Url::to('our-products')) ?>"><i class="fa-solid fa-seedling"></i><span>Buy products</span></a>

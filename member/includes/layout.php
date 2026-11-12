@@ -30,8 +30,8 @@ $navGroups = [
         ['royalty', 'Royalty & Incentives', 'fa-trophy', 'royalty.php'],
     ],
     'Payouts' => [
-        ['payout-request', 'Request Payout', 'fa-money-bill-transfer', 'payout-request.php'],
-        ['payouts', 'Payout History', 'fa-clock-rotate-left', 'payouts.php'],
+        ['payouts', 'Payout Statement', 'fa-money-bill-transfer', 'payouts.php'],
+        ['payout-request', 'Early Payout', 'fa-bolt', 'payout-request.php'],
         ['statements', 'Download Statements', 'fa-file-arrow-down', 'statements.php'],
     ],
     'Account' => [
@@ -48,7 +48,7 @@ $bottomNav = [
     ['dashboard', 'Home', 'fa-house', 'dashboard.php'],
     ['wallet', 'Wallet', 'fa-wallet', 'wallet.php'],
     ['referrals', 'Team', 'fa-user-group', 'referrals.php'],
-    ['payout-request', 'Payout', 'fa-money-bill-transfer', 'payout-request.php'],
+    ['payouts', 'Payout', 'fa-money-bill-transfer', 'payouts.php'],
     ['profile', 'Profile', 'fa-user', 'profile.php'],
 ];
 ?>

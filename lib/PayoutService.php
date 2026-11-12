@@ -1,7 +1,22 @@
 <?php
 /**
- * Payout lifecycle: request -> approve/reject -> paid, with KYC and bank eligibility gates,
- * deduction calculation, wallet locking and payout statements.
+ * Payout lifecycle.
+ *
+ * Two entry points share one table and one wallet lock:
+ *  - manual: member explicitly requests (member/payout-request.php) -> pending
+ *  - auto:   earnings that reach the minimum automatically appear as a pending
+ *            payout in the admin report (syncAutoPayouts). The member never has
+ *            to request. When the admin downloads the report (bank schedule /
+ *            CSV / Excel / PDF) every included row moves to 'processing'
+ *            ("in progress"); after the admin pays through the bank and marks
+ *            it paid, the member sees "Payment completed" with the UTR.
+ *
+ * Statuses: pending -> (approved) -> processing -> paid. rejected releases the lock.
+ * KYC and bank gates, deduction calculation, wallet locking and payout statements
+ * are shared by both entry points.
+ *
+ * Requires: php tools/console.php upgrade (adds source/cycle_key/report_* columns
+ * and the 'processing' enum value on existing installs).
  */
 declare(strict_types=1);
 
@@ -9,6 +24,9 @@ namespace Saee\Lib;
 
 final class PayoutService
 {
+    /** Statuses that keep the wallet amount locked and block a second open payout. */
+    public const OPEN_STATUSES = ['pending', 'approved', 'processing'];
+
     private array $settings;
 
     public function __construct(private Database $db)
@@ -17,13 +35,19 @@ final class PayoutService
             'min_withdrawal_amount' => 500, 'max_withdrawal_amount' => 100000,
             'withdrawal_fee_type' => 'fixed', 'withdrawal_fee_value' => 0, 'tds_percent' => 0,
             'processing_days' => 3, 'require_kyc' => 1, 'require_verified_bank' => 1,
-            'auto_approve' => 0, 'payouts_enabled' => 1,
+            'auto_approve' => 0, 'auto_payout_enabled' => 1, 'payouts_enabled' => 1,
         ];
     }
 
     public function settings(): array
     {
         return $this->settings;
+    }
+
+    public function autoEnabled(): bool
+    {
+        return (int) ($this->settings['auto_payout_enabled'] ?? 1) === 1
+            && (int) ($this->settings['payouts_enabled'] ?? 1) === 1;
     }
 
     /** Eligibility of a member for payouts, with human readable blockers. */
@@ -41,7 +65,7 @@ final class PayoutService
             $blockers[] = 'Payouts are currently disabled by the administrator.';
         }
         if ((int) $this->settings['require_kyc'] === 1 && $member['kyc_status'] !== 'approved') {
-            $blockers[] = 'KYC must be submitted and approved before requesting a payout.';
+            $blockers[] = 'KYC must be submitted and approved before payouts are released.';
         }
         if ((int) $this->settings['require_verified_bank'] === 1) {
             if (!$bank) {
@@ -55,14 +79,14 @@ final class PayoutService
         }
         $available = (float) ($wallet['available_balance'] ?? 0);
         if ($available < (float) $this->settings['min_withdrawal_amount']) {
-            $blockers[] = 'Available balance is below the minimum withdrawal amount of ' . money((float) $this->settings['min_withdrawal_amount']) . '.';
+            $blockers[] = 'Available balance is below the minimum payout amount of ' . money((float) $this->settings['min_withdrawal_amount']) . '.';
         }
         $pending = $this->db->first(
-            "SELECT id FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved') LIMIT 1",
+            "SELECT id FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved','processing') LIMIT 1",
             ['m' => $memberId]
         );
         if ($pending) {
-            $blockers[] = 'You already have a payout request in progress.';
+            $blockers[] = 'You already have a payout in progress.';
         }
 
         return [
@@ -100,6 +124,278 @@ final class PayoutService
         return ['gross' => $gross, 'admin_charges' => $fee, 'tds' => $tds, 'deduction' => round($fee + $tds, 2), 'net' => max(0, $net)];
     }
 
+    // ------------------------------------------------------------ auto payouts
+
+    /**
+     * Members whose withdrawable balance reached the minimum and who have no open
+     * payout. KYC/bank gates are NOT applied here — payableMembers() applies them,
+     * blockedMembers() reports the rest so the admin can see why money is held.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function payableCandidates(): array
+    {
+        $min = (float) $this->settings['min_withdrawal_amount'];
+        return $this->db->select(
+            "SELECT m.id AS member_id, m.name, m.member_code, m.mobile, m.status AS member_status,
+                    m.kyc_status, w.available_balance
+             FROM wallet_accounts w
+             JOIN members m ON m.id = w.member_id
+             WHERE w.available_balance >= :min
+               AND NOT EXISTS (
+                   SELECT 1 FROM payout_requests p
+                   WHERE p.member_id = m.id AND p.status IN ('pending','approved','processing')
+               )
+             ORDER BY w.available_balance DESC",
+            ['min' => $min]
+        );
+    }
+
+    /**
+     * Eligible members ready for an automatic payout, with deduction preview and bank.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function payableMembers(): array
+    {
+        $out = [];
+        foreach ($this->payableCandidates() as $row) {
+            $memberId = (int) $row['member_id'];
+            $member = $this->db->first('SELECT * FROM members WHERE id = :id', ['id' => $memberId]);
+            if (!$member || $member['status'] !== 'active') {
+                continue;
+            }
+            if ((int) $this->settings['require_kyc'] === 1 && $member['kyc_status'] !== 'approved') {
+                continue;
+            }
+            $bank = $this->primaryBank($memberId);
+            if ((int) $this->settings['require_verified_bank'] === 1) {
+                if (!$bank || $bank['status'] !== 'verified') {
+                    continue;
+                }
+            }
+            $gross = $this->autoGross((float) $row['available_balance']);
+            if ($gross < (float) $this->settings['min_withdrawal_amount']) {
+                continue;
+            }
+            $row['member'] = $member;
+            $row['bank'] = $bank;
+            $row['gross'] = $gross;
+            $row['calc'] = $this->computeDeductions($gross);
+            $out[] = $row;
+        }
+        return $out;
+    }
+
+    /**
+     * Members with money available but blocked from auto payout (KYC / bank / status).
+     * Shown in the admin report so held money is visible instead of silent.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function blockedMembers(): array
+    {
+        $out = [];
+        foreach ($this->payableCandidates() as $row) {
+            $memberId = (int) $row['member_id'];
+            $member = $this->db->first('SELECT * FROM members WHERE id = :id', ['id' => $memberId]);
+            $blockers = [];
+            if (!$member) {
+                continue;
+            }
+            if ($member['status'] !== 'active') {
+                $blockers[] = 'Account is ' . $member['status'];
+            }
+            if ((int) $this->settings['require_kyc'] === 1 && $member['kyc_status'] !== 'approved') {
+                $blockers[] = 'KYC ' . str_replace('_', ' ', (string) $member['kyc_status']);
+            }
+            $bank = $this->primaryBank($memberId);
+            if ((int) $this->settings['require_verified_bank'] === 1) {
+                if (!$bank) {
+                    $blockers[] = 'No bank account';
+                } elseif ($bank['status'] !== 'verified') {
+                    $blockers[] = 'Bank ' . $bank['status'];
+                }
+            }
+            if ($blockers === []) {
+                continue; // eligible — payableMembers() covers it
+            }
+            $row['blockers'] = $blockers;
+            $row['bank'] = $bank;
+            $out[] = $row;
+        }
+        return $out;
+    }
+
+    /** Gross for an auto payout: full available balance, capped per-request. */
+    private function autoGross(float $available): float
+    {
+        $max = (float) $this->settings['max_withdrawal_amount'];
+        $gross = $available;
+        if ($max > 0 && $gross > $max) {
+            $gross = $max;
+        }
+        return round($gross, 2);
+    }
+
+    /**
+     * Create pending auto payouts for every eligible member. Idempotent: members
+     * with an open payout are skipped, so calling this on every report/member
+     * page load (and from cron) never duplicates a payout.
+     */
+    public function syncAutoPayouts(): int
+    {
+        if (!$this->autoEnabled()) {
+            return 0;
+        }
+        $created = 0;
+        foreach ($this->payableMembers() as $row) {
+            try {
+                $this->createAutoPayout((int) $row['member_id'], (float) $row['gross'], $row['bank'] ?? null, $row['member'] ?? null);
+                $created++;
+            } catch (\Throwable $e) {
+                error_log('auto payout failed for member ' . (int) $row['member_id'] . ': ' . $e->getMessage());
+            }
+        }
+        return $created;
+    }
+
+    /** Sync a single member (used on member pages so their own payout appears). */
+    public function syncAutoPayoutForMember(int $memberId): ?int
+    {
+        if (!$this->autoEnabled()) {
+            return null;
+        }
+        $eligibility = $this->eligibility($memberId);
+        if (!$eligibility['eligible']) {
+            return null;
+        }
+        $gross = $this->autoGross((float) $eligibility['available']);
+        if ($gross < (float) $this->settings['min_withdrawal_amount']) {
+            return null;
+        }
+        return $this->createAutoPayout($memberId, $gross, $eligibility['bank'], $eligibility['member']);
+    }
+
+    private function createAutoPayout(int $memberId, float $gross, ?array $bank, ?array $member): int
+    {
+        $calc = $this->computeDeductions($gross);
+        $member = $member ?? $this->db->first('SELECT * FROM members WHERE id = :id', ['id' => $memberId]);
+        $id = $this->db->transaction(function (Database $db) use ($memberId, $gross, $calc, $bank, $member) {
+            $requestId = $db->insert('payout_requests', [
+                'request_code' => Sequence::code('PAY', 'payout'),
+                'member_id' => $memberId,
+                'amount' => $gross,
+                'deduction_amount' => $calc['deduction'],
+                'tds_amount' => $calc['tds'],
+                'admin_charges' => $calc['admin_charges'],
+                'net_amount' => $calc['net'],
+                'status' => 'pending',
+                'source' => 'auto',
+                'cycle_key' => date('Y-m'),
+                'bank_account_id' => $bank['id'] ?? null,
+                'bank_snapshot' => $bank ? json_encode([
+                    'account_holder_name' => $bank['account_holder_name'],
+                    'bank_name' => $bank['bank_name'],
+                    'account_number' => $bank['account_number'],
+                    'ifsc_code' => $bank['ifsc_code'],
+                    'branch_name' => $bank['branch_name'],
+                ]) : null,
+                'kyc_snapshot' => json_encode(['status' => $member['kyc_status'] ?? 'approved']),
+                'member_note' => 'Auto payout — earnings reached the minimum payout amount.',
+                'requested_at' => date('Y-m-d H:i:s'),
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            (new WalletService($db))->recalculate($memberId);
+            return $requestId;
+        });
+        Notification::send('member', $memberId, 'payout_requested', 'Auto Payout Added To Report',
+            'Your earnings of ' . money($gross) . ' have been added to the payout report automatically. No action is needed — payment will be processed to your bank account.',
+            ['request_code' => 'PAY-' . $id, 'amount' => money($gross)],
+            ['link' => 'payouts', 'type' => 'info', 'icon' => 'fa-money-bill-transfer']);
+        Audit::log('payout_auto_created', 'payouts', 'Auto payout created for member ' . ($member['member_code'] ?? $memberId) . ' ' . money($gross), 'payout_request', $id);
+        return $id;
+    }
+
+    /**
+     * The admin downloaded a payout report: every included payable row moves to
+     * 'processing' ("in progress") and the member is notified. Paid/rejected rows
+     * are never touched, so a report can be downloaded any number of times.
+     *
+     * @param list<int> $ids
+     */
+    public function markReportDownloaded(array $ids, string $format): int
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $i): bool => $i > 0)));
+        if ($ids === []) {
+            return 0;
+        }
+        $moved = 0;
+        foreach ($ids as $id) {
+            $request = $this->db->first('SELECT * FROM payout_requests WHERE id = :id', ['id' => $id]);
+            if (!$request || !in_array($request['status'], ['pending', 'approved'], true)) {
+                continue;
+            }
+            $this->db->transaction(function (Database $db) use ($id, $format) {
+                $db->update('payout_requests', [
+                    'status' => 'processing',
+                    'report_downloaded_at' => date('Y-m-d H:i:s'),
+                    'report_downloaded_by' => AdminAuth::id(),
+                    'report_format' => $format !== '' ? $format : null,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ], 'id = :id', ['id' => $id]);
+            });
+            $moved++;
+            Notification::send('member', (int) $request['member_id'], 'payout_in_progress', 'Payout In Progress',
+                'Your payout ' . $request['request_code'] . ' of ' . money((float) $request['net_amount']) . ' is now in progress. The accounts team has downloaded the payout report and payment is being processed to your bank account.',
+                ['request_code' => $request['request_code'], 'amount' => money((float) $request['net_amount'])],
+                ['link' => 'payouts', 'type' => 'info', 'icon' => 'fa-hourglass-half']);
+            Audit::log('payout_in_progress', 'payouts', 'Payout ' . $request['request_code'] . ' moved to in progress after report download (' . $format . ')', 'payout_request', $id);
+        }
+        return $moved;
+    }
+
+    /** Member-facing summary for the payout statement page. */
+    public function memberSummary(int $memberId): array
+    {
+        $wallet = (new WalletService($this->db))->account($memberId);
+        $open = $this->db->first(
+            "SELECT * FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved','processing') ORDER BY id DESC LIMIT 1",
+            ['m' => $memberId]
+        );
+        $totals = $this->db->first(
+            "SELECT COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END),0) AS paid_net,
+                    COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END),0) AS paid_gross,
+                    COALESCE(SUM(CASE WHEN status IN ('pending','approved','processing') THEN net_amount ELSE 0 END),0) AS open_net,
+                    COUNT(*) AS total_requests,
+                    SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid_count
+             FROM payout_requests WHERE member_id = :m",
+            ['m' => $memberId]
+        ) ?? [];
+        $available = (float) ($wallet['available_balance'] ?? 0);
+        $preview = null;
+        if (!$open && $available >= (float) $this->settings['min_withdrawal_amount']) {
+            $gross = $this->autoGross($available);
+            $preview = $this->computeDeductions($gross);
+        }
+        return [
+            'wallet' => $wallet,
+            'available' => $available,
+            'open' => $open,
+            'preview' => $preview,
+            'paid_net' => (float) ($totals['paid_net'] ?? 0),
+            'paid_gross' => (float) ($totals['paid_gross'] ?? 0),
+            'open_net' => (float) ($totals['open_net'] ?? 0),
+            'total_requests' => (int) ($totals['total_requests'] ?? 0),
+            'paid_count' => (int) ($totals['paid_count'] ?? 0),
+            'min_amount' => (float) $this->settings['min_withdrawal_amount'],
+            'settings' => $this->settings,
+        ];
+    }
+
+    // ------------------------------------------------------------ manual request
+
     /** Member faced request creation. */
     public function request(int $memberId, float $amount, ?string $note = null): array
     {
@@ -131,6 +427,8 @@ final class PayoutService
                 'admin_charges' => $calc['admin_charges'],
                 'net_amount' => $calc['net'],
                 'status' => 'pending',
+                'source' => 'manual',
+                'cycle_key' => null,
                 'bank_account_id' => $bank['id'] ?? null,
                 'bank_snapshot' => $bank ? json_encode([
                     'account_holder_name' => $bank['account_holder_name'],
@@ -168,7 +466,7 @@ final class PayoutService
             return ['ok' => false, 'message' => 'Only pending requests can be approved.'];
         }
         $eligibility = $this->eligibility((int) $request['member_id']);
-        $hardBlockers = array_values(array_filter($eligibility['blockers'], static fn ($b) => !str_contains($b, 'payout request in progress')));
+        $hardBlockers = array_values(array_filter($eligibility['blockers'], static fn ($b) => !str_contains($b, 'payout in progress') && !str_contains($b, 'payout request in progress')));
         if ($hardBlockers !== []) {
             return ['ok' => false, 'message' => 'Member is not payout eligible: ' . implode(' ', $hardBlockers)];
         }
@@ -193,8 +491,8 @@ final class PayoutService
     public function reject(int $requestId, string $reason): array
     {
         $request = $this->db->first('SELECT * FROM payout_requests WHERE id = :id', ['id' => $requestId]);
-        if (!$request || !in_array($request['status'], ['pending', 'approved'], true)) {
-            return ['ok' => false, 'message' => 'Only pending or approved requests can be rejected.'];
+        if (!$request || !in_array($request['status'], ['pending', 'approved', 'processing'], true)) {
+            return ['ok' => false, 'message' => 'Only pending, approved or in-progress requests can be rejected.'];
         }
         if (trim($reason) === '') {
             return ['ok' => false, 'message' => 'A rejection reason is required.'];
@@ -222,8 +520,8 @@ final class PayoutService
     public function markPaid(int $requestId, string $utr, ?string $proofPath = null, string $mode = 'bank_transfer'): array
     {
         $request = $this->db->first('SELECT * FROM payout_requests WHERE id = :id', ['id' => $requestId]);
-        if (!$request || !in_array($request['status'], ['approved', 'pending'], true)) {
-            return ['ok' => false, 'message' => 'Only approved requests can be marked as paid.'];
+        if (!$request || !in_array($request['status'], ['approved', 'pending', 'processing'], true)) {
+            return ['ok' => false, 'message' => 'Only pending, approved or in-progress requests can be marked as paid.'];
         }
         if (trim($utr) === '') {
             return ['ok' => false, 'message' => 'A UTR / transaction reference is required.'];
@@ -283,12 +581,12 @@ final class PayoutService
         });
 
         $req = $this->db->first('SELECT * FROM payout_requests WHERE id = :id', ['id' => $requestId]);
-        Notification::send('member', (int) $req['member_id'], 'payout_completed', 'Payout Completed',
+        Notification::send('member', (int) $req['member_id'], 'payout_completed', 'Payment Completed',
             'Your payout ' . $req['request_code'] . ' of ' . money((float) $req['net_amount']) . ' has been paid. UTR: ' . $utr,
             ['request_code' => $req['request_code'], 'amount' => money((float) $req['net_amount']), 'utr' => $utr],
             ['link' => 'payouts', 'type' => 'success', 'icon' => 'fa-check-double']);
         Audit::log('payout_paid', 'payouts', 'Payout paid ' . $req['request_code'] . ' UTR ' . $utr, 'payout_request', $requestId);
-        return ['ok' => true, 'message' => 'Payout marked as paid.'];
+        return ['ok' => true, 'message' => 'Payout marked as paid. The member can now see Payment Completed with the UTR.'];
     }
 
     /** Dashboard counters for the admin payout screen. */
@@ -298,20 +596,26 @@ final class PayoutService
             "SELECT COUNT(*) AS total,
                     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
                     SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                    SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing,
                     SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
                     SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid,
                     COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END),0) AS paid_amount,
-                    COALESCE(SUM(CASE WHEN status IN ('pending','approved') THEN net_amount ELSE 0 END),0) AS pending_amount
+                    COALESCE(SUM(CASE WHEN status IN ('pending','approved','processing') THEN net_amount ELSE 0 END),0) AS pending_amount,
+                    COALESCE(SUM(CASE WHEN status = 'processing' THEN net_amount ELSE 0 END),0) AS processing_amount,
+                    SUM(CASE WHEN source = 'auto' THEN 1 ELSE 0 END) AS auto_count
              FROM payout_requests"
         ) ?? [];
         return [
             'total' => (int) ($row['total'] ?? 0),
             'pending' => (int) ($row['pending'] ?? 0),
             'approved' => (int) ($row['approved'] ?? 0),
+            'processing' => (int) ($row['processing'] ?? 0),
             'rejected' => (int) ($row['rejected'] ?? 0),
             'paid' => (int) ($row['paid'] ?? 0),
             'paid_amount' => (float) ($row['paid_amount'] ?? 0),
             'pending_amount' => (float) ($row['pending_amount'] ?? 0),
+            'processing_amount' => (float) ($row['processing_amount'] ?? 0),
+            'auto_count' => (int) ($row['auto_count'] ?? 0),
             'requested_amount' => (float) ($this->db->value('SELECT COALESCE(SUM(amount),0) FROM payout_requests') ?? 0),
         ];
     }

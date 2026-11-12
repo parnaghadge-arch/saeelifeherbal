@@ -1,5 +1,13 @@
 <?php
-/** Payout reports with CSV / Excel / PDF bulk export and bank detail visibility rules. */
+/**
+ * Payout reports with CSV / Excel / PDF bulk export and bank detail visibility rules.
+ *
+ * Auto-payout flow: eligible members' earnings appear here automatically (no member
+ * request needed). Downloading any report (bank schedule / CSV / Excel / PDF) moves
+ * every included payable row to "in progress" (processing); the admin then pays
+ * through the bank and marks it paid here, which debits the wallet and shows
+ * "Payment Completed" to the member.
+ */
 declare(strict_types=1);
 require __DIR__ . '/includes/_guard.php';
 admin_require('payouts.reports');
@@ -20,6 +28,21 @@ $format = (string) Request::query('format', '');
 $fullBank = AdminAuth::can('bank.view');
 
 $service = new ReportService($db);
+$payoutService = new PayoutService($db);
+// Auto payouts: earnings at/above the minimum become pending rows without any
+// member request. Syncing on every report load keeps the register current.
+$autoCreated = 0;
+try {
+    $autoCreated = $payoutService->syncAutoPayouts();
+} catch (\Throwable $e) {
+    error_log('payout auto sync failed: ' . $e->getMessage());
+}
+$blockedMembers = [];
+try {
+    $blockedMembers = $payoutService->blockedMembers();
+} catch (\Throwable $e) {
+    $blockedMembers = [];
+}
 // Raw rows: the page renders columns, it does not consume export labels.
 $rows = $service->payoutRows(['status' => $status, 'from' => $from, 'to' => $to]);
 
@@ -48,7 +71,7 @@ $bankOf = static function (array $row) use ($db): array {
 // ---- mark paid -------------------------------
 // Paying through the bank and then recording it here is what debits the wallet. Bulk uses the
 // same PayoutService::markPaid() as the single-row action, so a paid request can never be
-// debited twice: markPaid only accepts pending/approved rows.
+// debited twice: markPaid only accepts pending/approved/processing rows.
 if (is_post()) {
     Security::verifyCsrf();
     if (!AdminAuth::can('payouts.pay')) {
@@ -77,7 +100,8 @@ if (is_post()) {
         }
         // A request still waiting for approval has to be approved first; money is paid to the
         // bank after the admin has vetted the request either way. Approval is idempotent for the
-        // purposes of this loop because only 'pending' rows are approved.
+        // purposes of this loop because only 'pending' rows are approved. Rows already
+        // 'processing' (report downloaded) skip approval and go straight to paid.
         $rowStatus = (string) $db->value('SELECT status FROM payout_requests WHERE id = :id', ['id' => $id]);
         if ($rowStatus === 'pending') {
             $approved = $payoutService->approve($id, 'Auto-approved while recording bank payment');
@@ -118,6 +142,21 @@ if ($format !== '') {
         (string) ($r['paid_at'] ?? ''),
     ], $rows);
     $filename = 'payout-report-' . $from . '-' . $to;
+
+    // Downloading the report means the admin is about to pay through the bank:
+    // every included payable row becomes "in progress" and the member is notified.
+    // This must run before Response::csv()/exit below, which terminate the request.
+    $downloadIds = array_values(array_map(
+        static fn (array $r): int => (int) ($r['id'] ?? 0),
+        array_filter($rows, static fn (array $r): bool => in_array((string) ($r['status'] ?? ''), ['pending', 'approved'], true))
+    ));
+    if ($downloadIds !== []) {
+        try {
+            $payoutService->markReportDownloaded($downloadIds, $format);
+        } catch (\Throwable $e) {
+            error_log('payout report download marking failed: ' . $e->getMessage());
+        }
+    }
 
     // Bank payment schedule: exactly the columns a bulk transfer needs. Only unpaid requests,
     // because a paid row would otherwise be paid twice.
@@ -166,9 +205,12 @@ if ($format !== '') {
 }
 
 $totalNet = array_sum(array_map(static fn ($r) => (float) ($r['net_amount'] ?? 0), $rows));
-$payable = array_values(array_filter($rows, static fn (array $r): bool => in_array((string) ($r['status'] ?? ''), ['pending', 'approved'], true)));
+$payable = array_values(array_filter($rows, static fn (array $r): bool => in_array((string) ($r['status'] ?? ''), ['pending', 'approved', 'processing'], true)));
 $payableTotal = array_sum(array_map(static fn ($r) => (float) ($r['net_amount'] ?? 0), $payable));
+$inProgress = array_values(array_filter($rows, static fn (array $r): bool => (string) ($r['status'] ?? '') === 'processing'));
+$inProgressTotal = array_sum(array_map(static fn ($r) => (float) ($r['net_amount'] ?? 0), $inProgress));
 $paidTotal = array_sum(array_map(static fn ($r) => (float) ($r['net_amount'] ?? 0), array_filter($rows, static fn (array $r): bool => (string) ($r['status'] ?? '') === 'paid')));
+$autoCount = count(array_filter($rows, static fn (array $r): bool => (string) ($r['source'] ?? 'manual') === 'auto'));
 $canPay = AdminAuth::can('payouts.pay');
 
 $pageTitle = 'Payout Reports';
@@ -177,13 +219,20 @@ $pageSub = count($rows) . ' records · ' . money((float) $totalNet) . ' net · '
 $activeModule = 'payout-reports';
 require __DIR__ . '/includes/layout.php';
 ?>
+<?php if ($autoCreated > 0): ?>
+  <div class="alert alert-success small d-flex align-items-center gap-2">
+    <i class="fa-solid fa-circle-check"></i>
+    <span><strong><?= (int) $autoCreated ?> auto payout(s)</strong> added from member earnings on this load — no member request was needed.</span>
+  </div>
+<?php endif; ?>
+
 <div class="panel p-3 p-md-4 mb-3">
   <form class="row g-2 align-items-end" method="get">
     <div class="col-6 col-md-2"><label class="form-label small text-muted mb-1">From</label><input type="date" class="form-control form-control-sm" name="from" value="<?= e($from) ?>"></div>
     <div class="col-6 col-md-2"><label class="form-label small text-muted mb-1">To</label><input type="date" class="form-control form-control-sm" name="to" value="<?= e($to) ?>"></div>
     <div class="col-6 col-md-2"><label class="form-label small text-muted mb-1">Status</label>
       <select class="form-select form-select-sm" name="status"><option value="">All</option>
-        <?php foreach (['pending', 'approved', 'paid', 'rejected'] as $s): ?><option value="<?= e($s) ?>" <?= $status === $s ? 'selected' : '' ?>><?= e(ucfirst($s)) ?></option><?php endforeach; ?>
+        <?php foreach (['pending', 'approved', 'processing', 'paid', 'rejected'] as $s): ?><option value="<?= e($s) ?>" <?= $status === $s ? 'selected' : '' ?>><?= e($s === 'processing' ? 'In Progress' : ucfirst($s)) ?></option><?php endforeach; ?>
       </select>
     </div>
     <div class="col-6 col-md-2"><button class="btn btn-sm btn-dark w-100">Apply</button></div>
@@ -193,21 +242,46 @@ require __DIR__ . '/includes/layout.php';
       <?php endforeach; ?>
     </div>
   </form>
+  <div class="form-text mt-2"><i class="fa-solid fa-download me-1"></i>Downloading any report above moves the included payouts to <strong>In Progress</strong> and notifies the members.</div>
 </div>
 
 <div class="row g-3 mb-3">
-  <div class="col-6 col-md-3"><div class="mini-stat"><span>Requests</span><strong><?= count($rows) ?></strong></div></div>
-  <div class="col-6 col-md-3"><div class="mini-stat"><span>Awaiting payment</span><strong><?= money((float) $payableTotal) ?></strong></div></div>
-  <div class="col-6 col-md-3"><div class="mini-stat"><span>Already paid</span><strong><?= money((float) $paidTotal) ?></strong></div></div>
-  <div class="col-6 col-md-3"><div class="mini-stat"><span>Total net</span><strong><?= money((float) $totalNet) ?></strong></div></div>
+  <div class="col-6 col-md-3"><div class="mini-stat"><span>Requests (<?= (int) $autoCount ?> auto)</span><strong><?= count($rows) ?></strong></div></div>
+  <div class="col-6 col-md-3"><div class="mini-stat"><span>Awaiting payment</span><strong><?= money((float) $payableTotal) ?></strong><small><?= count($payable) ?> payable</small></div></div>
+  <div class="col-6 col-md-3"><div class="mini-stat"><span>In progress</span><strong><?= money((float) $inProgressTotal) ?></strong><small><?= count($inProgress) ?> downloaded</small></div></div>
+  <div class="col-6 col-md-3"><div class="mini-stat"><span>Already paid</span><strong><?= money((float) $paidTotal) ?></strong><small>Total net <?= money((float) $totalNet) ?></small></div></div>
 </div>
 
 <div class="alert alert-light border small">
-  <strong>How to pay:</strong> download the <strong>Bank schedule</strong>, upload it to your bank's bulk transfer,
-  then tick the rows you have paid here and record the UTR. Marking a payout paid debits the net amount from that
-  member's available balance — paid rows cannot be paid or debited a second time.
+  <strong>How auto payout works:</strong>
+  <ol class="mb-0 ps-3">
+    <li>Member earnings at/above the minimum appear here <strong>automatically</strong> — members do not request.</li>
+    <li>Download the <strong>Bank schedule</strong> and pay through your bank's bulk transfer. Downloading marks those payouts <strong>In Progress</strong>.</li>
+    <li>Tick the rows you have paid and record the UTR below. Marking paid debits the wallet and the member sees <strong>Payment Completed</strong>.</li>
+  </ol>
   <?= AdminAuth::can('bank.view') ? '' : 'Account numbers are masked because your role cannot view bank details.' ?>
 </div>
+
+<?php if ($blockedMembers !== []): ?>
+<div class="panel p-3 p-md-4 mb-3">
+  <h2 class="h6 mb-2"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i>Held — earnings available but not payable (<?= count($blockedMembers) ?>)</h2>
+  <p class="small text-muted mb-2">These members have reached the minimum but are blocked by KYC / bank / status. They will join the report automatically once fixed.</p>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Member</th><th class="text-end">Available</th><th>Blocked by</th></tr></thead>
+      <tbody>
+      <?php foreach ($blockedMembers as $b): ?>
+        <tr>
+          <td data-label="Member" class="small"><?= e((string) ($b['name'] ?? '')) ?><div class="text-muted"><?= e((string) ($b['member_code'] ?? '')) ?></div></td>
+          <td data-label="Available" class="text-end small fw-semibold"><?= money((float) ($b['available_balance'] ?? 0)) ?></td>
+          <td data-label="Blocked by" class="small"><?= e(implode(', ', (array) ($b['blockers'] ?? []))) ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php endif; ?>
 
 <div class="panel p-3 p-md-4">
   <form method="post" id="payoutPayForm">
@@ -227,10 +301,11 @@ require __DIR__ . '/includes/layout.php';
         <?php foreach ($rows as $row): ?>
           <?php
             $rowStatus = (string) ($row['status'] ?? 'pending');
-            $isPayable = in_array($rowStatus, ['pending', 'approved'], true);
+            $isPayable = in_array($rowStatus, ['pending', 'approved', 'processing'], true);
             $bank = $bankOf($row);
             $account = (string) ($bank['account_number'] ?? '');
             $shown = $account === '' ? '' : ($fullBank ? $account : Security::maskAccount($account));
+            $isAuto = (string) ($row['source'] ?? 'manual') === 'auto';
           ?>
           <tr>
             <?php if ($canPay): ?>
@@ -240,7 +315,7 @@ require __DIR__ . '/includes/layout.php';
                 <?php endif; ?>
               </td>
             <?php endif; ?>
-            <td data-label="Request" class="small fw-semibold"><?= e((string) ($row['request_code'] ?? '—')) ?><div class="text-muted"><?= e(($row['requested_at'] ?? '') !== '' ? format_date((string) $row['requested_at'], 'd M Y') : '—') ?></div></td>
+            <td data-label="Request" class="small fw-semibold"><?= e((string) ($row['request_code'] ?? '—')) ?><div class="text-muted"><?= e(($row['requested_at'] ?? '') !== '' ? format_date((string) $row['requested_at'], 'd M Y') : '—') ?></div><span class="badge <?= $isAuto ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-light text-muted border' ?> mt-1"><?= $isAuto ? 'Auto' : 'Manual' ?></span></td>
             <td data-label="Member" class="small"><?= e((string) ($row['name'] ?? '—')) ?><div class="text-muted"><?= e((string) ($row['member_code'] ?? '')) ?></div></td>
             <td data-label="Bank" class="small">
               <?php if ($shown !== ''): ?>
@@ -251,7 +326,7 @@ require __DIR__ . '/includes/layout.php';
               <?php endif; ?>
             </td>
             <td data-label="Net" class="text-end small fw-semibold"><?= money((float) ($row['net_amount'] ?? 0)) ?></td>
-            <td data-label="Status"><?= status_badge($rowStatus) ?></td>
+            <td data-label="Status"><?= status_badge($rowStatus) ?><?php if (!empty($row['report_downloaded_at'])): ?><div class="small text-muted mt-1">Report <?= e(format_date((string) $row['report_downloaded_at'], 'd M Y')) ?></div><?php endif; ?></td>
             <td data-label="UTR" class="small">
               <?php if ($isPayable && $canPay): ?>
                 <input class="form-control form-control-sm" name="utr_row[<?= (int) $row['id'] ?>]" placeholder="UTR for this row" aria-label="UTR for <?= e((string) ($row['request_code'] ?? '')) ?>">

@@ -53,12 +53,16 @@ const KYC_STATUSES = [
 ];
 
 // Payouts
+// Lifecycle: pending (in report, awaiting download) -> processing (report downloaded,
+// payment in progress) -> paid (completed). approved is kept for manual requests that
+// an admin approves before payment; auto payouts go pending -> processing -> paid.
 const PAYOUT_STATUSES = [
-    'pending'  => 'Pending',
-    'approved' => 'Approved',
-    'rejected' => 'Rejected',
-    'paid'     => 'Paid',
-    'cancelled'=> 'Cancelled',
+    'pending'   => 'Pending',
+    'approved'  => 'Approved',
+    'processing'=> 'In Progress',
+    'rejected'  => 'Rejected',
+    'paid'      => 'Paid',
+    'cancelled' => 'Cancelled',
 ];
 
 // Member / customer status

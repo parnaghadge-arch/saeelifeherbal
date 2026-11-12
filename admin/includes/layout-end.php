@@ -1,11 +1,22 @@
     </div>
   </div>
 </div>
+
+<nav class="admin-bottom-nav" aria-label="Admin quick navigation">
+  <a href="<?= e(\Saee\Lib\Url::admin('index.php')) ?>" class="<?= $activeModule === 'dashboard' ? 'active' : '' ?>"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i><span>Home</span></a>
+  <a href="<?= e(\Saee\Lib\Url::admin('members.php')) ?>" class="<?= $activeModule === 'members' ? 'active' : '' ?>"><i class="fa-solid fa-user-group" aria-hidden="true"></i><span>Members</span></a>
+  <a href="<?= e(\Saee\Lib\Url::admin('payout-reports.php')) ?>" class="<?= in_array($activeModule, ['payouts', 'payout-reports'], true) ? 'active' : '' ?>"><i class="fa-solid fa-money-bill-transfer" aria-hidden="true"></i><span>Payouts</span></a>
+  <a href="<?= e(\Saee\Lib\Url::admin('orders.php')) ?>" class="<?= $activeModule === 'orders' ? 'active' : '' ?>"><i class="fa-solid fa-bag-shopping" aria-hidden="true"></i><span>Orders</span></a>
+  <button type="button" id="adminMenuToggle" aria-label="Open menu"><i class="fa-solid fa-bars" aria-hidden="true"></i><span>Menu</span></button>
+</nav>
+
 <script>
-document.getElementById('sidebarToggle')?.addEventListener('click', function () {
-  document.getElementById('appSidebar').classList.add('open');
-  document.getElementById('sidebarBackdrop').classList.add('show');
-});
+function saeeOpenSidebar() {
+  document.getElementById('appSidebar')?.classList.add('open');
+  document.getElementById('sidebarBackdrop')?.classList.add('show');
+}
+document.getElementById('sidebarToggle')?.addEventListener('click', saeeOpenSidebar);
+document.getElementById('adminMenuToggle')?.addEventListener('click', saeeOpenSidebar);
 document.getElementById('sidebarBackdrop')?.addEventListener('click', function () {
   document.getElementById('appSidebar').classList.remove('open');
   this.classList.remove('show');

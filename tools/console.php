@@ -9,6 +9,7 @@
  *   php tools/console.php schema:sqlite
  *   php tools/console.php royalty:run
  *   php tools/console.php commissions:process
+ *   php tools/console.php payouts:auto   (create auto payouts from earnings, cron)
  *   php tools/console.php backups:run
  */
 declare(strict_types=1);
@@ -44,6 +45,7 @@ $commands = [
     'schema:mysql', 'schema:sqlite',
     'collation:repair', 'collation:heal',
     'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap', 'seed-payouts', 'warn:scan',
+    'payouts:auto',
 ];
 
 if (!in_array($command, $commands, true)) {
@@ -61,6 +63,7 @@ if (!in_array($command, $commands, true)) {
     echo "  schema:mysql         write database/schema.sql from the schema definition\n";
     echo "  schema:sqlite        write database/schema.sqlite.sql\n";
     echo "  commissions:process  release matured commission holds (cron)\n";
+    echo "  payouts:auto         create auto payouts from eligible earnings (cron)\n";
     echo "  royalty:run          evaluate royalty achievements (cron)\n";
     echo "  backups:run          write a database backup into storage/backups (cron)\n";
     echo "  sitemap              regenerate sitemap.xml (cron)\n";
@@ -446,6 +449,17 @@ switch ($command) {
         if ($created === [] && $addedColumns === []) {
             echo "Schema already up to date." . PHP_EOL;
         }
+        // Auto-payout enum: ensureColumns() only adds columns, it never widens an ENUM.
+        // Existing MySQL installs need the 'processing' value added explicitly, otherwise
+        // moving a payout to "in progress" fails with a truncated-value error.
+        if ($db->driver() === 'mysql') {
+            try {
+                $db->statement("ALTER TABLE payout_requests MODIFY status ENUM('pending','approved','processing','rejected','paid','cancelled') NOT NULL DEFAULT 'pending'");
+                echo "Payout status enum widened (processing)." . PHP_EOL;
+            } catch (\Throwable $e) {
+                echo "Payout enum widen skipped: " . $e->getMessage() . PHP_EOL;
+            }
+        }
         // 2026-11 menu simplification: the public header is now a flat list with no submenus,
         // Products opens the full catalogue, Solutions opens agriculture solutions and Gallery
         // mixes photos + videos. Upgrades rewrite the header rows to match; anything the admin
@@ -471,6 +485,20 @@ switch ($command) {
             $touched++;
         }
         echo "Header menu normalised (" . $touched . " items, no submenus)." . PHP_EOL;
+        // Auto-payout notification template for existing installs (insertIgnore keeps
+        // a customised template untouched).
+        $db->insertIgnore('notification_templates', [
+            'code' => 'payout_in_progress',
+            'name' => 'Payout In Progress',
+            'channel' => 'in_system',
+            'subject' => 'Payout In Progress',
+            'body' => 'Your payout {{request_code}} of {{amount}} is now in progress. The accounts team has downloaded the payout report and payment is being processed to your bank account.',
+            'variables' => 'request_code,amount',
+            'status' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        echo "Payout in-progress template ensured." . PHP_EOL;
         break;
 
     case 'demo':
@@ -684,6 +712,13 @@ switch ($command) {
     case 'commissions:process':
         $n = (new \Saee\Lib\MlmCommissionEngine($db))->processEligibleOrders();
         echo "Processed $n order(s)." . PHP_EOL;
+        break;
+
+    case 'payouts:auto':
+        // Auto payouts also sync on report/member page loads; this cron entry keeps
+        // the register current even when nobody opens those pages.
+        $n = (new \Saee\Lib\PayoutService($db))->syncAutoPayouts();
+        echo "Created $n auto payout(s)." . PHP_EOL;
         break;
 
     case 'royalty:run':

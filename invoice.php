@@ -26,6 +26,7 @@ $taxTotal = (float) $order['tax_total'];
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Invoice <?= e($order['invoice_number'] ?: $order['order_number']) ?></title>
 <style>
   body { font-family: Arial, Helvetica, sans-serif; color: #263238; font-size: 12px; margin: 0; padding: 24px; background: #fff; }

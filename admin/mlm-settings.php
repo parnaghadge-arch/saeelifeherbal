@@ -69,6 +69,7 @@ if ($form === 'payout') {
         'require_kyc' => Request::bool('require_kyc') ? 1 : 0,
         'require_verified_bank' => Request::bool('require_verified_bank') ? 1 : 0,
         'auto_approve' => Request::bool('auto_approve') ? 1 : 0,
+        'auto_payout_enabled' => Request::bool('auto_payout_enabled') ? 1 : 0,
         'payouts_enabled' => Request::bool('payouts_enabled') ? 1 : 0,
         'updated_at' => date('Y-m-d H:i:s'),
     ];
@@ -187,12 +188,14 @@ require __DIR__ . '/includes/layout.php';
             <div class="form-check"><input class="form-check-input" type="checkbox" name="require_kyc" value="1" id="rk" <?= (int) $payoutSettings['require_kyc'] === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="rk">Require approved KYC</label></div>
             <div class="form-check"><input class="form-check-input" type="checkbox" name="require_verified_bank" value="1" id="rb" <?= (int) $payoutSettings['require_verified_bank'] === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="rb">Require verified bank account</label></div>
             <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_approve" value="1" id="aa" <?= (int) $payoutSettings['auto_approve'] === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="aa">Auto approve requests</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_payout_enabled" value="1" id="ape" <?= (int) ($payoutSettings['auto_payout_enabled'] ?? 1) === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="ape">Auto payouts (earnings appear in report without member request)</label></div>
           </div>
         </div>
         <button class="btn btn-primary w-100 mt-3">Save payout policy</button>
       </form>
       <div class="alert alert-warning small mt-3 mb-0">
         KYC and bank details are never mandatory for using the member dashboard — they only gate payouts.
+        With auto payouts on, eligible earnings appear in Payout Reports automatically; downloading the report moves them to In Progress.
       </div>
     </div>
   </div>

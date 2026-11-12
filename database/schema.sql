@@ -1116,7 +1116,9 @@ CREATE TABLE IF NOT EXISTS `payout_requests` (
   `net_amount` DECIMAL(14,2) NOT NULL DEFAULT 0,
   `tds_amount` DECIMAL(14,2) NOT NULL DEFAULT 0,
   `admin_charges` DECIMAL(14,2) NOT NULL DEFAULT 0,
-  `status` ENUM('pending','approved','rejected','paid','cancelled') NOT NULL DEFAULT 'pending',
+  `status` ENUM('pending','approved','processing','rejected','paid','cancelled') NOT NULL DEFAULT 'pending',
+  `source` ENUM('manual','auto') NOT NULL DEFAULT 'manual',
+  `cycle_key` VARCHAR(20) NULL,
   `bank_account_id` BIGINT UNSIGNED NULL,
   `bank_snapshot` JSON NULL,
   `kyc_snapshot` JSON NULL,
@@ -1133,6 +1135,9 @@ CREATE TABLE IF NOT EXISTS `payout_requests` (
   `rejected_at` DATETIME NULL,
   `paid_by` BIGINT UNSIGNED NULL,
   `paid_at` DATETIME NULL,
+  `report_downloaded_at` DATETIME NULL,
+  `report_downloaded_by` BIGINT UNSIGNED NULL,
+  `report_format` VARCHAR(20) NULL,
   `created_at` DATETIME NULL DEFAULT NULL,
   `updated_at` DATETIME NULL DEFAULT NULL,
   CONSTRAINT fk_payout_requests_member_id FOREIGN KEY (`member_id`) REFERENCES `members`(id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -1140,9 +1145,12 @@ CREATE TABLE IF NOT EXISTS `payout_requests` (
   CONSTRAINT fk_payout_requests_approved_by FOREIGN KEY (`approved_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT fk_payout_requests_rejected_by FOREIGN KEY (`rejected_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT fk_payout_requests_paid_by FOREIGN KEY (`paid_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_payout_requests_report_downloaded_by FOREIGN KEY (`report_downloaded_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
   UNIQUE KEY `uq_payout_requests_request_code` (`request_code`),
   KEY `idx_payout_requests_member_id` (`member_id`),
   KEY `idx_payout_requests_status` (`status`),
+  KEY `idx_payout_requests_source` (`source`),
+  KEY `idx_payout_requests_cycle_key` (`cycle_key`),
   KEY `idx_payout_requests_requested_at` (`requested_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -1181,6 +1189,7 @@ CREATE TABLE IF NOT EXISTS `payout_settings` (
   `require_kyc` TINYINT(1) NULL DEFAULT 1,
   `require_verified_bank` TINYINT(1) NULL DEFAULT 1,
   `auto_approve` TINYINT(1) NULL DEFAULT 0,
+  `auto_payout_enabled` TINYINT(1) NULL DEFAULT 1,
   `payouts_enabled` TINYINT(1) NULL DEFAULT 1,
   `created_at` DATETIME NULL DEFAULT NULL,
   `updated_at` DATETIME NULL DEFAULT NULL

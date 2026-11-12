@@ -145,6 +145,7 @@ Other console commands:
 | `php tools/console.php schema:mysql` | Print the MySQL DDL |
 | `php tools/console.php schema:sqlite` | Print the SQLite DDL |
 | `php tools/console.php commissions:process` | Generate commission for eligible paid orders |
+| `php tools/console.php payouts:auto` | Create auto payouts from eligible earnings (members never request) |
 | `php tools/console.php royalty:run` | Evaluate royalty milestones |
 | `php tools/console.php backups:run` | Create a database backup |
 | `php tools/console.php sitemap` | Regenerate `storage/sitemap.xml` |
@@ -155,10 +156,15 @@ Other console commands:
 
 ```cron
 */10 * * * * cd /var/www/saeelifeherbal && php tools/console.php commissions:process >> storage/logs/cron.log 2>&1
+*/30 * * * * cd /var/www/saeelifeherbal && php tools/console.php payouts:auto >> storage/logs/cron.log 2>&1
 0 1 * * *    cd /var/www/saeelifeherbal && php tools/console.php royalty:run >> storage/logs/cron.log 2>&1
 0 2 * * *    cd /var/www/saeelifeherbal && php tools/console.php backups:run >> storage/logs/cron.log 2>&1
 30 3 * * *   cd /var/www/saeelifeherbal && php tools/console.php sitemap >> storage/logs/cron.log 2>&1
 ```
+
+Auto payouts also sync on every admin report / member page load, so the cron entry is a
+safety net rather than a requirement. After updating an existing install, run
+`php tools/console.php upgrade` once (adds the `processing` status and auto-payout columns).
 
 ---
 

@@ -1461,3 +1461,236 @@ table.data-table thead th:last-child::after { content: ''; }
   .team-card-body { padding: .7rem .75rem .85rem; }
   .team-bio { display: none; }
 }
+
+/* ==========================================================================
+   Mobile app shell — complete responsive pass (all phone/tablet sizes)
+   --------------------------------------------------------------------------
+   Goals: no horizontal overflow at 320px+, safe-area aware (notch / gesture
+   bar / home indicator), 44px touch targets, 16px form text (no iOS zoom),
+   app-style sticky headers + bottom tab bars, tables that never break layout.
+   ========================================================================== */
+:root {
+  --saee-safe-left: env(safe-area-inset-left, 0px);
+  --saee-safe-right: env(safe-area-inset-right, 0px);
+  --saee-tabbar-h: 64px;
+}
+
+/* Global overflow guard: nothing may push past the viewport edge. */
+html, body { max-width: 100%; overflow-x: clip; }
+img, video, iframe, svg, canvas { max-width: 100%; }
+img { height: auto; }
+.table-responsive { max-width: 100%; }
+pre, code { word-break: break-word; }
+.d-flex > *, .row > * { min-width: 0; }
+
+/* Payout progress steps (member Payout Statement) */
+.payout-steps {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .5rem; margin-top: .5rem;
+}
+.payout-step {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: .25rem; padding: .6rem .3rem; border-radius: 12px;
+  background: #F7FAF7; border: 1px solid var(--saee-border);
+  position: relative;
+}
+.payout-step-dot {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #E4EBE5; color: var(--saee-muted); font-size: .85rem;
+}
+.payout-step.is-done { border-color: #BFE0C6; background: #F0F9F1; }
+.payout-step.is-done .payout-step-dot { background: var(--saee-primary); color: #fff; }
+.payout-step.is-current { border-color: var(--saee-primary); background: #EAF5EC; box-shadow: 0 0 0 3px rgba(var(--saee-primary-rgb), .12); }
+.payout-step.is-current .payout-step-dot { background: var(--saee-primary); color: #fff; }
+.payout-step-label { font-family: var(--saee-font-heading); font-weight: 600; font-size: .8rem; color: var(--saee-dark); line-height: 1.2; }
+.payout-step-date { font-size: .7rem; color: var(--saee-muted); line-height: 1.2; }
+@media (max-width: 575.98px) {
+  .payout-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payout-step-dot { width: 32px; height: 32px; }
+}
+
+/* Purchase history items (member Purchase History) */
+.purchase-items { display: flex; flex-direction: column; gap: .6rem; }
+.purchase-item {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .6rem .7rem; border: 1px solid var(--saee-border); border-radius: 12px;
+  background: #FBFDFB;
+}
+.purchase-item img {
+  width: 56px; height: 56px; object-fit: cover; border-radius: 10px;
+  flex: 0 0 56px; background: var(--saee-light);
+}
+.purchase-thumb-fallback {
+  width: 56px; height: 56px; border-radius: 10px; flex: 0 0 56px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--saee-light); color: var(--saee-primary); font-size: 1.1rem;
+}
+.purchase-item-info { flex: 1 1 auto; min-width: 0; }
+.purchase-item-total { font-family: var(--saee-font-heading); font-weight: 700; color: var(--saee-dark); white-space: nowrap; }
+@media (max-width: 575.98px) {
+  .purchase-item img, .purchase-thumb-fallback { width: 48px; height: 48px; flex-basis: 48px; }
+  .purchase-item-total { font-size: .9rem; }
+}
+
+/* Admin bottom tab bar (phones only) — mirrors the member/public tab bars */
+.admin-bottom-nav { display: none; }
+@media (max-width: 991.98px) {
+  .admin-bottom-nav {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1045;
+    background: rgba(255, 255, 255, .97);
+    border-top: 1px solid var(--saee-border);
+    padding: .3rem .3rem calc(.3rem + var(--saee-safe-bottom));
+    padding-left: calc(.3rem + var(--saee-safe-left));
+    padding-right: calc(.3rem + var(--saee-safe-right));
+    box-shadow: 0 -8px 24px rgba(20, 83, 45, .09);
+    backdrop-filter: saturate(180%) blur(12px);
+  }
+  .admin-bottom-nav a, .admin-bottom-nav button {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: .12rem; padding: .3rem 0 .25rem; border-radius: 12px;
+    font-family: var(--saee-font-heading); font-size: .62rem; font-weight: 500;
+    color: var(--saee-muted); text-decoration: none; line-height: 1.1;
+    background: none; border: none; min-height: 48px;
+  }
+  .admin-bottom-nav a i, .admin-bottom-nav button i { font-size: 1.05rem; }
+  .admin-bottom-nav a.active { color: var(--saee-primary); font-weight: 700; }
+  .admin-bottom-nav a:active, .admin-bottom-nav button:active { background: var(--saee-light); }
+  /* Admin content must clear the tab bar */
+  .admin-body .app-content { padding-bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 1rem); }
+}
+
+/* ---- Safe-area aware shells ---- */
+@media (max-width: 991.98px) {
+  /* Public sticky header respects the notch / status bar */
+  .site-header { padding-top: var(--saee-safe-top); }
+  /* App topbars (member + admin) respect the notch and keep content clear */
+  .app-topbar {
+    padding-top: calc(.65rem + var(--saee-safe-top));
+    padding-left: calc(1rem + var(--saee-safe-left));
+    padding-right: calc(1rem + var(--saee-safe-right));
+  }
+  /* Sidebar drawer respects left safe area and never exceeds the viewport */
+  .app-sidebar {
+    width: min(86vw, 320px);
+    padding-left: var(--saee-safe-left);
+    padding-bottom: var(--saee-safe-bottom);
+  }
+  /* Bottom tab bars respect left/right safe areas too */
+  .mobile-bottom-nav, .app-tabbar.mobile-bottom-nav {
+    padding-left: calc(.3rem + var(--saee-safe-left));
+    padding-right: calc(.3rem + var(--saee-safe-right));
+  }
+  /* Floating WhatsApp clears the tab bar + home indicator */
+  .float-wa { bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 14px); }
+  /* Member content clears its tab bar */
+  .app-body .app-content { padding-bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 1rem); }
+  /* Offcanvas drawer respects safe areas */
+  .offcanvas-mobile { padding-left: var(--saee-safe-left); padding-right: var(--saee-safe-right); }
+  /* Modals / dropdowns never touch the screen edge */
+  .modal-dialog { margin: .75rem calc(.75rem + var(--saee-safe-right)) .75rem calc(.75rem + var(--saee-safe-left)); }
+  .dropdown-menu { max-width: calc(100vw - 2rem); }
+}
+
+/* ---- Touch targets + iOS zoom prevention ---- */
+@media (max-width: 991.98px) {
+  .btn, .btn-sm, .form-control, .form-select, .form-check-input { min-height: 44px; }
+  .btn-sm { min-height: 40px; }
+  .form-control, .form-select, textarea.form-control { font-size: 16px; }
+  .header-icon-btn, .t-nav, .thumb-nav, .gallery-nav { min-width: 44px; min-height: 44px; }
+  .sidebar-nav a { min-height: 44px; }
+  .app-tabbar a, .mobile-bottom-nav a { min-height: 48px; }
+  .filter-bar .btn, .table-tools .btn { min-height: 40px; }
+  input[type="checkbox"].form-check-input, input[type="radio"].form-check-input { width: 22px; height: 22px; }
+  .dropdown-item { padding: .65rem 1rem; }
+}
+
+/* ---- Tables: scroll or card, never overflow ---- */
+@media (max-width: 991.98px) {
+  .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table { min-width: 0; }
+  /* Cells without a data-label still render as clean stacked rows */
+  .data-table tbody td:not([data-label])::before { content: none; }
+  .data-table tbody td:not([data-label]) { justify-content: flex-start; text-align: left; }
+  .table-responsive-cards tbody td:not([data-label])::before { content: none; }
+  /* Long codes / UTRs / emails wrap instead of pushing the card wide */
+  .data-table tbody td, .table-responsive-cards tbody td { overflow-wrap: anywhere; }
+}
+
+/* ---- Small phones (320–380px): tighter rhythm, no clipping ---- */
+@media (max-width: 380px) {
+  .app-content { padding: .7rem .6rem calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + .8rem); }
+  .panel-body { padding: .85rem; }
+  .panel-head { padding: .8rem .85rem; }
+  .stat-value { font-size: 1.15rem; }
+  .wallet-hero-value { font-size: 1.6rem; }
+  .wallet-hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mini-stat strong { font-size: 1rem; }
+  .filter-bar { padding: .5rem; }
+  .catalog-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .hero-slide { min-height: 460px; }
+  .hero-slide .hero-content { padding: 4.5rem 0 3.5rem; }
+  .product-body { padding: .7rem .7rem .9rem; }
+  .product-name { font-size: .92rem; }
+  .section-title { font-size: 1.45rem; }
+  .cta-band { padding: 1.5rem 1.1rem; }
+  .auth-card { padding: 1.25rem 1rem; }
+  .auth-wrap { padding: 1rem 0; }
+  .topbar { display: none; }
+}
+
+/* ---- Phones landscape + tablets: keep headers compact ---- */
+@media (max-height: 500px) and (max-width: 991.98px) {
+  .hero-slide { min-height: 340px; }
+  .hero-slide .hero-content { padding: 2.5rem 0; }
+  .site-header .navbar { min-height: 52px; }
+  .app-sidebar { height: 100dvh; }
+}
+
+/* ---- Viewport-height safe (mobile browsers with dynamic toolbars) ---- */
+.app-shell, .app-sidebar, .auth-wrap, .admin-login-body { min-height: 100dvh; }
+.app-sidebar { height: 100dvh; }
+@media (max-width: 991.98px) {
+  .app-sidebar { height: 100dvh; }
+}
+
+/* ---- Forms / panels / cards on phones ---- */
+@media (max-width: 767.98px) {
+  .panel { border-radius: 12px; }
+  .panel-head { flex-wrap: wrap; }
+  .panel-head .btn, .panel-head .table-tools { flex-wrap: wrap; }
+  .filter-bar { border-radius: 10px; }
+  .filter-bar .btn { flex: 1 1 auto; }
+  .stat-card { padding: .85rem; }
+  .stat-card .stat-value { font-size: 1.2rem; }
+  .wallet-hero { padding: 1.1rem 1rem; }
+  .wallet-hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .deduction-box { padding: .7rem .8rem; }
+  .tree-card { min-width: 0; max-width: 100%; width: 100%; }
+  .chart-box { height: 220px; }
+  .chart-box-sm { height: 190px; }
+  /* Checkout / cart summary stays reachable above the tab bar */
+  .summary-card { position: static; }
+  .cart-line { flex-wrap: wrap; }
+  .cart-line img { width: 68px; height: 68px; }
+  /* Auth + login cards fill the screen edge-to-edge with safe padding */
+  .auth-card { border-radius: 14px; }
+  .admin-login-card { padding: 1.4rem 1.1rem; border-radius: 16px; }
+  /* Footer clears the tab bar */
+  .site-footer { padding-bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 1rem); }
+  /* DataTables controls stack full-width */
+  div.dt-container .dt-layout-row { flex-direction: column; align-items: stretch; }
+  div.dt-container .dt-search, div.dt-container .dt-length { width: 100%; }
+  /* CRUD toolbar buttons go full width */
+  .crud-toolbar .btn { flex: 1 1 auto; }
+  /* Page actions wrap under the topbar title */
+  .page-actions { width: 100%; }
+  .page-actions .btn { flex: 1 1 auto; }
+}
+
+/* ---- Desktop: ensure shells never overlap ---- */
+@media (min-width: 992px) {
+  .admin-bottom-nav { display: none !important; }
+  .app-sidebar { padding-left: 0; padding-bottom: 0; }
+}
