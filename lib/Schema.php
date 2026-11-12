@@ -1262,8 +1262,11 @@ final class Schema
                     $alterSpec
                 ));
                 $added[] = $table . '.' . $name;
-            } catch (Throwable) {
-                // Never let a repair statement break the upgrade run.
+            } catch (Throwable $e) {
+                // Never let a repair statement break the upgrade run, but do not
+                // swallow it silently either: a failed ADD COLUMN is exactly what
+                // later surfaces as "Unknown column" (1054) in the payout pages.
+                error_log('ensureColumns failed for ' . $table . '.' . $name . ': ' . $e->getMessage());
             }
         }
         return $added;

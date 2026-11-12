@@ -165,6 +165,9 @@ Other console commands:
 Auto payouts also sync on every admin report / member page load, so the cron entry is a
 safety net rather than a requirement. After updating an existing install, run
 `php tools/console.php upgrade` once (adds the `processing` status and auto-payout columns).
+If it is skipped, the payout pages add those columns themselves on first load and log anything
+they could not add to `storage/logs/php-error.log`, so the panel keeps working instead of failing
+with "Unknown column 'source'".
 
 ---
 

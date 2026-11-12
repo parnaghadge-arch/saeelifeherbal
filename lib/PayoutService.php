@@ -15,8 +15,11 @@
  * KYC and bank gates, deduction calculation, wallet locking and payout statements
  * are shared by both entry points.
  *
- * Requires: php tools/console.php upgrade (adds source/cycle_key/report_* columns
- * and the 'processing' enum value on existing installs).
+ * Existing installs need the auto-payout columns (source/cycle_key/report_*) and the
+ * 'processing' enum value. ensureSchema() adds them automatically on first use, so
+ * deploying the code without running "php tools/console.php upgrade" no longer
+ * fatals with "Unknown column 'source'" (MySQL 1054). Writes are additionally
+ * filtered to existing columns as a fallback if the repair cannot run.
  */
 declare(strict_types=1);
 
@@ -27,16 +30,65 @@ final class PayoutService
     /** Statuses that keep the wallet amount locked and block a second open payout. */
     public const OPEN_STATUSES = ['pending', 'approved', 'processing'];
 
+    /** Connections that already ran ensureSchema() in this request (weak: no leaks). */
+    private static ?\WeakMap $schemaEnsured = null;
+
     private array $settings;
 
     public function __construct(private Database $db)
     {
+        self::ensureSchema($this->db);
         $this->settings = $db->first('SELECT * FROM payout_settings WHERE id = 1') ?? [
             'min_withdrawal_amount' => 500, 'max_withdrawal_amount' => 100000,
             'withdrawal_fee_type' => 'fixed', 'withdrawal_fee_value' => 0, 'tds_percent' => 0,
             'processing_days' => 3, 'require_kyc' => 1, 'require_verified_bank' => 1,
             'auto_approve' => 0, 'auto_payout_enabled' => 1, 'payouts_enabled' => 1,
         ];
+    }
+
+    /**
+     * Self-healing schema repair for the auto-payout columns.
+     *
+     * On an install created before auto payouts existed, payout_requests lacks
+     * source/cycle_key/report_downloaded_at/by/format and payout_settings lacks
+     * auto_payout_enabled, and the status ENUM lacks 'processing'. Without the
+     * repair every payout page dies with 1054 Unknown column. This adds the
+     * missing columns (same ALTERs as "php tools/console.php upgrade") and widens
+     * the ENUM, once per request. It never throws: if the repair cannot run
+     * (no permission, table locked), callers fall back to filtering writes to
+     * existing columns via Database::filterColumns().
+     */
+    public static function ensureSchema(Database $db): void
+    {
+        // Keyed per connection, not per driver: tools and tests can hold more than
+        // one connection (e.g. a scratch database next to the live one), and each
+        // of them needs its own repair pass. WeakMap keeps a released connection
+        // from lingering, and unlike spl_object_id() an id can never be recycled
+        // onto a new connection and skip its repair.
+        self::$schemaEnsured ??= new \WeakMap();
+        if (isset(self::$schemaEnsured[$db])) {
+            return;
+        }
+        self::$schemaEnsured[$db] = true;
+        try {
+            $tables = Schema::tables();
+            if (isset($tables['payout_requests'])) {
+                Schema::ensureColumns($db, 'payout_requests', $tables['payout_requests']);
+            }
+            if (isset($tables['payout_settings'])) {
+                Schema::ensureColumns($db, 'payout_settings', $tables['payout_settings']);
+            }
+            // ensureColumns only adds columns; widen the status ENUM explicitly.
+            if ($db->driver() === 'mysql' && $db->hasColumn('payout_requests', 'status')) {
+                try {
+                    $db->statement("ALTER TABLE payout_requests MODIFY status ENUM('pending','approved','processing','rejected','paid','cancelled') NOT NULL DEFAULT 'pending'");
+                } catch (\Throwable $e) {
+                    error_log('payout status enum widen skipped: ' . $e->getMessage());
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('payout schema ensure failed: ' . $e->getMessage());
+        }
     }
 
     public function settings(): array
@@ -282,7 +334,10 @@ final class PayoutService
         $calc = $this->computeDeductions($gross);
         $member = $member ?? $this->db->first('SELECT * FROM members WHERE id = :id', ['id' => $memberId]);
         $id = $this->db->transaction(function (Database $db) use ($memberId, $gross, $calc, $bank, $member) {
-            $requestId = $db->insert('payout_requests', [
+            // Filter to existing columns: on an install where the repair above could
+            // not add source/cycle_key, the payout is still created (as a plain
+            // pending row) instead of dying with 1054 Unknown column.
+            $requestId = $db->insert('payout_requests', $db->filterColumns('payout_requests', [
                 'request_code' => Sequence::code('PAY', 'payout'),
                 'member_id' => $memberId,
                 'amount' => $gross,
@@ -306,7 +361,7 @@ final class PayoutService
                 'requested_at' => date('Y-m-d H:i:s'),
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+            ]));
             (new WalletService($db))->recalculate($memberId);
             return $requestId;
         });
@@ -338,13 +393,16 @@ final class PayoutService
                 continue;
             }
             $this->db->transaction(function (Database $db) use ($id, $format) {
-                $db->update('payout_requests', [
+                // report_* columns only exist after the schema repair; filter so a
+                // not-yet-upgraded install still moves to 'processing' (the status
+                // itself is the important part) instead of throwing 1054.
+                $db->update('payout_requests', $db->filterColumns('payout_requests', [
                     'status' => 'processing',
                     'report_downloaded_at' => date('Y-m-d H:i:s'),
                     'report_downloaded_by' => AdminAuth::id(),
                     'report_format' => $format !== '' ? $format : null,
                     'updated_at' => date('Y-m-d H:i:s'),
-                ], 'id = :id', ['id' => $id]);
+                ]), 'id = :id', ['id' => $id]);
             });
             $moved++;
             Notification::send('member', (int) $request['member_id'], 'payout_in_progress', 'Payout In Progress',
@@ -418,7 +476,7 @@ final class PayoutService
         $member = $eligibility['member'];
 
         $id = $this->db->transaction(function (Database $db) use ($memberId, $amount, $calc, $bank, $member, $note) {
-            $requestId = $db->insert('payout_requests', [
+            $requestId = $db->insert('payout_requests', $db->filterColumns('payout_requests', [
                 'request_code' => Sequence::code('PAY', 'payout'),
                 'member_id' => $memberId,
                 'amount' => $amount,
@@ -442,7 +500,7 @@ final class PayoutService
                 'requested_at' => date('Y-m-d H:i:s'),
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+            ]));
             // Lock the amount from the available balance while the request is processed.
             $wallet = new WalletService($db);
             $wallet->recalculate($memberId);
@@ -592,19 +650,31 @@ final class PayoutService
     /** Dashboard counters for the admin payout screen. */
     public function stats(): array
     {
-        $row = $this->db->first(
-            "SELECT COUNT(*) AS total,
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
-                    SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
-                    SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing,
-                    SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-                    SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid,
-                    COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END),0) AS paid_amount,
-                    COALESCE(SUM(CASE WHEN status IN ('pending','approved','processing') THEN net_amount ELSE 0 END),0) AS pending_amount,
-                    COALESCE(SUM(CASE WHEN status = 'processing' THEN net_amount ELSE 0 END),0) AS processing_amount,
-                    SUM(CASE WHEN source = 'auto' THEN 1 ELSE 0 END) AS auto_count
-             FROM payout_requests"
-        ) ?? [];
+        // The auto_count term needs the source column. On a not-yet-upgraded install
+        // (repair could not add it) fall back to a query without it instead of
+        // throwing 1054 — the page must still render.
+        $hasSource = $this->db->hasColumn('payout_requests', 'source');
+        $autoExpr = $hasSource
+            ? ", SUM(CASE WHEN source = 'auto' THEN 1 ELSE 0 END) AS auto_count"
+            : ", 0 AS auto_count";
+        try {
+            $row = $this->db->first(
+                "SELECT COUNT(*) AS total,
+                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                        SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing,
+                        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+                        SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS paid,
+                        COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END),0) AS paid_amount,
+                        COALESCE(SUM(CASE WHEN status IN ('pending','approved','processing') THEN net_amount ELSE 0 END),0) AS pending_amount,
+                        COALESCE(SUM(CASE WHEN status = 'processing' THEN net_amount ELSE 0 END),0) AS processing_amount"
+                        . $autoExpr . "
+                 FROM payout_requests"
+            ) ?? [];
+        } catch (\Throwable $e) {
+            error_log('payout stats failed: ' . $e->getMessage());
+            $row = [];
+        }
         return [
             'total' => (int) ($row['total'] ?? 0),
             'pending' => (int) ($row['pending'] ?? 0),

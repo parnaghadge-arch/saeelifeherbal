@@ -7,6 +7,7 @@
 declare(strict_types=1);
 require __DIR__ . '/_guard.php';
 
+use Saee\Lib\PayoutService;
 use Saee\Lib\ReportService;
 use Saee\Lib\Request;
 use Saee\Lib\Response;
@@ -16,14 +17,19 @@ $from = (string) Request::query('from', date('Y-m-01'));
 $to = (string) Request::query('to', date('Y-m-d'));
 $format = (string) Request::query('format', '');
 $service = new ReportService(db());
+// Repair auto-payout columns on not-yet-upgraded installs before querying them.
+PayoutService::ensureSchema(db());
 
 $commissionRows = db()->select(
     'SELECT created_at, transaction_code, commission_type, product_name, buyer_name, basis_amount, rate_value, commission_type_rate, amount, status
      FROM commission_transactions WHERE member_id = :m AND created_at BETWEEN :f AND :t ORDER BY id DESC',
     ['m' => $currentMemberId, 'f' => $from . ' 00:00:00', 't' => $to . ' 23:59:59']
 );
+// SELECT * (not an explicit column list): the source column only exists after the
+// schema repair, and an explicit list would fatal with 1054 on old installs.
+// Readers below already use ($r['source'] ?? 'manual').
 $payoutRows = db()->select(
-    'SELECT created_at, request_code, source, amount, deduction_amount, tds_amount, admin_charges, net_amount, status, utr_number, paid_at FROM payout_requests
+    'SELECT * FROM payout_requests
      WHERE member_id = :m AND created_at BETWEEN :f AND :t ORDER BY id DESC',
     ['m' => $currentMemberId, 'f' => $from . ' 00:00:00', 't' => $to . ' 23:59:59']
 );

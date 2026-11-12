@@ -149,9 +149,11 @@ by amount. Payouts are **automatic**: earnings at/above the minimum appear in ad
 without any member request. Downloading the report (bank schedule / CSV / Excel / PDF) moves them to
 **In Progress**; the admin pays via bank and marks them paid with UTR + proof in admin → Payouts, after
 which the member sees **Payment Completed** and a full payout statement (member → Payout Statement).
-Members also get a product Purchase History with line items and invoices. Run
-`php tools/console.php upgrade` after updating (adds the `processing` status + auto-payout columns),
-and add `payouts:auto` to cron (see `docs/INSTALLATION.md`) to keep the register current between page loads.
+Members also get a product Purchase History with line items and invoices. Existing installs pick up the
+`processing` status and the auto-payout columns automatically the first time a payout page runs, so a
+missed migration can no longer break the panel with "Unknown column 'source'"; `php tools/console.php
+upgrade` is still the recommended way to bring the whole schema forward. Add `payouts:auto` to cron
+(see `docs/INSTALLATION.md`) to keep the register current between page loads.
 
 ---
 

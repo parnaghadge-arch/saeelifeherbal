@@ -6,6 +6,7 @@ admin_require('settings.manage');
 
 use Saee\Lib\Audit;
 use Saee\Lib\MlmSettings;
+use Saee\Lib\PayoutService;
 use Saee\Lib\Request;
 use Saee\Lib\Security;
 use Saee\Lib\Session;
@@ -13,6 +14,9 @@ use Saee\Lib\Settings;
 use Saee\Lib\Url;
 
 $db = db();
+// auto_payout_enabled only exists after the schema repair; add it before the
+// payout form below tries to UPDATE it (otherwise 1054 Unknown column).
+PayoutService::ensureSchema($db);
 // Each form on this page posts its own 'form' key. Dispatch on it: the plan form and the payout
 // form used to share one handler, so saving payout policy fell into the plan branch, reported
 // "MLM settings saved", and switched every plan CHECKBOX off (an unticked box is absent from
@@ -100,12 +104,14 @@ if ($form === 'payout') {
     }
 
     if ($payoutSettings) {
-        $db->update('payout_settings', $policy, 'id = :id', ['id' => (int) $payoutSettings['id']]);
+        // Filter to existing columns as a fallback: if the repair could not add
+        // auto_payout_enabled, save everything else instead of throwing 1054.
+        $db->update('payout_settings', $db->filterColumns('payout_settings', $policy), 'id = :id', ['id' => (int) $payoutSettings['id']]);
         $payoutRowId = (int) $payoutSettings['id'];
     } else {
         // The installer normally seeds this row; if it is missing, create it instead of silently
         // doing nothing and still saying "saved".
-        $payoutRowId = (int) $db->insert('payout_settings', $policy + ['created_at' => date('Y-m-d H:i:s')]);
+        $payoutRowId = (int) $db->insert('payout_settings', $db->filterColumns('payout_settings', $policy) + ['created_at' => date('Y-m-d H:i:s')]);
     }
     Audit::log('update', 'mlm', 'Payout settings updated', 'payout_settings', $payoutRowId, $policy);
     Session::success('Payout settings saved.');

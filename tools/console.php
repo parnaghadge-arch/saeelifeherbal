@@ -427,19 +427,22 @@ switch ($command) {
         break;
 
     case 'upgrade':
-        $created = \Saee\Lib\Schema::ensureTables($db);
-        if ($created === []) {
-            echo "No missing tables." . PHP_EOL;
-        } else {
-            echo "Created " . count($created) . " table(s): " . implode(', ', $created) . PHP_EOL;
-        }
-        // Report (and repair) column drift too: ensureTables() already ran ensureColumns()
-        // for every existing table, so re-run it here purely to print what was added.
+        // Columns first, then tables: ensureTables() internally also runs
+        // ensureColumns() for existing tables, so running it first would add the
+        // columns silently and the report below would wrongly print
+        // "No missing columns" even though columns were just added. Running the
+        // column pass first makes the report truthful.
         $addedColumns = [];
         foreach (\Saee\Lib\Schema::tables() as $table => $definition) {
             foreach (\Saee\Lib\Schema::ensureColumns($db, $table, $definition) as $entry) {
                 $addedColumns[] = $entry;
             }
+        }
+        $created = \Saee\Lib\Schema::ensureTables($db);
+        if ($created === []) {
+            echo "No missing tables." . PHP_EOL;
+        } else {
+            echo "Created " . count($created) . " table(s): " . implode(', ', $created) . PHP_EOL;
         }
         if ($addedColumns === []) {
             echo "No missing columns." . PHP_EOL;
