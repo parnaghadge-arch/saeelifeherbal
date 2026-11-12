@@ -1,0 +1,35 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data (never commit the live SQLite database, logs, uploads or caches)
+/storage/db/*.sqlite
+/storage/db/*.sqlite-*
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/sessions/*
+!/storage/sessions/.gitkeep
+/storage/cache/*
+!/storage/cache/.gitkeep
+/storage/private/*
+!/storage/private/.gitkeep
+/storage/backups/*
+!/storage/backups/.gitkeep
+/uploads/*
+!/uploads/.gitkeep
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Tooling artefacts (PHP/Composer packages only — the front-end vendor bundle is
+# committed on purpose so a git clone renders correctly without a build step)
+node_modules/
+/vendor/
+
+# Generated sitemap cache
+/sitemap.xml
