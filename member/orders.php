@@ -124,7 +124,11 @@ require __DIR__ . '/includes/layout.php';
         <?php if (!empty($shipping['city'])): ?><div>Delivered to <?= e((string) ($shipping['city'] ?? '')) ?>, <?= e((string) ($shipping['state'] ?? '')) ?></div><?php endif; ?>
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2">
-        <a class="btn btn-sm btn-outline-primary" href="<?= e(Url::to('invoice.php?order=' . (int) $order['id'])) ?>" target="_blank" rel="noopener"><i class="fa-solid fa-file-invoice me-1"></i>Invoice</a>
+        <button type="button" class="btn btn-sm btn-outline-primary"
+                data-invoice-id="<?= (int) $order['id'] ?>"
+                data-invoice-label="<?= e((string) ($order['invoice_number'] ?: $order['order_number'])) ?> · <?= e(format_date((string) $order['created_at'], 'd M Y')) ?>">
+          <i class="fa-solid fa-file-invoice me-1" aria-hidden="true"></i>Invoice
+        </button>
         <a class="btn btn-sm btn-outline-secondary" href="<?= e(Url::to('our-products')) ?>"><i class="fa-solid fa-rotate-right me-1"></i>Buy again</a>
       </div>
     </div>

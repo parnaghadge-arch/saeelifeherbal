@@ -145,6 +145,7 @@ document.querySelectorAll('[data-confirm]').forEach(function (form) {
   });
 })();
 </script>
+<?php require dirname(__DIR__, 2) . '/includes/invoice-modal.php'; ?>
 <?php if (!empty($extraScripts)) { echo $extraScripts; } ?>
 </body>
 </html>

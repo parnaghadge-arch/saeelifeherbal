@@ -32,6 +32,14 @@ $recentReferrals = $db->select(
      FROM members m WHERE m.sponsor_id = :s ORDER BY m.id DESC LIMIT 5",
     ['s' => $currentMemberId]
 );
+// Every order placed with this member ID (or referred by them), newest first, each with an
+// invoice button. The full card view with line items lives on the Purchase History page.
+$memberOrders = $db->select(
+    'SELECT o.*, (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id) AS item_count,
+            (SELECT COALESCE(SUM(i.quantity),0) FROM order_items i WHERE i.order_id = o.id) AS total_qty
+     FROM orders o WHERE o.member_id = :m OR o.referral_member_id = :m ORDER BY o.id DESC',
+    ['m' => $currentMemberId]
+);
 try {
     (new PayoutService($db))->syncAutoPayoutForMember($currentMemberId);
 } catch (\Throwable $e) {
@@ -216,6 +224,57 @@ require __DIR__ . '/includes/layout.php';
       <?php endif; ?>
     </div>
   </div>
+</div>
+
+<div class="panel p-3 p-md-4 mt-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h2 class="h6 mb-0">Your orders</h2>
+      <div class="small text-muted"><?= count($memberOrders) ?> order(s) placed with your member ID</div>
+    </div>
+    <a class="btn btn-sm btn-outline-primary" href="<?= e(Url::member('orders.php')) ?>">
+      <i class="fa-solid fa-bag-shopping me-1" aria-hidden="true"></i>Purchase history
+    </a>
+  </div>
+
+  <?php if (!$memberOrders): ?>
+    <p class="small text-muted mb-0">No orders yet. Products you buy with your member ID appear here with a printable invoice.</p>
+  <?php else: ?>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Order</th>
+            <th>Date</th>
+            <th class="text-end">Items</th>
+            <th class="text-end">Total</th>
+            <th>Payment</th>
+            <th>Status</th>
+            <th class="text-end no-sort">Invoice</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($memberOrders as $o): ?>
+          <tr>
+            <td class="small fw-semibold"><?= e((string) $o['order_number']) ?></td>
+            <td class="small text-nowrap"><?= e(format_date((string) $o['created_at'], 'd M Y')) ?></td>
+            <td class="small text-end"><?= (int) $o['item_count'] ?> (<?= (int) $o['total_qty'] ?>)</td>
+            <td class="small text-end fw-semibold text-nowrap"><?= money((float) $o['grand_total']) ?></td>
+            <td><?= status_badge((string) $o['payment_status']) ?></td>
+            <td><?= status_badge((string) $o['status']) ?></td>
+            <td class="text-end text-nowrap">
+              <button type="button" class="btn btn-sm btn-outline-primary"
+                      data-invoice-id="<?= (int) $o['id'] ?>"
+                      data-invoice-label="<?= e((string) ($o['invoice_number'] ?: $o['order_number'])) ?> · <?= e(format_date((string) $o['created_at'], 'd M Y')) ?>">
+                <i class="fa-solid fa-file-invoice me-1" aria-hidden="true"></i>Invoice
+              </button>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
 </div>
 
 <div class="quick-grid mt-3">

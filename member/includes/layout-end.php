@@ -26,6 +26,7 @@ document.getElementById('sidebarBackdrop')?.addEventListener('click', function (
   this.classList.remove('show');
 });
 </script>
+<?php require dirname(__DIR__, 2) . '/includes/invoice-modal.php'; ?>
 <script src="<?= e(\Saee\Lib\Url::asset('vendor/bootstrap/bootstrap.bundle.min.js')) ?>" defer></script>
 <script src="<?= e(\Saee\Lib\Url::asset('js/app.js')) ?>" defer></script>
 <?php if (!empty($extraScripts)) { echo $extraScripts; } ?>
