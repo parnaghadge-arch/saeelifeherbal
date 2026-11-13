@@ -115,8 +115,10 @@ document.querySelectorAll('[data-confirm]').forEach(function (form) {
           paginate: { previous: '‹', next: '›' }
         }
     };
-    if (showAll) {
-      // Every row the server sent fits on this screen, so there is no window to page through.
+    if (showAll || serverPaged) {
+      // Either every row the server sent belongs on this screen, or the server already decided
+      // the slice — in both cases a second client-side window over the same rows only hides
+      // content the page went to the trouble of rendering.
       dtOptions.paging = false;
       dtOptions.lengthChange = false;
     }
