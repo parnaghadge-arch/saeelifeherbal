@@ -15,6 +15,12 @@
 @font-face { font-family: 'Roboto'; src: url('../fonts/roboto/roboto-latin-700-normal.woff2') format('woff2'); font-weight: 700; font-display: swap; }
 
 :root {
+  /* Right-hand clearance for every <select>. Bootstrap paints the dropdown chevron as a
+     background image pinned at `right .75rem` and 16px wide, so any select padded less
+     than 1.75rem on the right renders the arrow on top of the selected label. These are
+     exactly the reserves Bootstrap itself uses (2.25rem default, 2rem for -sm). */
+  --saee-select-arrow: 2.25rem;
+  --saee-select-arrow-sm: 2rem;
   --saee-primary: #247A3C;
   --saee-primary-rgb: 36, 122, 60;
   --saee-dark: #14532D;
@@ -570,6 +576,10 @@ a:hover { color: var(--saee-dark); }
 /* forms */
 .form-label { font-family: var(--saee-font-heading); font-weight: 500; font-size: .88rem; color: var(--saee-dark); margin-bottom: .35rem; }
 .form-control, .form-select { border-radius: var(--saee-radius-sm); border: 1px solid #CBD9CE; padding: .62rem .85rem; font-size: .94rem; background-color: #fff; }
+/* The rule above pads inputs and selects alike, which pulled select labels underneath
+   the chevron Bootstrap pins to the right edge. Give the arrow its space back. */
+.form-select { padding-right: var(--saee-select-arrow); }
+.form-select-sm { padding-right: var(--saee-select-arrow-sm); }
 .form-control:focus, .form-select:focus { border-color: var(--saee-primary); box-shadow: 0 0 0 3px rgba(var(--saee-primary-rgb), .12); }
 .form-control::placeholder { color: #9BAAA1; }
 .form-text { font-size: .78rem; color: var(--saee-muted); }
@@ -909,6 +919,7 @@ a:hover { color: var(--saee-dark); }
 .catalog-toolbar-form select {
   width: 100%; min-width: 0; font-size: .88rem; padding: .5rem .7rem; border-radius: 10px;
   border-color: var(--saee-border);
+  padding-right: var(--saee-select-arrow-sm);
 }
 .catalog-toolbar-form select:focus { border-color: var(--saee-primary); box-shadow: 0 0 0 .18rem rgba(36, 122, 60, .15); }
 .catalog-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; flex-wrap: wrap; }
@@ -917,12 +928,12 @@ a:hover { color: var(--saee-dark); }
 @media (min-width: 992px) {
   /* a little more presence on desktop: the bar spans the full catalogue width */
   .catalog-toolbar { grid-template-columns: minmax(0, 340px) minmax(0, 260px); gap: 1rem 1.25rem; }
-  .catalog-toolbar-form select { font-size: .9rem; padding: .55rem .8rem; }
+  .catalog-toolbar-form select { font-size: .9rem; padding: .55rem .8rem; padding-right: var(--saee-select-arrow-sm); }
 }
 @media (max-width: 575.98px) {
   .catalog-toolbar { gap: .5rem; }
   .catalog-toolbar-label { font-size: .66rem; gap: .3rem; margin-bottom: .22rem; }
-  .catalog-toolbar-form select { font-size: .8rem; padding: .45rem .5rem; border-radius: 8px; }
+  .catalog-toolbar-form select { font-size: .8rem; padding: .45rem .5rem; border-radius: 8px; padding-right: var(--saee-select-arrow-sm); }
 }
 /* 4 products per row on desktop, 2 on phones (the column classes are stock Bootstrap;
    the grid wrapper only evens the row out when the last page has a single card) */
@@ -1250,6 +1261,7 @@ div.dt-container .dt-length select {
   border: 1px solid var(--saee-border); border-radius: 8px; padding: .3rem .55rem; font-size: .82rem;
 }
 div.dt-container .dt-search input { min-width: 210px; }
+div.dt-container .dt-length select { padding-right: var(--saee-select-arrow-sm); }
 div.dt-container .dt-length { font-size: .82rem; color: var(--saee-muted); }
 div.dt-container .dt-info { font-size: .8rem; color: var(--saee-muted); padding-top: .35rem; }
 div.dt-container .dt-paging .pagination { margin: 0; }
@@ -1397,7 +1409,6 @@ table.data-table thead th:last-child::after { content: ''; }
      stacking them full width keeps every label on one line (no broken words). */
   .product-actions { flex-direction: column; gap: .35rem; }
   .product-actions .btn { width: 100%; padding: .45rem .5rem; font-size: .78rem; white-space: nowrap; }
-}
 }
 
 /* Installable-app niceties */
