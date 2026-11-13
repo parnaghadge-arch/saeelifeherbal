@@ -11,6 +11,21 @@
 </nav>
 
 <script>
+/* app.js is shared with the public site and the member portal, and it resolves every
+   URL through SAEE.path() -> SAEE.base. The admin layout used to load app.js without
+   ever defining window.SAEE, so SAEE.base was undefined, SAEE.path() fell back to the
+   server root and a sub-directory install (e.g. /LIVEpro/saeelifeherbal-1/) requested
+   http://host/service-worker.js — a 404 in the console on every admin page. */
+window.SAEE = {
+  base: <?= json_encode(\Saee\Lib\Url::base()) ?>,
+  csrf: <?= json_encode(\Saee\Lib\Security::csrfToken()) ?>,
+  routes: {},
+  /* The service worker deliberately never caches /admin, so there is nothing to gain
+     from registering it here — and no reason to let it take control of the panel. */
+  pwa: false
+};
+</script>
+<script>
 function saeeOpenSidebar() {
   document.getElementById('appSidebar')?.classList.add('open');
   document.getElementById('sidebarBackdrop')?.classList.add('show');
