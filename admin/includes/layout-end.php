@@ -83,8 +83,17 @@ document.querySelectorAll('[data-confirm]').forEach(function (form) {
     // Is there already a GET search form on this page? (CRUD screens and several bespoke
     // screens ship their own server-side search — do not stack a second one on top.)
     var serverSearch = !!document.querySelector('form[method="get"] input[name="q"]');
-    try {
-      $t.DataTable({
+
+    // Some screens slice their rows in SQL. DataTables only ever sees the slice the server sent,
+    // so for those tables its own pager and "of N" line are wrong, and hiding the PHP pager would
+    // strand every later page — the list then reads as if the missing rows did not exist.
+    var $pagerBox = $t.closest('.panel, .card').find('.server-pager').first();
+    var serverPaged = $t.is('[data-server-paged]')
+      || $pagerBox.find('nav[aria-label="Pagination"]').length > 0;
+    // Opt-in from the page: render every row the server sent instead of a 25-row window.
+    var showAll = $t.is('[data-show-all]') && !serverPaged;
+
+    var dtOptions = {
         order: [],
         pageLength: isNarrow ? 10 : 25,
         lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
@@ -105,10 +114,22 @@ document.querySelectorAll('[data-confirm]').forEach(function (form) {
           emptyTable: 'No records yet',
           paginate: { previous: '‹', next: '›' }
         }
-      });
+    };
+    if (showAll) {
+      // Every row the server sent fits on this screen, so there is no window to page through.
+      dtOptions.paging = false;
+      dtOptions.lengthChange = false;
+    }
+    if (serverPaged) {
+      // The PHP pager below is the accurate line here, and the only route to the other pages.
+      dtOptions.info = false;
+    }
+    try {
+      $t.DataTable(dtOptions);
       // The PHP pager under the table is a no-JS fallback; once DataTables owns paging a
-      // second "showing x of y" line is just noise.
-      $t.closest('.panel, .card').find('.server-pager').hide();
+      // second "showing x of y" line is just noise. Keep it when the server did the slicing —
+      // its links are the only way to reach the rows this page did not render.
+      if (!serverPaged) { $pagerBox.hide(); }
     } catch (err) {
       // DataTables takes the table over as it initialises, so a throw half way through can
       // leave the server-rendered rows on the page but out of sight — the page then reads

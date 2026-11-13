@@ -220,7 +220,10 @@ if ($statusFilter === 'active' || $statusFilter === 'closed') {
     $params['s'] = $statusFilter === 'active' ? 1 : 0;
 }
 $total = (int) $db->value("SELECT COUNT(*) FROM mlm_commission_rules r WHERE $where", $params);
-$pager = new Pager($total, 25);
+// The register is one row per product per version, so it stays small even for a big catalogue.
+// Slice it generously: a 25-row window hid every later version behind a pager the table script
+// then removes, which reads as "rules are missing" rather than "rules are on page 2".
+$pager = new Pager($total, 100);
 $rows = $db->select(
     "SELECT r.*, p.name AS product_name, p.sku, p.mlm_enabled FROM mlm_commission_rules r
      LEFT JOIN products p ON p.id = r.product_id WHERE $where
@@ -383,8 +386,15 @@ require __DIR__ . '/includes/layout.php';
           </table>
         </div>
       <?php endif; ?>
+      <?php if ($pager->pages > 1): ?>
+        <div class="alert alert-light border small mb-3">
+          This register holds <strong><?= (int) $total ?></strong> version(s); the first
+          <strong><?= (int) $pager->perPage ?></strong> are listed here. Page through below, or narrow the
+          list with the filters above, to reach the rest.
+        </div>
+      <?php endif; ?>
       <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0 data-table">
+        <table class="table table-hover align-middle mb-0 data-table"<?= $pager->pages > 1 ? ' data-server-paged="1"' : ' data-show-all="1"' ?>>
           <thead>
             <tr>
               <th>Product</th>
