@@ -147,13 +147,8 @@ if (is_post()) {
                 Session::success('Product created.');
             }
 
-            // Keep the versioned commission rule in step with what the admin just saved.
-            // Without this the rule is only ever created by the demo seeder, so a product added
-            // by hand has commission that works at order time (the engine falls back to the
-            // product columns) but never appears on Commission Rules.
-            (new MlmCommissionEngine($db))->versionRuleForProduct(
-                $db->first('SELECT * FROM products WHERE id = :id', ['id' => $productId]) ?? []
-            );
+            // The values saved above are the commission configuration: MlmCommissionEngine reads
+            // products.* directly when it processes an order, so there is nothing to sync.
 
             // Gallery images
             if (!empty($_FILES['gallery']['name'][0])) {

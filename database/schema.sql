@@ -1,5 +1,5 @@
 -- Saee Life Herbal - MySQL 8 schema
--- Generated 2026-11-07 07:57:21
+-- Generated 2026-11-13 16:26:15
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -925,29 +925,6 @@ CREATE TABLE IF NOT EXISTS `member_bank_accounts` (
   CONSTRAINT fk_member_bank_accounts_verified_by FOREIGN KEY (`verified_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
   KEY `idx_member_bank_accounts_member_id` (`member_id`),
   KEY `idx_member_bank_accounts_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-DROP TABLE IF EXISTS `mlm_commission_rules`;
-CREATE TABLE IF NOT EXISTS `mlm_commission_rules` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `product_id` BIGINT UNSIGNED NOT NULL,
-  `direct_type` ENUM('fixed','percent') NOT NULL DEFAULT 'fixed',
-  `direct_value` DECIMAL(14,2) NOT NULL DEFAULT 0,
-  `grand_direct_type` ENUM('fixed','percent') NOT NULL DEFAULT 'fixed',
-  `grand_direct_value` DECIMAL(14,2) NOT NULL DEFAULT 0,
-  `commission_basis` ENUM('selling_price','mrp','net_amount') NOT NULL DEFAULT 'selling_price',
-  `royalty_eligible` TINYINT(1) NULL DEFAULT 1,
-  `is_active` TINYINT(1) NULL DEFAULT 1,
-  `effective_from` DATETIME NOT NULL,
-  `effective_to` DATETIME NULL,
-  `created_by` BIGINT UNSIGNED NULL,
-  `notes` TEXT NULL,
-  `created_at` DATETIME NULL DEFAULT NULL,
-  `updated_at` DATETIME NULL DEFAULT NULL,
-  CONSTRAINT fk_mlm_commission_rules_product_id FOREIGN KEY (`product_id`) REFERENCES `products`(id) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT fk_mlm_commission_rules_created_by FOREIGN KEY (`created_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
-  KEY `idx_mlm_commission_rules_product_id` (`product_id`),
-  KEY `idx_mlm_commission_rules_is_active` (`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 DROP TABLE IF EXISTS `commission_transactions`;

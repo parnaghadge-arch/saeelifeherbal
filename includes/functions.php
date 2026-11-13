@@ -241,7 +241,7 @@ function get_testimonials(int $limit = 6): array
 }
 
 /**
- * Allowed values for the products.commission_basis / mlm_commission_rules.commission_basis
+ * Allowed values for the products.commission_basis
  * enum, with the label shown in the admin panel.
  *
  * The database enum is the source of truth: sending anything outside this list raises

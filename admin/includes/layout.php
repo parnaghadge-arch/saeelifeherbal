@@ -19,7 +19,6 @@ $menu = [
     ['label' => 'Customers', 'icon' => 'fa-users', 'href' => 'customers.php', 'key' => 'customers', 'perm' => 'members.view'],
     ['label' => 'KYC Verification', 'icon' => 'fa-id-card', 'href' => 'kyc.php', 'key' => 'kyc', 'perm' => 'kyc.view'],
     ['label' => 'Genealogy Tree', 'icon' => 'fa-network-wired', 'href' => 'genealogy.php', 'key' => 'genealogy', 'perm' => 'mlm.tree'],
-    ['label' => 'Commission Rules', 'icon' => 'fa-percent', 'href' => 'commission-rules.php', 'key' => 'commission-rules', 'perm' => 'mlm.commission_rules'],
     ['label' => 'Commissions', 'icon' => 'fa-receipt', 'href' => 'commissions.php', 'key' => 'commissions', 'perm' => 'wallets.view'],
     ['label' => 'Wallets', 'icon' => 'fa-wallet', 'href' => 'wallets.php', 'key' => 'wallets', 'perm' => 'wallets.view'],
     ['label' => 'Royalty', 'icon' => 'fa-trophy', 'href' => 'royalty.php', 'key' => 'royalty', 'perm' => 'royalty.manage'],

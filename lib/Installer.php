@@ -190,7 +190,6 @@ final class Installer
             ['View Bank Details', 'bank.view', 'members'],
             ['Verify Bank Details', 'bank.verify', 'members'],
             ['View MLM Tree', 'mlm.tree', 'mlm'],
-            ['Manage Commission Rules', 'mlm.commission_rules', 'mlm'],
             ['Process Commissions', 'mlm.process', 'mlm'],
             ['Reverse Commissions', 'mlm.reverse', 'mlm'],
             ['Manage Royalty Rules', 'royalty.manage', 'royalty'],
@@ -239,7 +238,7 @@ final class Installer
         $map = [
             'super-admin' => array_keys($permIds),
             'administrator' => array_values(array_diff(array_keys($permIds), ['roles.manage', 'backups.manage'])),
-            'finance-manager' => ['dashboard.view', 'members.view', 'mlm.tree', 'mlm.process', 'mlm.reverse', 'mlm.commission_rules', 'royalty.manage', 'royalty.approve', 'wallets.view', 'wallets.adjust', 'payouts.approve', 'payouts.pay', 'payouts.reports', 'reports.view', 'members.export'],
+            'finance-manager' => ['dashboard.view', 'members.view', 'mlm.tree', 'mlm.process', 'mlm.reverse', 'royalty.manage', 'royalty.approve', 'wallets.view', 'wallets.adjust', 'payouts.approve', 'payouts.pay', 'payouts.reports', 'reports.view', 'members.export'],
             'kyc-verifier' => ['dashboard.view', 'members.view', 'kyc.view', 'kyc.verify', 'bank.view', 'bank.verify'],
             'content-editor' => ['dashboard.view', 'products.manage', 'categories.manage', 'cms.pages', 'cms.sliders', 'cms.blogs', 'cms.gallery', 'cms.content', 'cms.navigation', 'cms.media', 'enquiries.view', 'b2b.view', 'settings.manage'],
             'support-executive' => ['dashboard.view', 'members.view', 'orders.view', 'orders.update', 'enquiries.view', 'enquiries.manage', 'b2b.view', 'b2b.manage', 'payouts.request'],

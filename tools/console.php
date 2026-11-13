@@ -45,7 +45,7 @@ $commands = [
     'schema:mysql', 'schema:sqlite',
     'collation:repair', 'collation:heal',
     'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap', 'seed-payouts', 'warn:scan',
-    'payouts:auto',
+    'payouts:auto', 'mlm:drop-commission-rules',
 ];
 
 if (!in_array($command, $commands, true)) {
@@ -63,6 +63,7 @@ if (!in_array($command, $commands, true)) {
     echo "  schema:mysql         write database/schema.sql from the schema definition\n";
     echo "  schema:sqlite        write database/schema.sqlite.sql\n";
     echo "  commissions:process  release matured commission holds (cron)\n";
+    echo "  mlm:drop-commission-rules  drop the retired mlm_commission_rules table\n";
     echo "  payouts:auto         create auto payouts from eligible earnings (cron)\n";
     echo "  royalty:run          evaluate royalty achievements (cron)\n";
     echo "  backups:run          write a database backup into storage/backups (cron)\n";
@@ -710,6 +711,46 @@ switch ($command) {
         echo 'Connection now: ' . (string) ($db->value('SELECT @@character_set_connection') ?: '?')
             . ' / ' . (string) ($db->value('SELECT @@collation_connection') ?: '?') . PHP_EOL;
         echo 'Done. Reload the page.' . PHP_EOL;
+        break;
+
+    case 'mlm:drop-commission-rules':
+        // Commission moved onto the product row itself, so this table is dead weight on an
+        // upgraded install. Dropping it destroys the old rule history, which is why the console
+        // asks rather than doing it on boot. Commission already credited lives in
+        // commission_transactions and is untouched.
+        if (!$db->statement("SELECT name FROM sqlite_master WHERE type='table' AND name='mlm_commission_rules'")->fetch()
+            && $db->driver() === 'sqlite') {
+            echo "mlm_commission_rules does not exist - nothing to do." . PHP_EOL;
+            break;
+        }
+        if ($db->driver() !== 'sqlite') {
+            $exists = (bool) $db->value(
+                'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?',
+                ['mlm_commission_rules']
+            );
+            if (!$exists) {
+                echo "mlm_commission_rules does not exist - nothing to do." . PHP_EOL;
+                break;
+            }
+        }
+        $rows = (int) $db->value('SELECT COUNT(*) FROM mlm_commission_rules');
+        if (!in_array('--force', $argv, true)) {
+            echo "mlm_commission_rules holds $rows row(s) of retired rule history." . PHP_EOL;
+            echo "Re-run with --force to drop the table. Commission already credited is unaffected." . PHP_EOL;
+            break;
+        }
+        if ($db->driver() === 'sqlite') {
+            $db->statement('PRAGMA foreign_keys = OFF');
+        } else {
+            $db->statement('SET FOREIGN_KEY_CHECKS = 0');
+        }
+        $db->statement('DROP TABLE IF EXISTS mlm_commission_rules');
+        if ($db->driver() === 'sqlite') {
+            $db->statement('PRAGMA foreign_keys = ON');
+        } else {
+            $db->statement('SET FOREIGN_KEY_CHECKS = 1');
+        }
+        echo "Dropped mlm_commission_rules ($rows row(s) of retired history)." . PHP_EOL;
         break;
 
     case 'commissions:process':

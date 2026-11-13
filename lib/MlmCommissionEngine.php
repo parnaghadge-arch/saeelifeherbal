@@ -6,7 +6,7 @@
  *  - Commission is generated only for orders that are paid (or COD delivered, if enabled)
  *    and in a completed state (paid / delivered).
  *  - Direct sponsor (level 1) and grand direct sponsor (level 2) amounts come from the
- *    product's own commission configuration, snapshot into mlm_commission_rules versions.
+ *    product's own commission configuration - the values saved on the product form.
  *  - Calculations use integer paise - no floating point money math.
  *  - A unique idempotency key per (order item, beneficiary, level) prevents duplicate credits
  *    even if webhooks or admin actions fire repeatedly.
@@ -23,22 +23,14 @@ final class MlmCommissionEngine
     }
 
     /**
-     * Resolve the active commission rule for a product. Falls back to the product's own
-     * columns when no versioned rule exists.
+     * Commission configuration for a product.
+     *
+     * The product row is the only source: the values typed on the product form are what this
+     * engine pays, resolved when the order is processed. There is no separate rule register to
+     * keep in step and no effective-date window that can silently exclude a product.
      */
     public function ruleForProduct(int $productId): ?array
     {
-        $rule = $this->db->first(
-            "SELECT * FROM mlm_commission_rules
-             WHERE product_id = :p AND is_active = 1
-               AND effective_from <= :now
-               AND (effective_to IS NULL OR effective_to >= :now)
-             ORDER BY effective_from DESC, id DESC LIMIT 1",
-            ['p' => $productId, 'now' => date('Y-m-d H:i:s')]
-        );
-        if ($rule) {
-            return $rule;
-        }
         $product = $this->db->first('SELECT * FROM products WHERE id = :id', ['id' => $productId]);
         if (!$product || (int) $product['mlm_enabled'] !== 1) {
             return null;
@@ -53,51 +45,6 @@ final class MlmCommissionEngine
             'royalty_eligible' => $product['royalty_eligible'],
             'is_active' => 1,
         ];
-    }
-
-    /** Snapshot the product configuration into a new rule version (called when a product is saved). */
-    public function versionRuleForProduct(array $product, ?int $adminId = null): void
-    {
-        $existing = $this->db->first(
-            "SELECT * FROM mlm_commission_rules WHERE product_id = :p AND is_active = 1 AND effective_to IS NULL ORDER BY id DESC LIMIT 1",
-            ['p' => $product['id']]
-        );
-        $same = $existing
-            && (int) $product['mlm_enabled'] === 1
-            && $existing['direct_type'] === $product['direct_commission_type']
-            && self::sameMoney($existing['direct_value'], $product['direct_commission_value'])
-            && $existing['grand_direct_type'] === $product['grand_direct_commission_type']
-            && self::sameMoney($existing['grand_direct_value'], $product['grand_direct_commission_value'])
-            && $existing['commission_basis'] === $product['commission_basis']
-            && (string) $existing['royalty_eligible'] === (string) $product['royalty_eligible'];
-        if ($same) {
-            return;
-        }
-        $this->db->transaction(function (Database $db) use ($product, $adminId) {
-            $db->execute(
-                'UPDATE mlm_commission_rules SET is_active = 0, effective_to = :now, updated_at = :now WHERE product_id = :p AND is_active = 1 AND effective_to IS NULL',
-                ['now' => date('Y-m-d H:i:s'), 'p' => $product['id']]
-            );
-            if ((int) $product['mlm_enabled'] !== 1) {
-                return;
-            }
-            $db->insert('mlm_commission_rules', [
-                'product_id' => $product['id'],
-                'direct_type' => $product['direct_commission_type'],
-                'direct_value' => $product['direct_commission_value'],
-                'grand_direct_type' => $product['grand_direct_commission_type'],
-                'grand_direct_value' => $product['grand_direct_commission_value'],
-                'commission_basis' => $product['commission_basis'],
-                'royalty_eligible' => (int) $product['royalty_eligible'],
-                'is_active' => 1,
-                'effective_from' => date('Y-m-d H:i:s'),
-                'effective_to' => null,
-                'created_by' => $adminId,
-                'notes' => 'Auto snapshot on product save',
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-        });
     }
 
     /**
@@ -482,10 +429,5 @@ final class MlmCommissionEngine
     public static function toPaise(float|int|string|null $amount): int
     {
         return (int) round(((float) $amount) * 100);
-    }
-
-    private static function sameMoney(mixed $a, mixed $b): bool
-    {
-        return self::toPaise((float) $a) === self::toPaise((float) $b);
     }
 }

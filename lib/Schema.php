@@ -428,8 +428,8 @@ final class Schema
                     'meta_keywords' => 'string:255|null',
                     'views' => 'int|notnull|default:0',
                     'sort_order' => 'int|notnull|default:0',
-                    // Product level MLM configuration (single source used by the engine,
-                    // versioned copies are written to mlm_commission_rules on save).
+                    // Product level MLM configuration: the single source of commission truth.
+                    // MlmCommissionEngine reads these columns when it processes an order.
                     'mlm_enabled' => 'bool',
                     'direct_commission_type' => "enum:fixed,percent|notnull|default:'fixed'",
                     'direct_commission_value' => 'money|notnull|default:0',
@@ -776,24 +776,6 @@ final class Schema
                     'verified_at' => 'datetime|null',
                     'verified_by' => 'fk:admin_users:setnull|null',
                     'rejection_reason' => 'text|null',
-                ],
-                'timestamps' => ['created_at', 'updated_at'],
-            ],
-            'mlm_commission_rules' => [
-                'columns' => [
-                    'id' => 'pk',
-                    'product_id' => 'fk:products:cascade|notnull|index',
-                    'direct_type' => "enum:fixed,percent|notnull|default:'fixed'",
-                    'direct_value' => 'money|notnull|default:0',
-                    'grand_direct_type' => "enum:fixed,percent|notnull|default:'fixed'",
-                    'grand_direct_value' => 'money|notnull|default:0',
-                    'commission_basis' => "enum:selling_price,mrp,net_amount|notnull|default:'selling_price'",
-                    'royalty_eligible' => 'bool|default:1',
-                    'is_active' => 'bool|default:1|index',
-                    'effective_from' => 'datetime|notnull',
-                    'effective_to' => 'datetime|null',
-                    'created_by' => 'fk:admin_users:setnull|null',
-                    'notes' => 'text|null',
                 ],
                 'timestamps' => ['created_at', 'updated_at'],
             ],

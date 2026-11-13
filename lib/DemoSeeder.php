@@ -169,7 +169,6 @@ final class DemoSeeder
                 'is_primary' => 1,
                 'created_at' => $now,
             ]);
-            (new MlmCommissionEngine($this->db))->versionRuleForProduct($product);
         }
     }
 
