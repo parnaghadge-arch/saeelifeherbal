@@ -52,6 +52,12 @@ $payments = $db->select('SELECT * FROM order_payments WHERE order_id = :o ORDER 
 $history = $db->select('SELECT * FROM order_status_history WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
 $commissions = $db->select('SELECT c.*, m.member_code, m.name FROM commission_transactions c LEFT JOIN members m ON m.id = c.member_id WHERE c.order_id = :o ORDER BY c.id ASC', ['o' => $id]);
 
+// Future commission: what this order will pay once it is approved or delivered. It comes from
+// MlmCommissionEngine::projectOrder(), which runs the very same plan processOrder() credits, so
+// the figure shown here is the figure that will actually land - not a separate estimate that
+// could drift from the real calculation.
+$futureCommission = (new \Saee\Lib\MlmCommissionEngine($db))->projectOrder($id);
+
 $pageTitle = 'Order ' . $order['order_number'];
 $pageHeading = 'Order ' . $order['order_number'];
 $pageSub = format_date((string) $order['created_at'], 'd M Y H:i') . ' · ' . money((float) $order['grand_total']);
@@ -90,7 +96,36 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Commission on this order</h2>
       <?php if (!$commissions): ?>
-        <p class="small text-muted mb-0">No commission yet. Commission is generated when you approve this order (move it to Processing) or when it is delivered.</p>
+        <?php if (!empty($futureCommission['future']) && ($futureCommission['total'] ?? 0) > 0): ?>
+          <div class="alert alert-info small py-2 mb-2">
+            <i class="fa-solid fa-clock me-1"></i>
+            <strong>Future commission &mdash; <?= money((float) $futureCommission['total']) ?></strong><br>
+            <?= e((string) $futureCommission['reason']) ?> Nothing is credited until then.
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle data-table">
+              <thead><tr><th>Will be paid to</th><th>Type</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
+              <tbody>
+              <?php foreach ($futureCommission['entries'] as $fcRow): ?>
+                <tr class="table-light">
+                  <td class="small"><?= e((string) $fcRow['beneficiary_name']) ?><div class="text-muted"><?= e((string) $fcRow['beneficiary_code']) ?></div></td>
+                  <td class="small"><?= e(ucwords(str_replace('_', ' ', (string) $fcRow['type']))) ?></td>
+                  <td class="small text-end"><?= money((float) $fcRow['amount']) ?></td>
+                  <td><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Future</span></td>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php else: ?>
+          <p class="small text-muted mb-0">
+            No commission yet. Commission is generated when you approve this order (move it to
+            Processing) or when it is delivered.
+            <?php if (!empty($futureCommission['reason'])): ?>
+              <br><span class="fst-italic"><?= e((string) $futureCommission['reason']) ?></span>
+            <?php endif; ?>
+          </p>
+        <?php endif; ?>
       <?php else: ?>
         <div class="table-responsive">
           <table class="table table-sm mb-3 align-middle data-table">

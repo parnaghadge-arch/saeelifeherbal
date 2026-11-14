@@ -61,6 +61,9 @@ $summary = $db->first(
      FROM commission_transactions c LEFT JOIN members m ON m.id = c.member_id WHERE $whereSql",
     $params
 ) ?? [];
+// Future commission: what the orders still awaiting approval will pay out, computed from the
+// same projection the order page shows so the headline and the detail always agree.
+$futureTotal = (new MlmCommissionEngine($db))->futureCommissionTotal();
 $pager = new Pager($total, 25);
 $rows = $db->select(
     "SELECT c.*, m.name AS member_name, m.member_code FROM commission_transactions c
@@ -81,9 +84,13 @@ $pageActions = $actions;
 require __DIR__ . '/includes/layout.php';
 ?>
 <div class="row g-3 mb-3">
-  <div class="col-4"><div class="mini-stat"><span>Credited</span><strong><?= money((float) ($summary['credited'] ?? 0)) ?></strong></div></div>
-  <div class="col-4"><div class="mini-stat"><span>Pending</span><strong><?= money((float) ($summary['pending'] ?? 0)) ?></strong></div></div>
-  <div class="col-4"><div class="mini-stat"><span>Reversed</span><strong><?= money((float) ($summary['reversed'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-xl-3"><div class="mini-stat"><span>Credited</span><strong><?= money((float) ($summary['credited'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-xl-3"><div class="mini-stat"><span>Pending</span><strong><?= money((float) ($summary['pending'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-xl-3">
+    <div class="mini-stat"><span>Future</span><strong><?= money((float) ($futureTotal['total'] ?? 0)) ?></strong>
+      <small>From <?= (int) ($futureTotal['orders'] ?? 0) ?> unapproved order(s)<?= !empty($futureTotal['capped']) ? ' (newest 200 only)' : '' ?></small></div>
+  </div>
+  <div class="col-6 col-xl-3"><div class="mini-stat"><span>Reversed</span><strong><?= money((float) ($summary['reversed'] ?? 0)) ?></strong></div></div>
 </div>
 
 <div class="panel p-3 p-md-4">
