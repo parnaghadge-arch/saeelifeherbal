@@ -90,7 +90,7 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Commission on this order</h2>
       <?php if (!$commissions): ?>
-        <p class="small text-muted mb-0">No commission generated yet (order must be paid).</p>
+        <p class="small text-muted mb-0">No commission yet. Commission is generated when you approve this order (move it to Processing) or when it is delivered.</p>
       <?php else: ?>
         <div class="table-responsive">
           <table class="table table-sm mb-3 align-middle data-table">
@@ -124,7 +124,7 @@ require __DIR__ . '/includes/layout.php';
         <?php foreach ($history as $h): ?>
           <div class="list-item">
             <div class="list-icon"><i class="fa-solid fa-clock-rotate-left"></i></div>
-            <div class="flex-grow-1"><div class="small fw-semibold"><?= e(ucwords(str_replace('_', ' ', (string) $h['status']))) ?></div><div class="small text-muted"><?= e((string) ($h['note'] ?? '')) ?></div></div>
+            <div class="flex-grow-1"><div class="small fw-semibold"><?= e(order_status_label((string) $h['status'])) ?></div><div class="small text-muted"><?= e((string) ($h['note'] ?? '')) ?></div></div>
             <div class="small text-muted"><?= e(format_date((string) $h['created_at'], 'd M Y H:i')) ?></div>
           </div>
         <?php endforeach; ?>
@@ -151,21 +151,31 @@ require __DIR__ . '/includes/layout.php';
     <?php if (AdminAuth::can('orders.update')): ?>
       <div class="panel p-3 p-md-4 mb-3">
         <h2 class="h6 mb-3">Update status</h2>
+        <?php $currentStatus = \Saee\Lib\OrderService::normalizeStatus($order['status']); ?>
         <form method="post">
           <?= csrf_field() ?>
           <input type="hidden" name="action" value="status">
           <div class="mb-2">
             <select class="form-select form-select-sm" name="status">
-              <?php foreach (ORDER_STATUSES as $key => $label): ?>
-                <option value="<?= e($key) ?>" <?= $order['status'] === $key ? 'selected' : '' ?>><?= e($label) ?></option>
+              <?php foreach (ORDER_STATUS_ACTIONS as $key): ?>
+                <option value="<?= e($key) ?>" <?= $currentStatus === $key ? 'selected' : '' ?>><?= e(ORDER_STATUSES[$key]) ?></option>
               <?php endforeach; ?>
             </select>
           </div>
           <div class="mb-2"><input class="form-control form-control-sm" name="note" placeholder="Note (optional)"></div>
           <button class="btn btn-sm btn-primary w-100">Update status</button>
         </form>
+        <?php if ($currentStatus !== 'cancelled'): ?>
+          <form method="post" class="mt-2" data-confirm="Cancel this order? Any commission already generated is reversed.">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="status">
+            <input type="hidden" name="status" value="cancelled">
+            <input type="hidden" name="note" value="Cancelled by admin">
+            <button class="btn btn-sm btn-outline-danger w-100">Cancel order</button>
+          </form>
+        <?php endif; ?>
         <?php if ($order['payment_status'] !== 'paid'): ?>
-          <form method="post" class="mt-2" data-confirm="Mark this order as paid? Commission will be generated.">
+          <form method="post" class="mt-2" data-confirm="Record that payment for this order has been received?">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="mark-paid">
             <button class="btn btn-sm btn-outline-success w-100">Mark as paid</button>

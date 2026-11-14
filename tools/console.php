@@ -457,6 +457,13 @@ switch ($command) {
         if ($created === [] && $addedColumns === []) {
             echo "Schema already up to date." . PHP_EOL;
         }
+        // Order lifecycle: the eight-value status list was shortened to
+        // new -> processing -> shipped -> delivered (+ cancelled). Existing rows still carry the
+        // old words, and ensureColumns() never rewrites values or narrows a column, so this runs
+        // its own migration.
+        foreach (\Saee\Lib\Schema::migrateOrderStatuses($db) as $line) {
+            echo $line . PHP_EOL;
+        }
         // Auto-payout enum: ensureColumns() only adds columns, it never widens an ENUM.
         // Existing MySQL installs need the 'processing' value added explicitly, otherwise
         // moving a payout to "in progress" fails with a truncated-value error.

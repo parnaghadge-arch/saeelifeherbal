@@ -564,7 +564,7 @@ final class Schema
                     'grand_total' => 'money|notnull|default:0',
                     'payment_method' => "string:30|notnull|default:'cod'|index",
                     'payment_status' => "enum:unpaid,pending,paid,failed,refunded|notnull|default:'unpaid'|index",
-                    'status' => "enum:pending,payment_pending,paid,processing,shipped,delivered,cancelled,refunded|notnull|default:'pending'|index",
+                    'status' => "enum:new,processing,shipped,delivered,cancelled|notnull|default:'new'|index",
                     'notes' => 'text|null',
                     'admin_notes' => 'text|null',
                     'coupon_code' => 'string:40|null',
@@ -1315,6 +1315,100 @@ final class Schema
             $sql .= ' DEFAULT 0';
         }
         return $sql;
+    }
+
+    /**
+     * Move orders written before the status list was shortened onto the current values, and
+     * re-declare the column so the database enforces the new set.
+     *
+     * The order matters and is different per driver:
+     *   MySQL  - widen the ENUM to old+new, rewrite the rows, then narrow it. Rewriting first
+     *            would truncate, narrowing first would reject the rows being rewritten.
+     *   SQLite - the allowed values live in a CHECK baked into the table, so the table has to
+     *            be rebuilt with the values mapped during the copy.
+     *
+     * @return list<string> what happened, for the upgrade report
+     */
+    public static function migrateOrderStatuses(Database $db): array
+    {
+        $report = [];
+        $definition = self::tables()['orders'] ?? null;
+        if ($definition === null) {
+            return $report;
+        }
+        $existing = [];
+        try {
+            foreach ($db->select($db->driver() === 'mysql' ? 'SHOW TABLES' : "SELECT name FROM sqlite_master WHERE type = 'table'") as $row) {
+                $existing[] = (string) (array_values($row)[0] ?? '');
+            }
+        } catch (\Throwable) {
+            return $report;
+        }
+        if (!in_array('orders', $existing, true)) {
+            return $report;
+        }
+
+        $legacy = ORDER_STATUS_LEGACY;
+        $final = array_keys(ORDER_STATUSES);
+        $union = array_values(array_unique(array_merge(array_keys($legacy), $final)));
+        $enumList = static fn (array $values): string => implode(',', array_map(static fn ($v) => "'" . $v . "'", $values));
+
+        if ($db->driver() === 'mysql') {
+            try {
+                $db->statement('ALTER TABLE orders MODIFY status ENUM(' . $enumList($union) . ") NOT NULL DEFAULT '" . ORDER_STATUS_DEFAULT . "'");
+                $moved = 0;
+                foreach ($legacy as $old => $new) {
+                    $moved += $db->execute('UPDATE orders SET status = :new WHERE status = :old', ['new' => $new, 'old' => $old]);
+                }
+                $db->statement('ALTER TABLE orders MODIFY status ENUM(' . $enumList($final) . ") NOT NULL DEFAULT '" . ORDER_STATUS_DEFAULT . "'");
+                $report[] = 'Order statuses migrated to the shortened list' . ($moved > 0 ? ' (' . $moved . ' row(s) rewritten)' : '');
+            } catch (\Throwable $e) {
+                $report[] = 'Order status migration skipped: ' . $e->getMessage();
+            }
+            return $report;
+        }
+
+        // SQLite: rebuild. Child tables reference "orders" by name, so renaming the new table
+        // back into place leaves every foreign key pointing at the right thing.
+        try {
+            $columns = $db->columns('orders');
+            $columns = array_values(array_filter($columns, static fn (string $c): bool => array_key_exists($c, $definition['columns'] ?? [])));
+            if ($columns === []) {
+                return $report;
+            }
+            $case = "CASE status";
+            foreach ($legacy as $old => $new) {
+                $case .= " WHEN '" . $old . "' THEN '" . $new . "'";
+            }
+            $case .= " ELSE status END";
+            $select = [];
+            $moved = 0;
+            foreach ($columns as $col) {
+                $select[] = $col === 'status' ? $case . ' AS status' : $db->quoteIdentifier($col);
+                if ($col === 'status') {
+                    $moved += (int) $db->value('SELECT COUNT(*) FROM orders WHERE status IN (' . $enumList(array_keys($legacy)) . ')');
+                }
+            }
+            $db->statement('PRAGMA foreign_keys = OFF');
+            $db->statement(self::createTableSql('sqlite', 'orders_migration_tmp', $definition));
+            $db->statement('INSERT INTO orders_migration_tmp (' . implode(', ', array_map([$db, 'quoteIdentifier'], $columns)) . ') SELECT ' . implode(', ', $select) . ' FROM orders');
+            $db->statement('DROP TABLE orders');
+            $db->statement('ALTER TABLE orders_migration_tmp RENAME TO orders');
+            $db->statement('PRAGMA foreign_keys = ON');
+            foreach (self::postCreateIndexes('sqlite') as $sql) {
+                if (str_contains($sql, 'orders')) {
+                    try {
+                        $db->statement($sql);
+                    } catch (\Throwable) {
+                        // Index already present under its own name; harmless.
+                    }
+                }
+            }
+            $report[] = 'Order statuses migrated to the shortened list' . ($moved > 0 ? ' (' . $moved . ' row(s) rewritten)' : '');
+        } catch (\Throwable $e) {
+            $report[] = 'Order status migration skipped: ' . $e->getMessage();
+        }
+        return $report;
     }
 
     public static function dropAll(Database $db): void

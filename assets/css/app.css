@@ -1254,6 +1254,12 @@ a:hover { color: var(--saee-dark); }
 .crud-layout.is-form-open .crud-form-col { order: 1; }
 .crud-layout.is-form-open .crud-list-col { order: 2; max-width: 100%; }
 .crud-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .85rem; }
+/* Modules whose editor is a route of its own (Products, Categories) render one column at a
+   time, so the surviving column should take the full width instead of a grid track. */
+.crud-layout.is-form-only .crud-form-col,
+.crud-layout.is-list-only .crud-list-col,
+.crud-form-page { display: block; max-width: 900px; }
+.crud-layout.is-list-only .crud-list-col { max-width: 100%; }
 
 /* DataTables: skin it with the site palette so it reads as part of the panel. */
 div.dt-container .dt-search input,
@@ -1539,9 +1545,21 @@ pre, code { word-break: break-word; }
 }
 .purchase-item-info { flex: 1 1 auto; min-width: 0; }
 .purchase-item-total { font-family: var(--saee-font-heading); font-weight: 700; color: var(--saee-dark); white-space: nowrap; }
+/* Summary row thumbnail on the Purchase History list. Sized in CSS *and* by width/height
+   attributes in the markup, so a stale stylesheet can never let a product photo balloon to the
+   full width of the panel. */
+.purchase-thumb-sm {
+  width: 40px; height: 40px; object-fit: cover; border-radius: 8px;
+  flex: 0 0 40px; background: var(--saee-light);
+}
+.purchase-thumb-sm--fallback {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--saee-primary); font-size: .95rem;
+}
 @media (max-width: 575.98px) {
   .purchase-item img, .purchase-thumb-fallback { width: 48px; height: 48px; flex-basis: 48px; }
   .purchase-item-total { font-size: .9rem; }
+  .purchase-thumb-sm { width: 34px; height: 34px; flex-basis: 34px; }
 }
 
 /* Admin bottom tab bar (phones only) — mirrors the member/public tab bars */

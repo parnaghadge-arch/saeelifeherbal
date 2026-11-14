@@ -103,14 +103,12 @@ final class MlmCommissionEngine
         if ((int) ($settings['plan_enabled'] ?? 0) !== 1) {
             return ['eligible' => false, 'reason' => 'Compensation plan is disabled in settings.'];
         }
-        $status = (string) $order['status'];
-        $paid = (string) $order['payment_status'] === 'paid';
-        $codDelivered = $order['payment_method'] === 'cod' && $status === 'delivered' && (int) ($settings['commission_on_cod'] ?? 0) === 1;
-        if (!$paid && !$codDelivered) {
-            return ['eligible' => false, 'reason' => 'Order is not paid.'];
-        }
-        if (!in_array($status, ['paid', 'processing', 'shipped', 'delivered'], true)) {
-            return ['eligible' => false, 'reason' => 'Order status is ' . $status . '.'];
+        $status = OrderService::normalizeStatus($order['status'] ?? null);
+        // Commission follows the admin's fulfilment decision, not the arrival of money: an order
+        // qualifies as soon as it is approved (processing), shipped or delivered. A brand new
+        // order that nobody has looked at yet pays nobody.
+        if (!in_array($status, ORDER_COMMISSION_STATUSES, true)) {
+            return ['eligible' => false, 'reason' => 'Order has not been approved yet (status: ' . (ORDER_STATUSES[$status] ?? $status) . ').'];
         }
         if ($order['commission_status'] === 'credited') {
             return ['eligible' => false, 'reason' => 'Commission already credited.'];
@@ -161,10 +159,10 @@ final class MlmCommissionEngine
         $holdDays = (int) ($settings['commission_hold_days'] ?? 0);
         // New commissions always start as "approved" (no wallet yet). They are released to the
         // member wallet immediately when no hold period applies, otherwise after the hold matures.
+        // Release no longer waits for payment: an approved order pays out. The hold period is the
+        // control for how long the company wants to sit on it. (The old commission_on_paid_only /
+        // commission_on_cod switches are retired - they belonged to the payment-triggered model.)
         $autoRelease = $holdDays <= 0 && (string) ($settings['auto_credit_status'] ?? 'available') === 'available';
-        if ((int) ($settings['commission_on_paid_only'] ?? 1) === 1 && $order['payment_status'] !== 'paid') {
-            $autoRelease = false;
-        }
         $initialStatus = 'approved';
         $availableAt = $holdDays > 0 ? date('Y-m-d H:i:s', time() + $holdDays * 86400) : null;
 
@@ -353,8 +351,7 @@ final class MlmCommissionEngine
         $orders = $this->db->select(
             "SELECT id FROM orders
              WHERE commission_status <> 'credited'
-               AND status IN ('paid','processing','shipped','delivered')
-               AND payment_status = 'paid'
+               AND status IN ('processing','shipped','delivered')
              ORDER BY id ASC LIMIT " . (int) $limit
         );
         $count = 0;

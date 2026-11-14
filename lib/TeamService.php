@@ -135,7 +135,7 @@ final class TeamService
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $sql = "SELECT COALESCE(SUM(grand_total),0) AS amount, COUNT(*) AS orders
-                FROM orders WHERE payment_status = 'paid' AND status IN ('paid','processing','shipped','delivered')
+                FROM orders WHERE status IN ('processing','shipped','delivered')
                 AND member_id IN ($placeholders)";
         $params = $ids;
         if ($from) {
@@ -154,7 +154,7 @@ final class TeamService
     {
         $row = $this->db->first(
             "SELECT COALESCE(SUM(grand_total),0) AS amount, COUNT(*) AS orders FROM orders
-             WHERE member_id = :m AND payment_status = 'paid' AND status IN ('paid','processing','shipped','delivered')",
+             WHERE member_id = :m AND status IN ('processing','shipped','delivered')",
             ['m' => $memberId]
         ) ?? [];
         return ['amount' => (float) ($row['amount'] ?? 0), 'orders' => (int) ($row['orders'] ?? 0)];

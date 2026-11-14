@@ -444,7 +444,7 @@ final class DemoSeeder
             return;
         }
         $orderService = new OrderService($this->db);
-        $statuses = ['paid', 'delivered', 'delivered', 'processing', 'shipped', 'delivered', 'cancelled', 'paid'];
+        $statuses = ['new', 'delivered', 'delivered', 'processing', 'shipped', 'delivered', 'cancelled', 'processing'];
         foreach ($members as $index => $member) {
             $product = $products[$index % count($products)];
             $qty = 1 + ($index % 3);
@@ -492,7 +492,7 @@ final class DemoSeeder
                 return $orderId;
             });
             $orderId = (int) $this->db->value('SELECT id FROM orders WHERE order_number = :o', ['o' => $orderNumber]);
-            if (in_array($status, ['paid', 'processing', 'shipped', 'delivered'], true)) {
+            if (in_array($status, ORDER_COMMISSION_STATUSES, true)) {
                 (new MlmCommissionEngine($this->db))->processOrder($orderId);
             } elseif ($status === 'cancelled') {
                 (new MlmCommissionEngine($this->db))->processOrder($orderId);

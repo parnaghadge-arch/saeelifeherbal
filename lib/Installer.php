@@ -140,7 +140,7 @@ final class Installer
             ['upi_enabled', '0', 'bool', 'payments'],
             ['upi_id', '', 'string', 'payments'],
             ['upi_name', '', 'string', 'payments'],
-            ['bank_transfer_enabled', '1', 'bool', 'payments'],
+            ['bank_transfer_enabled', '0', 'bool', 'payments'],
             ['bank_transfer_details', "Account Name: Saee Life Herbal\nBank: State Bank of India\nA/C No: 000000000000\nIFSC: SBIN0000000\nBranch: Nagpur Main", 'text', 'payments'],
             ['cod_max_amount', '20000', 'string', 'payments'],
             // notifications

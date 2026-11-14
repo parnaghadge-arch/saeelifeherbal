@@ -1,11 +1,16 @@
 <?php
 /**
- * Purchase History (member side): every product bought with the member ID,
- * with line items, totals, payment/status and invoice access.
+ * Purchase History (member side).
+ *
+ * A summary list only: order number, date, status and total. The full line items, address,
+ * payment trail and invoice live on the order's own page (member/order-details.php), opened by
+ * "View details". Dumping every product of every order onto one screen is what made this page
+ * impossible to scan.
  */
 declare(strict_types=1);
 require __DIR__ . '/_guard.php';
 
+use Saee\Lib\OrderService;
 use Saee\Lib\Pager;
 use Saee\Lib\Url;
 
@@ -19,24 +24,28 @@ $orders = db()->select(
     ['m' => $currentMemberId]
 );
 
-// Load all line items for the visible orders in one query (no N+1).
-$itemsByOrder = [];
+// One thumbnail per order for the summary row — the first line item's product image.
+$thumbsByOrder = [];
 if ($orders !== []) {
-    $ids = array_map(static fn (array $o): int => (int) $o['id'], $orders);
-    // Database::select binds named params; build named placeholders for the IN list.
     $params = [];
     $named = [];
-    foreach ($ids as $i => $oid) {
+    foreach ($orders as $i => $o) {
         $key = 'oid' . $i;
         $named[] = ':' . $key;
-        $params[$key] = $oid;
+        $params[$key] = (int) $o['id'];
     }
-    $items = db()->select(
-        'SELECT i.*, p.featured_image AS product_image FROM order_items i LEFT JOIN products p ON p.id = i.product_id WHERE i.order_id IN (' . implode(',', $named) . ') ORDER BY i.order_id, i.id',
+    $rows = db()->select(
+        'SELECT i.order_id, p.featured_image AS product_image
+         FROM order_items i LEFT JOIN products p ON p.id = i.product_id
+         WHERE i.order_id IN (' . implode(',', $named) . ')
+         ORDER BY i.order_id, i.id',
         $params
     );
-    foreach ($items as $item) {
-        $itemsByOrder[(int) $item['order_id']][] = $item;
+    foreach ($rows as $row) {
+        $oid = (int) $row['order_id'];
+        if (!isset($thumbsByOrder[$oid])) {
+            $thumbsByOrder[$oid] = (string) ($row['product_image'] ?? '');
+        }
     }
 }
 
@@ -69,74 +78,58 @@ require __DIR__ . '/includes/layout.php';
   <a class="btn btn-primary btn-sm" href="<?= e(Url::to('our-products')) ?>"><i class="fa-solid fa-seedling me-1"></i>Browse products</a>
 </div>
 <?php else: ?>
-<?php foreach ($orders as $order):
-    $orderItems = $itemsByOrder[(int) $order['id']] ?? [];
-    $shipping = json_decode((string) ($order['shipping_address'] ?? ''), true) ?: [];
-?>
-<div class="panel p-3 p-md-4 mb-3">
-  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-    <div>
-      <div class="fw-semibold"><?= e((string) $order['order_number']) ?></div>
-      <div class="small text-muted"><?= e(format_date((string) $order['created_at'], 'd M Y, h:i A')) ?> · <?= (int) $order['item_count'] ?> item(s) · <?= (int) $order['total_qty'] ?> unit(s)</div>
-    </div>
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <?= status_badge((string) $order['status']) ?>
-      <?= status_badge((string) $order['payment_status']) ?>
-    </div>
-  </div>
-
-  <div class="purchase-items">
-    <?php foreach ($orderItems as $item): ?>
-      <div class="purchase-item">
-        <?php if (!empty($item['product_image'])): ?>
-          <img src="<?= e(Url::media((string) $item['product_image'])) ?>" alt="<?= e((string) $item['product_name']) ?>" loading="lazy">
-        <?php else: ?>
-          <span class="purchase-thumb-fallback"><i class="fa-solid fa-seedling"></i></span>
-        <?php endif; ?>
-        <div class="purchase-item-info">
-          <div class="fw-semibold small"><?= e((string) $item['product_name']) ?></div>
-          <div class="small text-muted">
-            <?= e((string) ($item['product_sku'] ?? '')) ?>
-            <?php if (!empty($item['pack_size'])): ?> · <?= e((string) $item['pack_size']) ?><?php endif; ?>
-          </div>
-          <div class="small text-muted"><?= money((float) $item['unit_price']) ?> × <?= (int) $item['quantity'] ?></div>
-        </div>
-        <div class="purchase-item-total"><?= money((float) $item['line_total']) ?></div>
-      </div>
-    <?php endforeach; ?>
-  </div>
-
-  <div class="row g-3 mt-2">
-    <div class="col-md-6">
-      <div class="small">
-        <div class="d-flex justify-content-between"><span class="text-muted">Subtotal</span><span><?= money((float) $order['subtotal']) ?></span></div>
-        <?php if ((float) $order['discount_total'] > 0): ?><div class="d-flex justify-content-between"><span class="text-muted">Discount</span><span>−<?= money((float) $order['discount_total']) ?></span></div><?php endif; ?>
-        <div class="d-flex justify-content-between"><span class="text-muted">Shipping</span><span><?= (float) $order['shipping_total'] > 0 ? money((float) $order['shipping_total']) : 'Free' ?></span></div>
-        <div class="d-flex justify-content-between"><span class="text-muted">Tax</span><span><?= money((float) $order['tax_total']) ?></span></div>
-        <div class="d-flex justify-content-between fw-semibold border-top pt-2 mt-2"><span>Grand total</span><span><?= money((float) $order['grand_total']) ?></span></div>
-      </div>
-    </div>
-    <div class="col-md-6">
-      <div class="small text-muted">
-        <div><strong class="text-dark">Payment:</strong> <?= e(payment_label((string) $order['payment_method'])) ?></div>
-        <?php if (!empty($order['paid_at'])): ?><div>Paid on <?= e(format_date((string) $order['paid_at'], 'd M Y')) ?></div><?php endif; ?>
-        <?php if (!empty($order['tracking_number'])): ?><div>Tracking: <?= e((string) $order['tracking_number']) ?> <?= e((string) ($order['carrier'] ?? '')) ?></div><?php endif; ?>
-        <?php if (!empty($shipping['city'])): ?><div>Delivered to <?= e((string) ($shipping['city'] ?? '')) ?>, <?= e((string) ($shipping['state'] ?? '')) ?></div><?php endif; ?>
-      </div>
-      <div class="d-flex flex-wrap gap-2 mt-2">
-        <button type="button" class="btn btn-sm btn-outline-primary"
-                data-invoice-id="<?= (int) $order['id'] ?>"
-                data-invoice-label="<?= e((string) ($order['invoice_number'] ?: $order['order_number'])) ?> · <?= e(format_date((string) $order['created_at'], 'd M Y')) ?>">
-          <i class="fa-solid fa-file-invoice me-1" aria-hidden="true"></i>Invoice
-        </button>
-        <a class="btn btn-sm btn-outline-secondary" href="<?= e(Url::to('our-products')) ?>"><i class="fa-solid fa-rotate-right me-1"></i>Buy again</a>
-      </div>
-    </div>
+<div class="panel p-3 p-md-4">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 data-table purchase-summary">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th data-hide="sm">Placed on</th>
+          <th>Status</th>
+          <th data-hide="sm">Payment</th>
+          <th class="text-end">Total</th>
+          <th class="text-end">Details</th>
+        </tr>
+      </thead>
+      <tbody>
+      <?php foreach ($orders as $order):
+          $thumb = $thumbsByOrder[(int) $order['id']] ?? '';
+          $detailUrl = 'order-details.php?id=' . (int) $order['id'];
+      ?>
+        <tr>
+          <td data-label="Order">
+            <div class="d-flex align-items-center gap-2">
+              <?php if ($thumb !== ''): ?>
+                <img class="purchase-thumb-sm" src="<?= e(Url::media($thumb)) ?>" alt="" loading="lazy" width="40" height="40">
+              <?php else: ?>
+                <span class="purchase-thumb-sm purchase-thumb-sm--fallback"><i class="fa-solid fa-seedling"></i></span>
+              <?php endif; ?>
+              <div>
+                <a class="fw-semibold text-decoration-none" href="<?= e($detailUrl) ?>"><?= e((string) $order['order_number']) ?></a>
+                <div class="small text-muted"><?= (int) $order['item_count'] ?> item(s) · <?= (int) $order['total_qty'] ?> unit(s)</div>
+              </div>
+            </div>
+          </td>
+          <td data-label="Placed on" class="small"><?= e(format_date((string) $order['created_at'], 'd M Y, h:i A')) ?></td>
+          <td data-label="Status"><?= status_badge(OrderService::normalizeStatus($order['status'])) ?></td>
+          <td data-label="Payment" class="small">
+            <?= status_badge((string) $order['payment_status']) ?>
+            <div class="small text-muted"><?= e(payment_label((string) $order['payment_method'])) ?></div>
+          </td>
+          <td data-label="Total" class="text-end fw-semibold"><?= money((float) $order['grand_total']) ?></td>
+          <td class="text-end">
+            <a class="btn btn-sm btn-outline-primary" href="<?= e($detailUrl) ?>">
+              <i class="fa-solid fa-eye me-1" aria-hidden="true"></i>View details
+            </a>
+          </td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
   </div>
 </div>
-<?php endforeach; ?>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
   <div class="small text-muted"><?= $pager->infoText() ?></div>
   <?= $pager->links() ?>
 </div>

@@ -1,5 +1,5 @@
 -- Saee Life Herbal - MySQL 8 schema
--- Generated 2026-11-13 16:26:15
+-- Generated 2026-11-14 13:19:19
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -640,7 +640,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `grand_total` DECIMAL(14,2) NOT NULL DEFAULT 0,
   `payment_method` VARCHAR(30) NOT NULL DEFAULT 'cod',
   `payment_status` ENUM('unpaid','pending','paid','failed','refunded') NOT NULL DEFAULT 'unpaid',
-  `status` ENUM('pending','payment_pending','paid','processing','shipped','delivered','cancelled','refunded') NOT NULL DEFAULT 'pending',
+  `status` ENUM('new','processing','shipped','delivered','cancelled') NOT NULL DEFAULT 'new',
   `notes` TEXT NULL,
   `admin_notes` TEXT NULL,
   `coupon_code` VARCHAR(40) NULL,

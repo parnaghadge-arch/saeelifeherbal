@@ -40,6 +40,7 @@ $menu = [
     ['label' => 'Navigation', 'icon' => 'fa-bars-staggered', 'href' => 'navigation.php', 'key' => 'navigation', 'perm' => 'cms.navigation'],
     ['label' => 'Media Library', 'icon' => 'fa-folder-open', 'href' => 'media.php', 'key' => 'media', 'perm' => 'cms.media'],
     ['label' => 'Reports', 'icon' => 'fa-chart-line', 'href' => 'reports.php', 'key' => 'reports', 'perm' => 'reports.view'],
+    ['label' => 'Payment Methods', 'icon' => 'fa-credit-card', 'href' => 'payment-methods.php', 'key' => 'payment-methods', 'perm' => 'settings.manage'],
     ['label' => 'Settings', 'icon' => 'fa-gear', 'href' => 'settings.php', 'key' => 'settings', 'perm' => 'settings.manage'],
     ['label' => 'Social Links', 'icon' => 'fa-share-nodes', 'href' => 'social.php', 'key' => 'social', 'perm' => 'settings.manage'],
     ['label' => 'MLM Settings', 'icon' => 'fa-sitemap', 'href' => 'mlm-settings.php', 'key' => 'mlm-settings', 'perm' => 'settings.manage'],
