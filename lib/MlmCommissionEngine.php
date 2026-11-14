@@ -94,7 +94,13 @@ final class MlmCommissionEngine
     }
 
     /**
-     * Determine whether an order qualifies for commission generation.
+     * Whether an order can have commission RECORDED against it.
+     *
+     * Recording no longer waits for fulfilment. Commission is calculated as soon as the purchase
+     * exists, whatever the payment mode, so an order that nobody has approved yet is still
+     * eligible; whether the money is spendable is decided separately inside processOrder() from
+     * the payment status and the order status.
+     *
      * @return array{eligible:bool, reason:string}
      */
     public function orderEligibility(array $order): array
@@ -103,14 +109,11 @@ final class MlmCommissionEngine
         if ((int) ($settings['plan_enabled'] ?? 0) !== 1) {
             return ['eligible' => false, 'reason' => 'Compensation plan is disabled in settings.'];
         }
-        $status = OrderService::normalizeStatus($order['status'] ?? null);
-        // Commission follows the admin's fulfilment decision, not the arrival of money: an order
-        // qualifies as soon as it is approved (processing), shipped or delivered. A brand new
-        // order that nobody has looked at yet pays nobody.
-        if (!in_array($status, ORDER_COMMISSION_STATUSES, true)) {
-            return ['eligible' => false, 'reason' => 'Order has not been approved yet (status: ' . (ORDER_STATUSES[$status] ?? $status) . ').'];
+        // A cancelled order pays nobody, and never will.
+        if (OrderService::normalizeStatus($order['status'] ?? null) === 'cancelled') {
+            return ['eligible' => false, 'reason' => 'Order is cancelled - no commission will be paid on it.'];
         }
-        if ($order['commission_status'] === 'credited') {
+        if ((string) ($order['commission_status'] ?? '') === 'credited') {
             return ['eligible' => false, 'reason' => 'Commission already credited.'];
         }
         return ['eligible' => true, 'reason' => 'Eligible'];
@@ -120,40 +123,46 @@ final class MlmCommissionEngine
      * Generate commission transactions for a single order.
      * Safe to call repeatedly - idempotent.
      *
-     * @return array{created:int, skipped:int, total:float, messages:array}
+     * @return array{created:int, skipped:int, released:int, total:float, messages:array}
      */
     public function processOrder(int $orderId, ?int $adminId = null): array
     {
-        $settings = MlmSettings::all();
-        $result = ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => []];
+        $result = ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => []];
 
         $order = $this->db->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
         if (!$order) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Order not found.']];
+            return ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => ['Order not found.']];
         }
 
         $eligibility = $this->orderEligibility($order);
         if (!$eligibility['eligible']) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => [$eligibility['reason']]];
+            return ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => [$eligibility['reason']]];
         }
+        $settings = MlmSettings::all();
 
         $plan = $this->commissionPlan($order);
         if ($plan['aborted']) {
             // Structural reason nobody can be paid (no member, no items, no upline). Left
             // unstamped so the order stays eligible if its sponsor chain is fixed later.
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => $plan['messages']];
+            return ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => $plan['messages']];
         }
         $buyer = $plan['buyer'];
         $result['skipped'] = $plan['skipped'];
 
         $holdDays = (int) ($settings['commission_hold_days'] ?? 0);
-        // New commissions always start as "approved" (no wallet yet). They are released to the
-        // member wallet immediately when no hold period applies, otherwise after the hold matures.
-        // Release no longer waits for payment: an approved order pays out. The hold period is the
-        // control for how long the company wants to sit on it.
         $autoRelease = $holdDays <= 0 && (string) ($settings['auto_credit_status'] ?? 'available') === 'available';
-        $initialStatus = 'approved';
         $availableAt = $holdDays > 0 ? date('Y-m-d H:i:s', time() + $holdDays * 86400) : null;
+
+        // RECORDING and RELEASING are different things, and conflating them is what used to make
+        // a COD purchase show no commission at all. Commission is calculated and written the
+        // moment the purchase is recorded, whatever the payment mode, so it is visible
+        // immediately. It only becomes spendable once the money is real: either the payment has
+        // settled (wallet / UPI / bank transfer) or the order has been approved or delivered
+        // (cash collected at the door). Until then the rows sit as "pending".
+        $orderStatus = OrderService::normalizeStatus($order['status'] ?? null);
+        $releasable = (string) $order['payment_status'] === 'paid'
+            || in_array($orderStatus, ORDER_COMMISSION_STATUSES, true);
+        $initialStatus = $releasable ? 'approved' : 'pending';
 
         foreach ($plan['entries'] as $entry) {
             $beneficiaryId = (int) $entry['beneficiary_id'];
@@ -194,28 +203,79 @@ final class MlmCommissionEngine
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
 
-            if ($autoRelease) {
-                (new WalletService($this->db))->releaseCommission($txId, 'auto credit');
+            $released = false;
+            if ($releasable && $autoRelease) {
+                $released = (new WalletService($this->db))->releaseCommission($txId, 'auto credit');
             }
 
             $result['created']++;
+            $result['released'] = ($result['released'] ?? 0) + ($released ? 1 : 0);
             $result['total'] = round($result['total'] + $amount, 2);
-            $result['messages'][] = sprintf('%s %s credited to %s', ucwords(str_replace('_', ' ', $type)), money($amount), $entry['beneficiary_code']);
+            $result['messages'][] = $released
+                ? sprintf('%s %s credited to %s', ucwords(str_replace('_', ' ', $type)), money($amount), $entry['beneficiary_code'])
+                : sprintf('%s %s recorded for %s (pending)', ucwords(str_replace('_', ' ', $type)), money($amount), $entry['beneficiary_code']);
 
             Notification::send(
                 'member',
                 $beneficiaryId,
-                'commission_credited',
-                'Commission Credited',
-                ucwords(str_replace('_', ' ', $type)) . ' of ' . money($amount) . ' credited from order ' . $order['order_number'] . '.',
+                $released ? 'commission_credited' : 'commission_recorded',
+                $released ? 'Commission Credited' : 'Commission Recorded',
+                $released
+                    ? ucwords(str_replace('_', ' ', $type)) . ' of ' . money($amount) . ' credited from order ' . $order['order_number'] . '.'
+                    : ucwords(str_replace('_', ' ', $type)) . ' of ' . money($amount) . ' recorded from order ' . $order['order_number'] . '. It becomes spendable once the order is approved or delivered.',
                 ['commission_type' => ucwords(str_replace('_', ' ', $type)), 'amount' => money($amount), 'order_number' => $order['order_number']],
-                ['link' => 'commissions', 'type' => 'success', 'icon' => 'fa-wallet']
+                ['link' => 'commissions', 'type' => $released ? 'success' : 'info', 'icon' => $released ? 'fa-wallet' : 'fa-clock']
             );
         }
 
+        // An order recorded earlier as pending settles when it is later approved or delivered.
+        // Those rows already exist, so the insert loop above skips them by idempotency key; deal
+        // with them here or they would sit pending forever. "pending" means the ORDER has not
+        // settled yet, so once it has, a row either becomes spendable or, when a hold period is
+        // in force, becomes "approved" and waits for available_at to mature.
+        if ($releasable) {
+            $result['released'] = $result['released'] ?? 0;
+            $settledRows = $this->db->select(
+                "SELECT id, status, available_at FROM commission_transactions
+                  WHERE order_id = :o AND status IN ('pending','approved')",
+                ['o' => $orderId]
+            );
+            foreach ($settledRows as $row) {
+                if ($autoRelease) {
+                    if ((new WalletService($this->db))->releaseCommission((int) $row['id'], 'order approved')) {
+                        $result['released']++;
+                    }
+                    continue;
+                }
+                if ((string) $row['status'] !== 'pending') {
+                    continue;
+                }
+                // Keep the maturity date the row was first recorded with, otherwise every pass
+                // would push the hold out again and the money would never mature.
+                $this->db->update('commission_transactions', [
+                    'status' => 'approved',
+                    'available_at' => $row['available_at'] ?: $availableAt,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ], 'id = :id', ['id' => (int) $row['id']]);
+            }
+        }
+
+        // Stamp the order from what its rows actually say, not from this run's counter. A release
+        // pass creates no rows (they already exist), so counting only $result['created'] would
+        // stamp a fully released order back to 'none'.
+        //   no live rows at all -> none; some still pending -> pending; all released -> credited.
+        $stamp = $this->db->first(
+            "SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                    COUNT(*) AS live
+               FROM commission_transactions
+              WHERE order_id = :o AND status NOT IN ('reversed','rejected')",
+            ['o' => $orderId]
+        );
+        $liveRows = (int) ($stamp['live'] ?? 0);
+        $pendingRows = (int) ($stamp['pending'] ?? 0);
         $this->db->update('orders', [
             'commission_processed_at' => date('Y-m-d H:i:s'),
-            'commission_status' => $result['created'] > 0 ? 'credited' : 'none',
+            'commission_status' => $liveRows === 0 ? 'none' : ($pendingRows > 0 ? 'pending' : 'credited'),
             'updated_at' => date('Y-m-d H:i:s'),
         ], 'id = :id', ['id' => $orderId]);
 
@@ -379,14 +439,22 @@ final class MlmCommissionEngine
             $byMember[$id]['entries'][] = $entry;
         }
 
+        // Commission is recorded at purchase time now, so an unsettled order usually already has
+        // pending rows. Say that plainly instead of implying nothing has been calculated yet.
+        $recordedPending = (int) $this->db->value(
+            "SELECT COUNT(*) FROM commission_transactions WHERE order_id = :o AND status = 'pending'",
+            ['o' => $orderId]
+        );
         return [
-            // "future" means the order has not reached an approving status yet, so nothing has
-            // been credited. Once it is approved the same amounts appear as real commission.
+            // "future" means the money is not spendable yet. Once the order is approved or
+            // delivered the same amounts become real, withdrawable commission.
             'future' => !in_array($status, ORDER_COMMISSION_STATUSES, true),
             'eligible' => true,
-            'reason' => in_array($status, ORDER_COMMISSION_STATUSES, true)
-                ? 'Awaiting commission processing.'
-                : 'Pays out when this order is approved or delivered.',
+            'reason' => $recordedPending > 0
+                ? 'Recorded and pending. Becomes spendable when this order is approved or delivered.'
+                : (in_array($status, ORDER_COMMISSION_STATUSES, true)
+                    ? 'Awaiting commission processing.'
+                    : 'Pays out when this order is approved or delivered.'),
             'entries' => $plan['entries'],
             'total' => $total,
             'by_member' => $byMember,
@@ -578,12 +646,96 @@ final class MlmCommissionEngine
         return $count;
     }
 
+    /**
+     * Catch-up pass behind the admin "Run processing" button.
+     *
+     * Every order that never got a commission row is processed again, including orders still
+     * sitting at "new" — those are exactly the ones the old code skipped, which is why an opening
+     * purchase recorded by an administrator showed nothing for the sponsor. processOrder() is
+     * idempotent on its idempotency key, so running this repeatedly is safe and never double-pays.
+     *
+     * @return array{orders:int, recorded:int, released:int, total:float, skipped:int, notes:array<int,string>}
+     */
+    public function backfillOrders(int $limit = 500): array
+    {
+        $summary = ['orders' => 0, 'recorded' => 0, 'released' => 0, 'total' => 0.0, 'skipped' => 0, 'notes' => []];
+
+        $orders = $this->db->select(
+            "SELECT o.id, o.order_number FROM orders o
+              WHERE o.status <> 'cancelled'
+                AND NOT EXISTS (
+                        SELECT 1 FROM commission_transactions ct
+                         WHERE ct.order_id = o.id AND ct.status NOT IN ('reversed','rejected')
+                    )
+              ORDER BY o.id ASC
+              LIMIT " . max(1, $limit)
+        );
+
+        foreach ($orders as $order) {
+            $orderId = (int) $order['id'];
+            $res = $this->processOrder($orderId);
+            $summary['orders']++;
+            if ((int) ($res['created'] ?? 0) > 0) {
+                $summary['recorded']++;
+                $summary['released'] += (int) ($res['released'] ?? 0);
+                $summary['total'] = round($summary['total'] + (float) ($res['total'] ?? 0), 2);
+                $note = sprintf(
+                    '%s: %d entries totalling %s recorded%s',
+                    (string) $order['order_number'],
+                    (int) $res['created'],
+                    money((float) $res['total']),
+                    (int) ($res['released'] ?? 0) > 0 ? ' and credited' : ' (pending until the order is approved or delivered)'
+                );
+            } else {
+                $summary['skipped']++;
+                $note = sprintf(
+                    '%s: %s',
+                    (string) $order['order_number'],
+                    (string) ($res['messages'][0] ?? 'no commission payable')
+                );
+            }
+            if (count($summary['notes']) < 12) {
+                $summary['notes'][] = $note;
+            }
+        }
+
+        // Orders recorded earlier but never released are a separate case: they have rows, so the
+        // query above ignores them, yet a paid or approved order should not sit pending.
+        $stale = $this->db->select(
+            "SELECT DISTINCT o.id FROM orders o
+              WHERE o.status IN ('processing','shipped','delivered')
+                AND EXISTS (SELECT 1 FROM commission_transactions ct
+                             WHERE ct.order_id = o.id AND ct.status = 'pending')
+              ORDER BY o.id ASC
+              LIMIT " . max(1, $limit)
+        );
+        foreach ($stale as $row) {
+            $res = $this->processOrder((int) $row['id']);
+            if ((int) ($res['released'] ?? 0) > 0) {
+                $summary['released'] += (int) $res['released'];
+            }
+        }
+
+        if ($summary['recorded'] > 0 || $summary['released'] > 0) {
+            Audit::log(
+                'commission_backfill',
+                'mlm',
+                sprintf('Run processing: %d of %d orders recorded %s, %d entries credited', $summary['recorded'], $summary['orders'], money($summary['total']), $summary['released']),
+                null,
+                null
+            );
+        }
+        return $summary;
+    }
+
     /** Release commissions whose hold period has elapsed. */
     public function releaseMaturedCommissions(): int
     {
+        // 'pending' covers rows recorded before their order settled; 'approved' covers rows
+        // whose order has settled and are simply waiting out the hold period.
         $rows = $this->db->select(
             "SELECT id FROM commission_transactions
-             WHERE status = 'pending' AND available_at IS NOT NULL AND available_at <= :now",
+             WHERE status IN ('pending','approved') AND available_at IS NOT NULL AND available_at <= :now",
             ['now' => date('Y-m-d H:i:s')]
         );
         $wallet = new WalletService($this->db);

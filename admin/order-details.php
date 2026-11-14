@@ -119,8 +119,9 @@ require __DIR__ . '/includes/layout.php';
           </div>
         <?php else: ?>
           <p class="small text-muted mb-0">
-            No commission yet. Commission is generated when you approve this order (move it to
-            Processing) or when it is delivered.
+            No commission applies to this order. Commission is calculated from each product's own
+            MLM commission settings as soon as the purchase is recorded, so an empty table here
+            means these products carry no MLM commission, or the buyer has no sponsor above them.
             <?php if (!empty($futureCommission['reason'])): ?>
               <br><span class="fst-italic"><?= e((string) $futureCommission['reason']) ?></span>
             <?php endif; ?>

@@ -184,6 +184,14 @@ final class OrderService
 
         $cartService->close();
 
+        // Record commission the moment the purchase exists, exactly as an assisted purchase does,
+        // so a sponsor line can see what a website order earned them straight away. The rows land
+        // as pending unless the payment has already settled; approval or delivery releases them.
+        // Idempotent, so the later trigger in updateStatus() simply finds nothing new to write.
+        if ($memberId || $referralMemberId) {
+            $this->runCommission($orderId);
+        }
+
         Notification::send('customer', (int) (CustomerAuth::id() ?: 0), 'order_placed', 'Order Placed Successfully',
             'Your order ' . $orderNumber . ' for ' . money($totals['grand_total']) . ' has been received.',
             ['order_number' => $orderNumber, 'amount' => money($totals['grand_total'])],
@@ -289,9 +297,11 @@ final class OrderService
             ]);
         });
 
-        // No commission here. Commissions are generated when the admin approves the order
-        // (moves it to processing) or when it is delivered - see updateStatus().
-        (new RoyaltyEngine($this->db))->evaluateMember((int) ($order['member_id'] ?? 0));
+        // Settling the payment is one of the two moments commission becomes spendable (the other
+        // is the order being approved or delivered). The rows are normally already recorded from
+        // when the purchase was made, so this releases them; if an older order never got any,
+        // processOrder() records them here. Either way it is idempotent.
+        $this->runCommission($orderId);
 
         Notification::send('member', (int) ($order['member_id'] ?? 0), 'order_status_updated', 'Payment Confirmed',
             'Payment for order ' . $order['order_number'] . ' has been confirmed.',
@@ -378,7 +388,10 @@ final class OrderService
         // Commission side effects. Approval (processing) and delivery are the two triggers;
         // payment alone never pays anyone out.
         if ($status === 'cancelled') {
-            if ($order['commission_status'] === 'credited') {
+            // Commission is now recorded at purchase time, so a cancelled order can hold rows
+            // that are recorded-but-pending as well as credited ones. Reverse both: reverseOrder()
+            // already skips anything already reversed or rejected.
+            if (in_array($order['commission_status'], ['credited', 'pending'], true)) {
                 (new MlmCommissionEngine($this->db))->reverseOrder($orderId, 'Order cancelled');
                 $result['commission'] = ['reversed' => true];
             }

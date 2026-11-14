@@ -371,11 +371,14 @@ final class MemberPurchaseService
         }
 
         // ---- MLM + payout rules, through the same engine the storefront uses --------------
-        // Commission is triggered by approval, not by payment, so a settled assisted purchase is
-        // approved here. Going through OrderService::updateStatus() keeps one commission path for
-        // storefront and assisted orders instead of a second copy of the trigger logic.
-        $commission = ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => []];
+        // Commission is calculated and recorded the moment the purchase exists, whatever the
+        // payment mode, so the sponsor line can see it immediately. Whether it is spendable yet
+        // is the engine's decision: settled money releases it, cash on delivery holds it pending
+        // until the order is approved or delivered.
+        $commission = ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => []];
         if ($paidNow) {
+            // Settled money: approving the order both moves it forward and releases commission,
+            // through the same path a storefront order uses rather than a second copy.
             $approved = (new OrderService($this->db))->updateStatus(
                 $orderId,
                 'processing',
@@ -384,6 +387,14 @@ final class MemberPurchaseService
                 $role === 'admin' ? AdminAuth::id() : $actorMemberId
             );
             $commission = $approved['commission'] ?? $commission;
+        } else {
+            // Cash on delivery: record now, release when the order is approved or delivered.
+            // This branch bypasses OrderService::updateStatus(), so it has to evaluate royalty
+            // itself; the settled branch above gets that for free through runCommission().
+            $commission = (new MlmCommissionEngine($this->db))->processOrder($orderId);
+            if ((int) ($commission['created'] ?? 0) > 0) {
+                (new RoyaltyEngine($this->db))->evaluateMember($beneficiaryId);
+            }
         }
 
         $operatorNote = $source === 'admin'

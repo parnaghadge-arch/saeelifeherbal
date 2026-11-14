@@ -25,9 +25,23 @@ if (is_post()) {
         Audit::log('commission_reversed', 'mlm', 'Commission #' . $commissionId . ' reversed: ' . $reason, 'commission_transactions', $commissionId);
         Session::{$ok ? 'success' : 'error'}($ok ? 'Commission reversed and ledger updated.' : 'This commission cannot be reversed.');
     } elseif ($action === 'process' && AdminAuth::can('mlm.process')) {
-        $count = $engine->processEligibleOrders();
-        Audit::log('process', 'mlm', 'Commission processing run processed ' . $count . ' order(s)', 'commission_transactions');
-        Session::success('Processed ' . $count . ' eligible order(s).');
+        // Catches up every order that never got a commission row, including ones still at "new".
+        $run = $engine->backfillOrders();
+        Audit::log('process', 'mlm', sprintf(
+            'Commission processing run: %d of %d order(s) recorded %s, %d entries credited',
+            $run['recorded'], $run['orders'], money($run['total']), $run['released']
+        ), 'commission_transactions');
+        if ($run['recorded'] === 0 && $run['released'] === 0) {
+            Session::success('Checked ' . $run['orders'] . ' order(s) — commission was already up to date.');
+        } else {
+            Session::success(sprintf(
+                'Recorded commission for %d of %d order(s) totalling %s%s.',
+                $run['recorded'],
+                $run['orders'],
+                money($run['total']),
+                $run['released'] > 0 ? ', ' . $run['released'] . ' entr' . ($run['released'] === 1 ? 'y' : 'ies') . ' credited to wallets now' : ''
+            ));
+        }
     } elseif ($action === 'release' && AdminAuth::can('mlm.process')) {
         $released = $engine->releaseMaturedCommissions();
         Audit::log('release', 'mlm', 'Released ' . $released . ' matured commission(s)', 'commission_transactions');
