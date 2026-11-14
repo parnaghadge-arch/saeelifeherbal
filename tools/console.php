@@ -45,7 +45,7 @@ $commands = [
     'schema:mysql', 'schema:sqlite',
     'collation:repair', 'collation:heal',
     'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap', 'seed-payouts', 'warn:scan',
-    'payouts:auto', 'mlm:drop-commission-rules',
+    'payouts:auto', 'mlm:drop-commission-rules', 'production:reset',
 ];
 
 if (!in_array($command, $commands, true)) {
@@ -60,6 +60,10 @@ if (!in_array($command, $commands, true)) {
     echo "  logs                  show recent PHP errors (use a code from the error page)\n";
     echo "      --tail=40 --grep=ERR-XXXXXXXX --clear\n";
     echo "  demo                 seed demo catalogue, members, orders and commissions\n";
+    echo "  production:reset     WIPE everything and rebuild a clean production database\n";
+    echo "      keeps settings/products/pages, seeds no demo partners or orders,\n";
+    echo "      creates the SAEE00001-00002-00003 company chain (fallback = SAEE00003)\n";
+    echo "      --admin-user=admin --admin-pass='Admin@12345' --yes\n";
     echo "  schema:mysql         write database/schema.sql from the schema definition\n";
     echo "  schema:sqlite        write database/schema.sqlite.sql\n";
     echo "  commissions:process  release matured commission holds (cron)\n";
@@ -503,6 +507,39 @@ switch ($command) {
             'updated_at' => $now,
         ]);
         echo "Payout in-progress template ensured." . PHP_EOL;
+        break;
+
+    case 'production:reset':
+        // Destructive by design: this rebuilds the database from nothing. Guard it behind an
+        // explicit flag so it can never run by accident from a shell history mistake.
+        if (empty($opts['yes'])) {
+            fwrite(STDERR, "This DELETES every member, order, payout, commission and wallet in the database." . PHP_EOL);
+            fwrite(STDERR, "Re-run with --yes to confirm:  php tools/console.php production:reset --yes" . PHP_EOL);
+            exit(1);
+        }
+
+        echo "Rebuilding the database from scratch..." . PHP_EOL;
+        $installer = new Installer($db);
+        // fresh = true drops every table first, so nothing from the previous installation
+        // survives — not even rows in tables this script does not know about.
+        $installer->install([
+            'name' => $opts['admin-name'] ?? 'Super Administrator',
+            'email' => $opts['admin-email'] ?? 'admin@saeelifeherbal.com',
+            'username' => $opts['admin-user'] ?? 'admin',
+            'password' => $opts['admin-pass'] ?? 'Admin@12345',
+        ], true);
+
+        // Catalogue and website content only. No demo partners, no demo orders.
+        (new \Saee\Lib\DemoSeeder($db))->seedContent();
+
+        $chain = (new \Saee\Lib\CompanyStructure($db))->seed();
+
+        echo PHP_EOL . "Production database ready." . PHP_EOL;
+        echo "  Admin login    : " . ($opts['admin-user'] ?? 'admin') . " / " . ($opts['admin-pass'] ?? 'Admin@12345') . PHP_EOL;
+        echo "  Company chain  : " . implode('  ->  ', array_keys($chain)) . PHP_EOL;
+        echo "  Sponsor fallback: " . \Saee\Lib\MlmSettings::companySponsorCode() . PHP_EOL;
+        echo "  Next member ID : SLH" . str_pad('1', (int) \Saee\Lib\MlmSettings::get('member_id_padding', 6), '0', STR_PAD_LEFT)
+            . "  (password = the member ID)" . PHP_EOL;
         break;
 
     case 'demo':

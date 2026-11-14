@@ -40,7 +40,10 @@ define('CURRENCY', 'INR');
 // with the wrong encoding used to turn the rupee sign into stray digits (262145), which
 // then appeared inside every price on the site.
 define('CURRENCY_SYMBOL', "\u{20B9}");
-define('DEFAULT_COMPANY_SPONSOR_ID', 'SAEE00001');
+// The bottom of the company chain (SAEE00001 -> SAEE00002 -> SAEE00003). Every partner who
+// registers without naming a sponsor is attached here, so this must be the LAST account in
+// the chain rather than the root — see lib/CompanyStructure.php.
+define('DEFAULT_COMPANY_SPONSOR_ID', 'SAEE00003');
 
 date_default_timezone_set(DEFAULT_TIMEZONE);
 

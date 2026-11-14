@@ -42,7 +42,6 @@ if (is_post()) {
     $postedQty = is_array($_POST['qty'] ?? null) ? $_POST['qty'] : [];
     $noSponsor = !empty($_POST['no_sponsor']);
     $sponsorCode = $noSponsor ? '' : trim((string) Request::input('sponsor_code', ''));
-    $password = (string) Request::raw('password');
 
     // ---- validation ----------------------------------------------------------------
     if (mb_strlen($old['name']) < 3) {
@@ -55,9 +54,6 @@ if (is_post()) {
     }
     if ($old['email'] !== '' && !filter_var($old['email'], FILTER_VALIDATE_EMAIL)) {
         $errors['email'] = ['Enter a valid email address, or leave it blank.'];
-    }
-    if (strlen($password) < 8) {
-        $errors['password'] = ['Set a password of at least 8 characters.'];
     }
     if (!in_array($old['role'], ['farmer', 'distributor', 'retailer'], true)) {
         $old['role'] = 'distributor';
@@ -87,7 +83,6 @@ if (is_post()) {
                 'name' => $old['name'],
                 'mobile' => $mobile,
                 'email' => $old['email'],
-                'password' => $password,
                 'role' => $old['role'],
                 'sponsor_code' => $sponsorCode,
                 'allow_root' => $noSponsor,
@@ -223,10 +218,11 @@ require __DIR__ . '/includes/layout.php';
         </select>
       </div>
       <div class="col-md-6">
-        <label class="form-label" for="password">Password to give the member <span class="required-mark">*</span></label>
-        <input id="password" name="password" class="form-control<?= isset($errors['password']) ? ' is-invalid' : '' ?>" value="<?= e((string) Request::raw('password')) ?>" autocomplete="new-password" required>
-        <div class="form-text">At least 8 characters. It is shown once, on the details card.</div>
-        <?php if (isset($errors['password'])): ?><div class="invalid-feedback d-block"><?= e($errors['password'][0]) ?></div><?php endif; ?>
+        <label class="form-label">Password</label>
+        <div class="form-control bg-light border-0 small text-muted">
+          Generated automatically — it is the same as the Member ID.
+        </div>
+        <div class="form-text">Shown once, on the details card after saving.</div>
       </div>
       <div class="col-md-6">
         <label class="form-label" for="sponsor_code">Sponsor ID <span class="required-mark sponsor-required">*</span></label>

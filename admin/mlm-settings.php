@@ -41,6 +41,15 @@ if ($form === 'plan') {
     foreach (['mlm_plan_enabled', 'mlm_plan_public', 'mlm_registration_enabled', 'mlm_show_earnings_public'] as $flag) {
         Settings::set($flag, Request::bool($flag) ? '1' : '0', 'boolean');
     }
+    // The sponsor fallback lives in the mlm_settings TABLE, not in `settings`. Writing only
+    // the settings row (as this form used to) left the field looking saved while every
+    // consumer kept reading the old value.
+    if (array_key_exists('mlm_company_sponsor_code', $_POST)) {
+        $code = strtoupper(trim((string) Request::input('mlm_company_sponsor_code', '')));
+        if ($code !== '') {
+            $db->update('mlm_settings', ['company_sponsor_code' => $code, 'updated_at' => date('Y-m-d H:i:s')], 'id = 1');
+        }
+    }
     MlmSettings::flush();
     Settings::flush();
     Audit::log('update', 'mlm', 'MLM settings updated', 'settings');
@@ -53,7 +62,7 @@ $current = [
     'mlm_plan_public' => (string) Settings::get('mlm_plan_public', '0'),
     'mlm_registration_enabled' => (string) Settings::get('mlm_registration_enabled', '1'),
     'mlm_show_earnings_public' => (string) Settings::get('mlm_show_earnings_public', '1'),
-    'mlm_company_sponsor_code' => (string) Settings::get('mlm_company_sponsor_code', 'SAEE00001'),
+    'mlm_company_sponsor_code' => MlmSettings::companySponsorCode(),
     'mlm_commission_hold_days' => (string) Settings::get('mlm_commission_hold_days', '0'),
     'mlm_credit_status' => (string) Settings::get('mlm_credit_status', 'auto'),
     'mlm_max_commission_levels' => (string) Settings::get('mlm_max_commission_levels', '2'),

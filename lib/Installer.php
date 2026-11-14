@@ -47,6 +47,19 @@ final class Installer
         $this->seedSocialLinks($now);
         $this->seedFaqs($now);
         $this->seedLegalContent($now);
+        $this->seedCompanyStructure($now);
+    }
+
+    /**
+     * The three company accounts at the top of the tree (SAEE00001 -> 00002 -> 00003).
+     *
+     * Seeded on every install so the sponsor fallback always resolves. They carry explicit
+     * member codes and never consume the member_code sequence, so the first real partner is
+     * still SLH000001.
+     */
+    private function seedCompanyStructure(string $now): void
+    {
+        (new CompanyStructure($this->db))->seed();
     }
 
     private function setting(string $key, string $value, string $type = 'string', string $group = 'general'): void
@@ -297,7 +310,7 @@ final class Installer
             'royalty_auto_process' => 1,
             'royalty_requires_approval' => 1,
             'member_id_prefix' => 'SLH',
-            'member_id_padding' => 5,
+            'member_id_padding' => 6,
             'registration_enabled' => 1,
             'max_direct_referrals' => 0,
             'compliance_notice' => 'Commissions are earned only on genuine product sales. No joining fee. No recruitment-only income.',

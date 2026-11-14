@@ -966,7 +966,7 @@ final class Schema
             'mlm_settings' => [
                 'columns' => [
                     'id' => 'pk',
-                    'company_sponsor_code' => 'string:20|notnull|default:\'SAEE00001\'',
+                    'company_sponsor_code' => 'string:20|notnull|default:\'SAEE00003\'',
                     'plan_enabled' => 'bool|default:0',
                     'commission_hold_days' => 'int|notnull|default:0',
                     'direct_levels' => 'int|notnull|default:1',
@@ -977,7 +977,7 @@ final class Schema
                     'royalty_auto_process' => 'bool|default:1',
                     'royalty_requires_approval' => 'bool|default:1',
                     'member_id_prefix' => 'string:10|notnull|default:\'SLH\'',
-                    'member_id_padding' => 'int|notnull|default:5',
+                    'member_id_padding' => 'int|notnull|default:6',
                     'registration_enabled' => 'bool|default:1',
                     'max_direct_referrals' => 'int|notnull|default:0',
                     'compliance_notice' => 'text|null',

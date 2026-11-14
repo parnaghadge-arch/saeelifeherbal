@@ -20,8 +20,6 @@ $v = new Validator($_POST);
 $v->label('name', 'Full name')->required('name')->min('name', 3)->max('name', 120);
 $v->label('mobile', 'Mobile number')->required('mobile')->phone('mobile', true);
 $v->label('email', 'Email')->email('email');
-$v->label('password', 'Password')->required('password')->password('password');
-$v->label('password_confirm', 'Confirm password')->required('password_confirm')->matches('password_confirm', 'password');
 $v->label('sponsor_code', 'Sponsor ID')->max('sponsor_code', 20);
 $v->label('state', 'State')->required('state');
 $v->label('district', 'District')->required('district');
@@ -36,7 +34,6 @@ $result = (new MemberService(Database::instance()))->register([
     'name' => $v->value('name'),
     'mobile' => $v->value('mobile'),
     'email' => $v->value('email'),
-    'password' => (string) Request::raw('password'),
     'role' => (string) Request::input('role', 'farmer'),
     'sponsor_code' => (string) Request::input('sponsor_code', ''),
     'address' => (string) Request::input('address', ''),
@@ -53,8 +50,10 @@ if (!$result['ok']) {
     Response::error($result['message'], $result['errors'] ?? []);
 }
 
-// Auto sign-in after registration.
-MemberAuth::attempt((string) $v->value('mobile'), (string) Request::raw('password'), false);
+// Auto sign-in after registration. The password is generated as the member ID, so the
+// welcome payload is the only place the plain value ever exists.
+$welcome = (array) ($result['welcome'] ?? []);
+MemberAuth::attempt((string) ($welcome['username'] ?? $v->value('mobile')), (string) ($welcome['password'] ?? ''), false);
 
 // 'welcome' carries the login credentials and share link so a client can show the one-time
 // "save your details" card. It is only ever present in this response.

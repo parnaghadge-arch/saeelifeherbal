@@ -415,14 +415,20 @@ final class MlmCommissionEngine
         return $chain;
     }
 
+    /**
+     * The company account, used to stop the commission chain and to skip company orders.
+     *
+     * Resolved from the configured code rather than "the first is_company row": there are
+     * three company accounts and the configured one is the sponsor fallback.
+     */
     public function companyMemberId(): int
     {
-        $id = $this->db->value('SELECT id FROM members WHERE is_company = 1 LIMIT 1');
+        $code = MlmSettings::companySponsorCode();
+        $id = $this->db->value('SELECT id FROM members WHERE member_code = :c', ['c' => $code]);
         if ($id) {
             return (int) $id;
         }
-        $code = MlmSettings::companySponsorCode();
-        $id = $this->db->value('SELECT id FROM members WHERE member_code = :c', ['c' => $code]);
+        $id = $this->db->value('SELECT id FROM members WHERE is_company = 1 ORDER BY id DESC LIMIT 1');
         return $id ? (int) $id : 0;
     }
 

@@ -46,7 +46,7 @@ final class Sequence
     {
         $settings = self::mlmSettings();
         $prefix = $settings['member_id_prefix'] ?? 'SLH';
-        $padding = (int) ($settings['member_id_padding'] ?? 5);
+        $padding = (int) ($settings['member_id_padding'] ?? 6);
         return strtoupper($prefix) . str_pad((string) self::next('member_code'), $padding, '0', STR_PAD_LEFT);
     }
 

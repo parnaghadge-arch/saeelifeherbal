@@ -14,13 +14,17 @@ final class DemoSeeder
     {
     }
 
-    public function run(): void
+    /**
+     * Website content only: catalogue, sliders, blogs, gallery, testimonials and the
+     * founder/team profiles.
+     *
+     * No partners, no orders, no wallets, no commissions. This is the subset a production
+     * install gets (see `php tools/console.php production:reset`); `run()` below adds the
+     * throwaway demo data on top of it for development.
+     */
+    public function seedContent(): void
     {
         $now = date('Y-m-d H:i:s');
-        MlmSettings::flush();
-        $this->db->update('mlm_settings', ['plan_enabled' => 1, 'updated_at' => $now], 'id = 1');
-
-        $companyId = $this->ensureCompanyMember($now);
         $this->seedCategories($now);
         $this->seedProducts($now);
         $this->seedSliders($now);
@@ -28,14 +32,30 @@ final class DemoSeeder
         $this->seedGalleryAndVideos($now);
         $this->seedTestimonials($now);
         $this->seedFounderTeam($now);
+    }
+
+    public function run(): void
+    {
+        $now = date('Y-m-d H:i:s');
+        MlmSettings::flush();
+        $this->db->update('mlm_settings', ['plan_enabled' => 1, 'updated_at' => $now], 'id = 1');
+
+        $companyId = $this->ensureCompanyMember($now);
+        $this->seedContent();
         $this->seedTeam($companyId, $now);
         $this->seedOrders($now);
         $this->seedActivity($now);
         (new TeamService($this->db))->recalculateAll();
     }
 
+    /** The company account the demo tree hangs from — the real SAEE chain, never a new one. */
     private function ensureCompanyMember(string $now): int
     {
+        $chain = (new CompanyStructure($this->db))->seed();
+        $fallback = (int) ($chain[CompanyStructure::fallbackCode()] ?? 0);
+        if ($fallback > 0) {
+            return $fallback;
+        }
         $existing = $this->db->value('SELECT id FROM members WHERE is_company = 1');
         if ($existing) {
             return (int) $existing;

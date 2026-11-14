@@ -1175,7 +1175,7 @@ CREATE TABLE IF NOT EXISTS `payout_settings` (
 DROP TABLE IF EXISTS `mlm_settings`;
 CREATE TABLE IF NOT EXISTS `mlm_settings` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `company_sponsor_code` VARCHAR(20) NOT NULL DEFAULT 'SAEE00001',
+  `company_sponsor_code` VARCHAR(20) NOT NULL DEFAULT 'SAEE00003',
   `plan_enabled` TINYINT(1) NULL DEFAULT 0,
   `commission_hold_days` INT NOT NULL DEFAULT 0,
   `direct_levels` INT NOT NULL DEFAULT 1,
@@ -1186,7 +1186,7 @@ CREATE TABLE IF NOT EXISTS `mlm_settings` (
   `royalty_auto_process` TINYINT(1) NULL DEFAULT 1,
   `royalty_requires_approval` TINYINT(1) NULL DEFAULT 1,
   `member_id_prefix` VARCHAR(10) NOT NULL DEFAULT 'SLH',
-  `member_id_padding` INT NOT NULL DEFAULT 5,
+  `member_id_padding` INT NOT NULL DEFAULT 6,
   `registration_enabled` TINYINT(1) NULL DEFAULT 1,
   `max_direct_referrals` INT NOT NULL DEFAULT 0,
   `compliance_notice` TEXT NULL,
