@@ -267,7 +267,7 @@ require __DIR__ . '/includes/layout.php';
   <h2 class="h6 mb-2"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i>Held — earnings available but not payable (<?= count($blockedMembers) ?>)</h2>
   <p class="small text-muted mb-2">These members have reached the minimum but are blocked by KYC / bank / status. They will join the report automatically once fixed.</p>
   <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0">
+    <table class="table table-sm align-middle mb-0 data-table">
       <thead><tr><th>Member</th><th class="text-end">Available</th><th>Blocked by</th></tr></thead>
       <tbody>
       <?php foreach ($blockedMembers as $b): ?>

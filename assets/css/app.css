@@ -1805,3 +1805,119 @@ pre, code { word-break: break-word; }
   .pp-totalbar { position: sticky; bottom: calc(var(--saee-tabbar-h, 0px) + .5rem); z-index: 5;
     box-shadow: var(--saee-shadow); }
 }
+
+/* ==========================================================================
+   RESPONSIVE SYSTEM FOR THE TWO APP PANELS (admin + member)
+
+   Scoped to body.app-body on purpose: the public storefront has its own type
+   scale and must not be rescaled by dashboard tuning.
+
+   One variable drives the base size and every panel dimension below is written
+   in `em`, so the whole interface scales from a single knob per breakpoint
+   instead of needing a separate override for each of the hundred-odd rules that
+   make up a dashboard. Small phones get a tighter, app-like base; wide desktops
+   get a larger one so the same layout reads comfortably at arm's length.
+   ========================================================================== */
+body.app-body {
+  --app-fs: 15px;
+  --app-pad: .85rem;
+  --app-touch: 44px;
+  font-size: var(--app-fs);
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+@media (min-width: 576px)  { body.app-body { --app-fs: 15.5px; --app-pad: 1rem; } }
+@media (min-width: 992px)  { body.app-body { --app-fs: 16px;   --app-pad: 1.15rem; } }
+@media (min-width: 1600px) { body.app-body { --app-fs: 16.5px; } }
+
+/* --- type: re-expressed in em so it follows --app-fs ---------------------- */
+body.app-body .app-topbar { padding: .6em var(--app-pad); gap: .6em; }
+body.app-body .app-topbar .page-title { font-size: 1.06em; line-height: 1.3; }
+body.app-body .app-topbar .page-sub { font-size: .78em; line-height: 1.35; }
+body.app-body .panel { border-radius: 1em; }
+body.app-body .panel-head { padding: .85em 1em; }
+body.app-body .panel-head h2,
+body.app-body .panel-head h3 { font-size: 1em; }
+body.app-body .panel-body { padding: 1em; }
+body.app-body h2.h6, body.app-body .h6 { font-size: 1em; }
+body.app-body .mini-stat { padding: .7em .8em; border-radius: .9em; }
+body.app-body .mini-stat span { font-size: .7em; }
+body.app-body .mini-stat strong { font-size: 1.15em; }
+body.app-body .mini-stat small { font-size: .7em; }
+body.app-body .table { font-size: .88em; margin-bottom: 0; }
+body.app-body .table > :not(caption) > * > * { padding: .6em .65em; }
+body.app-body .form-label { font-size: .82em; margin-bottom: .25em; }
+body.app-body .form-text { font-size: .75em; }
+body.app-body .small, body.app-body small { font-size: .84em; }
+body.app-body .btn { font-size: .88em; }
+body.app-body .btn-sm { font-size: .82em; padding: .38em .8em; }
+body.app-body .badge { font-size: .74em; }
+body.app-body .dropdown-menu { font-size: .88em; }
+body.app-body .sidebar-nav .nav-link { font-size: .9em; }
+
+/* --- touch: iOS zooms the page when a focused control is under 16px ------- */
+@media (max-width: 991.98px) {
+  body.app-body input,
+  body.app-body select,
+  body.app-body textarea,
+  body.app-body .form-control,
+  body.app-body .form-select { font-size: 16px; }
+  /* Comfortable finger targets, which is what makes it feel like an app. */
+  body.app-body .btn,
+  body.app-body .form-control,
+  body.app-body .form-select { min-height: var(--app-touch); }
+  body.app-body .btn-sm { min-height: 38px; }
+  body.app-body .form-check-input { width: 1.15em; height: 1.15em; }
+  body.app-body .page-link,
+  body.app-body .nav-link { min-height: 40px; display: inline-flex; align-items: center; }
+}
+
+/* --- phones: compact, single column, nothing overflows -------------------- */
+@media (max-width: 767.98px) {
+  body.app-body .app-main { padding-bottom: .5rem; }
+  body.app-body .app-topbar { flex-wrap: wrap; row-gap: .35em; }
+  body.app-body .app-topbar .page-title { font-size: 1em; }
+  body.app-body .app-topbar .page-sub { display: none; }
+  body.app-body .panel { border-radius: .8em; }
+  body.app-body .panel-body { padding: .85em; }
+  body.app-body .p-3.p-md-4, body.app-body .p-md-4 { padding: .85em !important; }
+  /* Toolbars and filter rows stack instead of squeezing side by side. */
+  body.app-body .crud-toolbar,
+  body.app-body .d-flex.gap-2,
+  body.app-body .d-flex.gap-3 { flex-wrap: wrap; }
+  body.app-body .crud-toolbar .btn,
+  body.app-body .page-actions .btn { flex: 1 1 auto; }
+  /* Stat grids go 2-up, which is the most a phone can read at a glance. */
+  body.app-body .row.g-3 > [class*="col-lg-3"] { flex: 0 0 auto; width: 50%; }
+  /* Long unbroken strings (codes, emails, hashes) must not force a scroll. */
+  body.app-body td, body.app-body th,
+  body.app-body .text-break { overflow-wrap: anywhere; word-break: break-word; }
+  body.app-body .table { font-size: .84em; }
+  /* DataTables chrome stacks rather than overflowing. */
+  body.app-body div.dt-container .dt-layout-row { flex-direction: column; align-items: stretch; gap: .4rem; }
+  body.app-body div.dt-container .dt-search input,
+  body.app-body div.dt-container .dt-length select { width: 100%; }
+  /* Modal dialogs fill the screen edge to edge on a phone. */
+  body.app-body .modal-dialog { margin: .5rem; max-width: none; }
+  body.app-body .modal-content { border-radius: .8em; }
+  /* The purchase picker: single column, shorter, and its sticky total clears the tab bar. */
+  body.app-body .pp-grid { grid-template-columns: minmax(0, 1fr); max-height: 60vh; }
+  body.app-body .pp-search { max-width: none; }
+  body.app-body .pp-line { flex-wrap: wrap; row-gap: .35rem; }
+  body.app-body .pp-stepper { order: 3; }
+}
+
+/* --- very small phones (<=360px): drop a step, keep it legible ------------ */
+@media (max-width: 359.98px) {
+  body.app-body { --app-fs: 14px; }
+  body.app-body .app-topbar .page-title { font-size: .95em; }
+  body.app-body .btn { padding-left: .6em; padding-right: .6em; }
+  body.app-body .pp-stepper .form-control { width: 3rem; }
+}
+
+/* --- short landscape phones: keep the sticky bars from eating the screen -- */
+@media (max-height: 500px) and (max-width: 991.98px) {
+  body.app-body .pp-grid { max-height: 40vh; }
+  body.app-body .pp-totalbar { position: static; }
+}
