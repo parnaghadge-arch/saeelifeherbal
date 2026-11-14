@@ -33,6 +33,7 @@ if ($forId < 1 || !$service->canPurchaseFor('member', $actorId, $forId)) {
 $beneficiary = db()->first('SELECT * FROM members WHERE id = :id', ['id' => $forId]);
 $search = trim((string) (Request::query('q') ?? ''));
 $products = $service->products($search);
+$productTotal = $service->activeProductCount();
 $walletBalance = $service->walletBalance($forId);
 $result = null;
 
@@ -110,52 +111,17 @@ require __DIR__ . '/includes/layout.php';
   <input type="hidden" name="action" value="purchase">
   <input type="hidden" name="member_id" value="<?= (int) $forId ?>">
 
-  <div class="panel p-3 p-md-4 mb-3">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <h2 class="h6 mb-0">Select products</h2>
-      <span class="small text-muted"><?= count($products) ?> available</span>
-    </div>
-    <?php if (!$products): ?>
-      <p class="small text-muted mb-0">No products matched that search.</p>
-    <?php else: ?>
-      <div class="table-responsive">
-        <table class="table align-middle mb-0">
-          <thead><tr><th>Product</th><th class="text-end">Price</th><th class="text-center" style="width:120px">Qty</th></tr></thead>
-          <tbody>
-          <?php foreach ($products as $product): ?>
-            <?php $stock = (int) $product['stock_quantity']; ?>
-            <tr>
-              <td>
-                <div class="fw-semibold small"><?= e((string) $product['name']) ?></div>
-                <div class="small text-muted">
-                  <?= e((string) ($product['sku'] ?? '')) ?>
-                  <?php if ($stock > 0): ?>· <?= $stock ?> in stock<?php endif; ?>
-                  <?php if ((float) ($product['tax_percent'] ?? 0) > 0): ?>· GST <?= e((string) (float) $product['tax_percent']) ?>%<?php endif; ?>
-                </div>
-              </td>
-              <td class="text-end small fw-semibold">
-                <?= money((float) $product['price']) ?>
-                <?php if ((float) $product['mrp'] > (float) $product['price']): ?>
-                  <div class="text-muted text-decoration-line-through fw-normal"><?= money((float) $product['mrp']) ?></div>
-                <?php endif; ?>
-              </td>
-              <td class="text-center">
-                <input type="number" class="form-control form-control-sm text-center qty-input"
-                       name="qty[<?= (int) $product['id'] ?>]" value="" min="0" max="<?= $stock > 0 ? $stock : 999 ?>"
-                       data-price="<?= e((string) (float) $product['price']) ?>"
-                       data-tax="<?= e((string) (float) ($product['tax_percent'] ?? 0)) ?>"
-                       placeholder="0">
-              </td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
-    <?php endif; ?>
-  </div>
+  <?php
+    // Steps 1 and 2 (browse, then the chosen items) come from the shared picker, so this stays
+    // usable when the catalogue grows.
+    $ppProducts = $products;
+    $ppSearch = $search;
+    $ppTotalAll = $productTotal;
+    require INCLUDES_PATH . '/purchase-picker.php';
+  ?>
 
   <div class="panel p-3 p-md-4 mb-3">
-    <h2 class="h6 mb-3">Mode of payment</h2>
+    <h2 class="h6 mb-3"><span class="pp-step">3</span> Mode of payment</h2>
     <div class="row g-3">
       <?php foreach (MemberPurchaseService::PAYMENT_MODES as $key => $label): ?>
         <?php $disabled = $key === 'wallet' && $walletBalance <= 0; ?>
@@ -169,7 +135,7 @@ require __DIR__ . '/includes/layout.php';
                 <?php if ($key === 'wallet'): ?>
                   Available: <?= money($walletBalance) ?> — debited immediately, commissions run at once.
                 <?php elseif ($key === 'cod'): ?>
-                  Marked unpaid; commission runs after delivery/payment confirmation.
+                  Marked unpaid; commission runs once the order is approved or delivered.
                 <?php else: ?>
                   Recorded as paid; commissions run immediately.
                 <?php endif; ?>
@@ -182,7 +148,7 @@ require __DIR__ . '/includes/layout.php';
   </div>
 
   <div class="panel p-3 p-md-4 mb-3">
-    <h2 class="h6 mb-3">Delivery details</h2>
+    <h2 class="h6 mb-3"><span class="pp-step">4</span> Delivery details</h2>
     <div class="row g-3">
       <div class="col-12 col-md-6">
         <label class="form-label small">Name</label>
@@ -215,46 +181,7 @@ require __DIR__ . '/includes/layout.php';
     </div>
   </div>
 
-  <div class="panel p-3 p-md-4 mb-3">
-    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
-      <div class="small">
-        <div>Subtotal: <strong data-summary="subtotal"><?= money(0) ?></strong></div>
-        <div>Tax: <strong data-summary="tax"><?= money(0) ?></strong></div>
-        <div>Shipping: <strong data-summary="shipping"><?= money(0) ?></strong></div>
-        <div class="fs-6">Total: <strong data-summary="total"><?= money(0) ?></strong></div>
-      </div>
-      <button class="btn btn-primary" <?= $products ? '' : 'disabled' ?>>Record purchase</button>
-    </div>
-  </div>
+  <?php $ppSubmitLabel = 'Record purchase'; require INCLUDES_PATH . '/purchase-totals.php'; ?>
 </form>
 
-<script>
-(function () {
-  var currency = <?= json_encode(currency_symbol()) ?>;
-  var fmt = function (n) { return currency + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
-  var inputs = document.querySelectorAll('.qty-input');
-  var out = {
-    subtotal: document.querySelector('[data-summary="subtotal"]'),
-    tax: document.querySelector('[data-summary="tax"]'),
-    shipping: document.querySelector('[data-summary="shipping"]'),
-    total: document.querySelector('[data-summary="total"]')
-  };
-  function recalc() {
-    var subtotal = 0, tax = 0;
-    inputs.forEach(function (input) {
-      var qty = parseInt(input.value, 10) || 0;
-      var line = qty * parseFloat(input.dataset.price || '0');
-      subtotal += line;
-      tax += line * (parseFloat(input.dataset.tax || '0') / 100);
-    });
-    var shipping = subtotal > 0 && subtotal < 999 ? 60 : 0;
-    out.subtotal.textContent = fmt(subtotal);
-    out.tax.textContent = fmt(tax);
-    out.shipping.textContent = fmt(shipping);
-    out.total.textContent = fmt(subtotal + tax + shipping);
-  }
-  inputs.forEach(function (input) { input.addEventListener('input', recalc); });
-  recalc();
-})();
-</script>
 <?php require __DIR__ . '/includes/layout-end.php'; ?>

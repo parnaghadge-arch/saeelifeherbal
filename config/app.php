@@ -13,7 +13,7 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/includes/env.php';
 
 define('APP_NAME', 'Saee Life Herbal');
-define('APP_VERSION', '1.2.0');
+define('APP_VERSION', '1.3.0');
 define('APP_ENV', getenv('SAEE_ENV') ?: 'production');
 define('APP_DEBUG', filter_var(getenv('SAEE_DEBUG') ?: (APP_ENV === 'local'), FILTER_VALIDATE_BOOLEAN));
 

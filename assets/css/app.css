@@ -1723,3 +1723,85 @@ pre, code { word-break: break-word; }
   .admin-bottom-nav { display: none !important; }
   .app-sidebar { padding-left: 0; padding-bottom: 0; }
 }
+
+/* ============================================================================
+   Purchase picker (includes/purchase-picker.php + purchase-totals.php)
+   Used by the admin and member assisted-purchase desks.
+   The browse grid is a FIXED-HEIGHT scroll area on purpose: its height must not
+   grow with the catalogue, or the payment and delivery panels get pushed off
+   screen the moment a few dozen products exist.
+   ========================================================================== */
+.pp-step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.35rem; height: 1.35rem; margin-right: .35rem;
+  border-radius: 50%; font-size: .72rem; font-weight: 700;
+  background: var(--saee-primary); color: #fff; vertical-align: middle;
+}
+
+.pp-toolbar { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
+.pp-search { max-width: 340px; }
+.pp-cats { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .15rem; scrollbar-width: thin; }
+.pp-cats .pp-cat { white-space: nowrap; flex: 0 0 auto; }
+.pp-cats .pp-cat.is-on {
+  background: var(--saee-primary); border-color: var(--saee-primary); color: #fff;
+}
+
+.pp-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem;
+  max-height: 400px; overflow-y: auto; padding-right: .25rem;
+  border: 1px solid var(--saee-border); border-radius: 12px; padding: .5rem;
+  background: var(--saee-bg);
+}
+.pp-card {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .5rem .6rem; border-radius: 10px; cursor: pointer;
+  background: var(--saee-white); border: 1px solid var(--saee-border);
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.pp-card:hover { border-color: var(--saee-secondary); box-shadow: var(--saee-shadow-sm); }
+.pp-card.is-picked { border-color: var(--saee-primary); background: var(--saee-light); }
+.pp-card.is-picked .pp-add { background: var(--saee-primary); border-color: var(--saee-primary); color: #fff; }
+
+.pp-thumb { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 8px; overflow: hidden;
+  background: var(--saee-light); display: flex; align-items: center; justify-content: center; }
+.pp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pp-thumb-sm { width: 34px; height: 34px; border-radius: 7px; }
+.pp-thumb-ph { color: var(--saee-secondary); font-size: .95rem; }
+
+.pp-body { flex: 1 1 auto; min-width: 0; }
+.pp-name { font-size: .82rem; font-weight: 600; color: var(--saee-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-meta { font-size: .72rem; color: var(--saee-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-price { font-size: .85rem; font-weight: 700; color: var(--saee-primary); }
+.pp-mrp { font-size: .72rem; font-weight: 400; color: var(--saee-muted); }
+.pp-add { flex: 0 0 auto; }
+
+/* Selected items */
+.pp-line {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .5rem .25rem; border-bottom: 1px dashed var(--saee-border);
+}
+.pp-line:last-child { border-bottom: 0; }
+.pp-line-main { flex: 1 1 auto; min-width: 0; }
+.pp-line-name { font-size: .85rem; font-weight: 600; color: var(--saee-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-stepper { display: flex; align-items: center; gap: .2rem; flex: 0 0 auto; }
+.pp-stepper .form-control { width: 3.4rem; }
+.pp-stepper .btn { padding: .15rem .5rem; line-height: 1; }
+.pp-line-total { flex: 0 0 auto; min-width: 5.5rem; text-align: right;
+  font-size: .88rem; font-weight: 700; color: var(--saee-text); }
+
+.pp-totalbar { background: var(--saee-light); border-color: var(--saee-border); }
+.pp-totals { line-height: 1.6; }
+.pp-totals .fs-6 { border-top: 1px solid var(--saee-border); padding-top: .2rem; margin-top: .2rem; }
+
+/* Single column + taller tap targets on phones, where a 2-up grid is unreadable */
+@media (max-width: 767.98px) {
+  .pp-grid { grid-template-columns: minmax(0, 1fr); max-height: 340px; }
+  .pp-search { max-width: none; }
+  .pp-line { flex-wrap: wrap; }
+  .pp-line-total { min-width: 0; }
+  .pp-totalbar { position: sticky; bottom: calc(var(--saee-tabbar-h, 0px) + .5rem); z-index: 5;
+    box-shadow: var(--saee-shadow); }
+}
