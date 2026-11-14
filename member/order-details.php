@@ -26,7 +26,7 @@ if (!$ownsIt) {
     Request::redirect('orders.php');
 }
 
-$items = $db->select(
+$orderItems = $db->select(
     'SELECT i.*, p.featured_image AS product_image, p.slug AS product_slug
      FROM order_items i LEFT JOIN products p ON p.id = i.product_id
      WHERE i.order_id = :o ORDER BY i.id ASC',
@@ -62,11 +62,11 @@ require __DIR__ . '/includes/layout.php';
   <div class="col-12 col-lg-8">
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Products in this order</h2>
-      <?php if (!$items): ?>
+      <?php if (!$orderItems): ?>
         <p class="small text-muted mb-0">No items recorded on this order.</p>
       <?php else: ?>
         <div class="purchase-items">
-          <?php foreach ($items as $item): ?>
+          <?php foreach ($orderItems as $item): ?>
             <div class="purchase-item">
               <?php if (!empty($item['product_image'])): ?>
                 <img src="<?= e(Url::media((string) $item['product_image'])) ?>"
