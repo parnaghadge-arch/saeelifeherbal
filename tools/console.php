@@ -464,6 +464,15 @@ switch ($command) {
         foreach (\Saee\Lib\Schema::migrateOrderStatuses($db) as $line) {
             echo $line . PHP_EOL;
         }
+        // The MLM settings form wrote to the wrong store, so the commission engine never saw the
+        // plan switch. Reconcile it here or an upgraded install keeps calculating nothing.
+        $mlmLines = \Saee\Lib\Schema::migrateMlmSettings($db);
+        if ($mlmLines === []) {
+            echo "MLM settings already consistent." . PHP_EOL;
+        }
+        foreach ($mlmLines as $line) {
+            echo $line . PHP_EOL;
+        }
         // Auto-payout enum: ensureColumns() only adds columns, it never widens an ENUM.
         // Existing MySQL installs need the 'processing' value added explicitly, otherwise
         // moving a payout to "in progress" fails with a truncated-value error.

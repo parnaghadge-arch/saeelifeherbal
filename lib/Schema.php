@@ -1329,6 +1329,71 @@ final class Schema
      *
      * @return list<string> what happened, for the upgrade report
      */
+    /**
+     * Repair the MLM settings split.
+     *
+     * The MLM settings form used to write mlm_plan_enabled, mlm_commission_hold_days and
+     * mlm_credit_status into the `settings` key/value store, while MlmCommissionEngine reads
+     * plan_enabled, commission_hold_days and auto_credit_status from the mlm_settings TABLE.
+     * The switch therefore looked saved and changed nothing, and because the factory default was
+     * "plan off" a production install calculated no commission at all with no working way to turn
+     * it on.
+     *
+     * Two cases, deliberately told apart:
+     *   - the admin did save the form, so `settings` holds their intent -> copy it across;
+     *   - the form was never saved, so a 0 is the broken factory default, not a decision -> turn
+     *     the plan on. An explicit "off" saved by an admin is respected and left alone.
+     *
+     * @return list<string> human-readable report lines
+     */
+    public static function migrateMlmSettings(Database $db): array
+    {
+        $report = [];
+        try {
+            $tables = [];
+            foreach ($db->select($db->driver() === 'mysql' ? 'SHOW TABLES' : "SELECT name FROM sqlite_master WHERE type = 'table'") as $row) {
+                $tables[] = (string) (array_values($row)[0] ?? '');
+            }
+        } catch (\Throwable) {
+            return $report;
+        }
+        if (!in_array('mlm_settings', $tables, true) || !in_array('settings', $tables, true)) {
+            return $report;
+        }
+
+        $stored = static function (Database $db, string $key): ?string {
+            $row = $db->first('SELECT setting_value FROM settings WHERE setting_key = :k', ['k' => $key]);
+            return $row === null ? null : (string) ($row['setting_value'] ?? '');
+        };
+
+        $patch = [];
+        $wantedPlan = $stored($db, 'mlm_plan_enabled');
+        if ($wantedPlan !== null) {
+            // The admin used the form: their answer wins, whichever way it went.
+            $patch['plan_enabled'] = $wantedPlan === '1' ? 1 : 0;
+            $report[] = 'MLM plan enabled set to ' . ($wantedPlan === '1' ? 'ON' : 'OFF') . ' from the saved settings form.';
+        } elseif ((int) ($db->value('SELECT plan_enabled FROM mlm_settings WHERE id = 1') ?: 0) === 0) {
+            $patch['plan_enabled'] = 1;
+            $report[] = 'MLM plan enabled turned ON: it was still at the broken factory default and no admin choice was recorded.';
+        }
+
+        $hold = $stored($db, 'mlm_commission_hold_days');
+        if ($hold !== null && $hold !== '') {
+            $patch['commission_hold_days'] = max(0, (int) $hold);
+        }
+        $credit = $stored($db, 'mlm_credit_status');
+        if ($credit !== null && $credit !== '') {
+            $patch['auto_credit_status'] = $credit === 'manual' ? 'pending' : 'available';
+        }
+
+        if ($patch !== []) {
+            $patch['updated_at'] = date('Y-m-d H:i:s');
+            $db->update('mlm_settings', $patch, 'id = 1');
+            MlmSettings::flush();
+        }
+        return $report;
+    }
+
     public static function migrateOrderStatuses(Database $db): array
     {
         $report = [];

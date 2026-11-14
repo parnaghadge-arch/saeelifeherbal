@@ -226,11 +226,22 @@ require __DIR__ . '/includes/layout.php';
       <div class="col-12 col-lg-6">
         <div class="panel p-3 p-md-4 h-100">
           <h2 class="h6 mb-3"><span class="pp-step">3</span> Mode of payment</h2>
-          <?php foreach (MemberPurchaseService::PAYMENT_MODES as $key => $label): ?>
+          <?php
+          // Only the methods switched on under Payment Methods. The default used to be
+          // hard-coded to UPI, which selected nothing at all once UPI was turned off.
+          $ppModes = $service->availableModes();
+          $ppDefault = array_key_exists(PAYMENT_METHOD_DEFAULT, $ppModes)
+              ? PAYMENT_METHOD_DEFAULT
+              : (string) (array_key_first($ppModes) ?? '');
+          ?>
+          <?php if ($ppModes === []): ?>
+            <p class="small text-muted mb-0">No mode of payment is enabled. Turn one on under Payment Methods first.</p>
+          <?php endif; ?>
+          <?php foreach ($ppModes as $key => $label): ?>
             <?php $disabled = $key === 'wallet' && $walletBalance <= 0; ?>
             <div class="form-check mb-2 <?= $disabled ? 'opacity-50' : '' ?>">
               <input class="form-check-input" type="radio" name="payment_mode" id="pm_<?= e($key) ?>" value="<?= e($key) ?>"
-                     <?= $disabled ? 'disabled' : '' ?> <?= $key === 'upi' ? 'checked' : '' ?> required>
+                     <?= $disabled ? 'disabled' : '' ?> <?= ($key === $ppDefault && !$disabled) ? 'checked' : '' ?> required>
               <label class="form-check-label small" for="pm_<?= e($key) ?>"><?= e($label) ?>
                 <?php if ($key === 'wallet'): ?>
                   <span class="text-muted">(<?= money($walletBalance) ?> available)</span>

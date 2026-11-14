@@ -32,7 +32,18 @@ if (is_post()) {
             $run['recorded'], $run['orders'], money($run['total']), $run['released']
         ), 'commission_transactions');
         if ($run['recorded'] === 0 && $run['released'] === 0) {
-            Session::success('Checked ' . $run['orders'] . ' order(s) — commission was already up to date.');
+            // Saying "already up to date" when nothing was recorded hides the actual reason -
+            // which is how a disabled compensation plan stayed invisible behind a friendly
+            // message. Surface what the engine reported for the first order instead.
+            $why = (string) ($run['notes'][0] ?? '');
+            $why = $why !== '' ? preg_replace('/^[^:]+:\s*/', '', $why) : '';
+            if (str_contains($why, 'disabled')) {
+                Session::error('No commission was calculated: the compensation plan is switched off. Turn it on under MLM Settings, then run processing again.');
+            } elseif ($run['orders'] === 0) {
+                Session::success('Nothing to do — every order already has its commission recorded.');
+            } else {
+                Session::success('Checked ' . $run['orders'] . ' order(s) — no new commission was payable.' . ($why !== '' ? ' (' . $why . ')' : ''));
+            }
         } else {
             Session::success(sprintf(
                 'Recorded commission for %d of %d order(s) totalling %s%s.',
@@ -95,8 +106,23 @@ if (AdminAuth::can('mlm.process')) {
     $actions .= ' <form method="post" class="d-inline">' . csrf_field() . '<input type="hidden" name="action" value="release"><button class="btn btn-sm btn-outline-secondary">Release matured</button></form>';
 }
 $pageActions = $actions;
+// A switched-off plan means no order will ever earn anything. That used to be invisible: the
+// ledger simply stayed empty and "Run processing" reported that everything was up to date.
+$planOn = (int) (\Saee\Lib\MlmSettings::get('plan_enabled', 0)) === 1;
 require __DIR__ . '/includes/layout.php';
 ?>
+<?php if (!$planOn): ?>
+<div class="alert alert-danger d-flex flex-wrap align-items-center gap-2 py-2">
+  <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+  <div class="small">
+    <strong>The compensation plan is switched off.</strong>
+    No commission is being calculated on any order, and nothing will appear here until it is
+    turned on. Enable it under
+    <a class="alert-link" href="mlm-settings.php">MLM Settings</a>, then press
+    <em>Run processing</em> to catch up the orders that were placed while it was off.
+  </div>
+</div>
+<?php endif; ?>
 <div class="row g-3 mb-3">
   <div class="col-6 col-xl-3"><div class="mini-stat"><span>Credited</span><strong><?= money((float) ($summary['credited'] ?? 0)) ?></strong></div></div>
   <div class="col-6 col-xl-3"><div class="mini-stat"><span>Pending</span><strong><?= money((float) ($summary['pending'] ?? 0)) ?></strong></div></div>

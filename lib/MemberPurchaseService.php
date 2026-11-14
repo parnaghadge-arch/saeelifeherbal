@@ -25,13 +25,40 @@ use RuntimeException;
 
 final class MemberPurchaseService
 {
-    /** Payment modes offered for an assisted purchase. Wallet is the only new one. */
+    /**
+     * Every payment mode an assisted purchase understands, with its label.
+     *
+     * This is the full vocabulary, not the list to offer: which of these an operator may
+     * actually choose is decided by availableModes(), from the Payment Methods settings.
+     */
     public const PAYMENT_MODES = [
         'wallet'        => 'Member wallet balance',
         'upi'           => 'UPI',
         'bank_transfer' => 'Bank transfer',
         'cod'           => 'Cash on delivery',
     ];
+
+    /**
+     * The modes an operator may choose right now.
+     *
+     * The Payment Methods screen is the single switchboard for this: a method turned off there
+     * must not be offered on the purchase screens either, and must not be accepted if it is
+     * posted anyway. The member wallet is not a gateway - it is the member's own balance - so it
+     * is always available and is never governed by a gateway toggle.
+     *
+     * @return array<string,string> mode => label
+     */
+    public function availableModes(): array
+    {
+        $orders = new OrderService($this->db);
+        $out = [];
+        foreach (self::PAYMENT_MODES as $mode => $label) {
+            if ($mode === PAYMENT_METHOD_WALLET || $orders->gatewayEnabled($mode)) {
+                $out[$mode] = $label;
+            }
+        }
+        return $out;
+    }
 
     public function __construct(private Database $db)
     {
@@ -181,9 +208,15 @@ final class MemberPurchaseService
             return ['ok' => false, 'message' => 'That member account is ' . $beneficiary['status'] . '; purchases are only allowed for active members.'];
         }
 
+        // Validate against what is currently switched on, not against the full vocabulary -
+        // otherwise a method turned off in Payment Methods could still be ordered by posting it.
         $mode = (string) ($data['payment_mode'] ?? '');
-        if (!array_key_exists($mode, self::PAYMENT_MODES)) {
+        $allowed = $this->availableModes();
+        if ($mode === '' || !array_key_exists($mode, self::PAYMENT_MODES)) {
             return ['ok' => false, 'message' => 'Choose a mode of payment.'];
+        }
+        if (!array_key_exists($mode, $allowed)) {
+            return ['ok' => false, 'message' => self::PAYMENT_MODES[$mode] . ' is not enabled. Choose another mode of payment, or turn it on under Payment Methods.'];
         }
 
         // ---- build the basket from the database, never from posted prices ----------------

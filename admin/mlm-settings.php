@@ -41,14 +41,31 @@ if ($form === 'plan') {
     foreach (['mlm_plan_enabled', 'mlm_plan_public', 'mlm_registration_enabled', 'mlm_show_earnings_public'] as $flag) {
         Settings::set($flag, Request::bool($flag) ? '1' : '0', 'boolean');
     }
-    // The sponsor fallback lives in the mlm_settings TABLE, not in `settings`. Writing only
-    // the settings row (as this form used to) left the field looking saved while every
-    // consumer kept reading the old value.
+    // Everything the commission engine actually reads lives in the mlm_settings TABLE, not in
+    // the `settings` key/value store. Writing only the settings row leaves the switch looking
+    // saved on this page while MlmCommissionEngine keeps reading the old value - which is how a
+    // fresh install ended up never calculating any commission at all, with no way to turn it on.
+    // The rows above are still written so anything reading `settings` stays consistent.
+    $table = [];
     if (array_key_exists('mlm_company_sponsor_code', $_POST)) {
         $code = strtoupper(trim((string) Request::input('mlm_company_sponsor_code', '')));
         if ($code !== '') {
-            $db->update('mlm_settings', ['company_sponsor_code' => $code, 'updated_at' => date('Y-m-d H:i:s')], 'id = 1');
+            $table['company_sponsor_code'] = $code;
         }
+    }
+    if (array_key_exists('mlm_plan_enabled', $_POST)) {
+        $table['plan_enabled'] = Request::bool('mlm_plan_enabled') ? 1 : 0;
+    }
+    if (array_key_exists('mlm_commission_hold_days', $_POST)) {
+        $table['commission_hold_days'] = max(0, Request::int('mlm_commission_hold_days'));
+    }
+    if (array_key_exists('mlm_credit_status', $_POST)) {
+        // The form speaks auto/manual; the engine's enum is available/pending.
+        $table['auto_credit_status'] = Request::input('mlm_credit_status') === 'manual' ? 'pending' : 'available';
+    }
+    if ($table !== []) {
+        $table['updated_at'] = date('Y-m-d H:i:s');
+        $db->update('mlm_settings', $table, 'id = 1');
     }
     MlmSettings::flush();
     Settings::flush();
@@ -57,14 +74,16 @@ if ($form === 'plan') {
     Request::redirect('mlm-settings.php');
 }
 
+// These three come from MlmSettings, because that is what the commission engine reads. Reading
+// them back from `settings` is what made the form display a state the engine never had.
 $current = [
-    'mlm_plan_enabled' => (string) Settings::get('mlm_plan_enabled', '0'),
+    'mlm_plan_enabled' => (string) ((int) MlmSettings::get('plan_enabled', 0) === 1 ? '1' : '0'),
+    'mlm_commission_hold_days' => (string) MlmSettings::get('commission_hold_days', 0),
+    'mlm_credit_status' => ((string) MlmSettings::get('auto_credit_status', 'available') === 'pending' ? 'manual' : 'auto'),
     'mlm_plan_public' => (string) Settings::get('mlm_plan_public', '0'),
     'mlm_registration_enabled' => (string) Settings::get('mlm_registration_enabled', '1'),
     'mlm_show_earnings_public' => (string) Settings::get('mlm_show_earnings_public', '1'),
     'mlm_company_sponsor_code' => MlmSettings::companySponsorCode(),
-    'mlm_commission_hold_days' => (string) Settings::get('mlm_commission_hold_days', '0'),
-    'mlm_credit_status' => (string) Settings::get('mlm_credit_status', 'auto'),
     'mlm_max_commission_levels' => (string) Settings::get('mlm_max_commission_levels', '2'),
     'mlm_compliance_note' => (string) Settings::get('mlm_compliance_note', 'The compensation plan is subject to legal and tax review before public activation. Income depends on genuine product sales and is not guaranteed.'),
 ];

@@ -300,7 +300,11 @@ final class Installer
         $this->db->insertIgnore('mlm_settings', [
             'id' => 1,
             'company_sponsor_code' => DEFAULT_COMPANY_SPONSOR_ID,
-            'plan_enabled' => 0,
+            // On by default. Every product is seeded with its own commission values and the
+            // company chain exists specifically to earn them, so an install that silently
+            // calculates nothing is a broken install. The switch on the MLM settings page turns
+            // it off - and now actually reaches the engine.
+            'plan_enabled' => 1,
             'commission_hold_days' => 0,
             'direct_levels' => 1,
             'grand_direct_levels' => 1,

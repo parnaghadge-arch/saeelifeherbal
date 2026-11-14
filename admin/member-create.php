@@ -79,8 +79,10 @@ if (is_post()) {
         }
     }
     $wantsPurchase = $lines !== [];
-    if ($wantsPurchase && !array_key_exists($old['payment_mode'], MemberPurchaseService::PAYMENT_MODES)) {
-        $errors['payment_mode'] = ['Choose how the opening purchase was paid for.'];
+    if ($wantsPurchase && !array_key_exists($old['payment_mode'], $modeLabels)) {
+        $errors['payment_mode'] = $old['payment_mode'] === ''
+            ? ['Choose how the opening purchase was paid for.']
+            : ['That mode of payment is not enabled. Choose another, or turn it on under Payment Methods.'];
     }
 
     if ($errors === []) {
@@ -148,7 +150,9 @@ $products = $db->select(
     "SELECT id, name, sku, price, stock_quantity FROM products
       WHERE status = 'active' ORDER BY name ASC LIMIT 300"
 );
-$modeLabels = MemberPurchaseService::PAYMENT_MODES;
+// Only the methods switched on under Payment Methods, so the opening purchase cannot be
+// recorded against a method the business has turned off.
+$modeLabels = $purchaseService->availableModes();
 
 $pageTitle = 'Add Member';
 $pageHeading = 'Add Member';
