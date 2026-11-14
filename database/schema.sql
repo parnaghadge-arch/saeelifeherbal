@@ -1,5 +1,5 @@
 -- Saee Life Herbal - MySQL 8 schema
--- Generated 2026-11-07 07:57:21
+-- Generated 2026-11-14 13:19:19
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -640,7 +640,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `grand_total` DECIMAL(14,2) NOT NULL DEFAULT 0,
   `payment_method` VARCHAR(30) NOT NULL DEFAULT 'cod',
   `payment_status` ENUM('unpaid','pending','paid','failed','refunded') NOT NULL DEFAULT 'unpaid',
-  `status` ENUM('pending','payment_pending','paid','processing','shipped','delivered','cancelled','refunded') NOT NULL DEFAULT 'pending',
+  `status` ENUM('new','processing','shipped','delivered','cancelled') NOT NULL DEFAULT 'new',
   `notes` TEXT NULL,
   `admin_notes` TEXT NULL,
   `coupon_code` VARCHAR(40) NULL,
@@ -927,29 +927,6 @@ CREATE TABLE IF NOT EXISTS `member_bank_accounts` (
   KEY `idx_member_bank_accounts_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-DROP TABLE IF EXISTS `mlm_commission_rules`;
-CREATE TABLE IF NOT EXISTS `mlm_commission_rules` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `product_id` BIGINT UNSIGNED NOT NULL,
-  `direct_type` ENUM('fixed','percent') NOT NULL DEFAULT 'fixed',
-  `direct_value` DECIMAL(14,2) NOT NULL DEFAULT 0,
-  `grand_direct_type` ENUM('fixed','percent') NOT NULL DEFAULT 'fixed',
-  `grand_direct_value` DECIMAL(14,2) NOT NULL DEFAULT 0,
-  `commission_basis` ENUM('selling_price','mrp','net_amount') NOT NULL DEFAULT 'selling_price',
-  `royalty_eligible` TINYINT(1) NULL DEFAULT 1,
-  `is_active` TINYINT(1) NULL DEFAULT 1,
-  `effective_from` DATETIME NOT NULL,
-  `effective_to` DATETIME NULL,
-  `created_by` BIGINT UNSIGNED NULL,
-  `notes` TEXT NULL,
-  `created_at` DATETIME NULL DEFAULT NULL,
-  `updated_at` DATETIME NULL DEFAULT NULL,
-  CONSTRAINT fk_mlm_commission_rules_product_id FOREIGN KEY (`product_id`) REFERENCES `products`(id) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT fk_mlm_commission_rules_created_by FOREIGN KEY (`created_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
-  KEY `idx_mlm_commission_rules_product_id` (`product_id`),
-  KEY `idx_mlm_commission_rules_is_active` (`is_active`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 DROP TABLE IF EXISTS `commission_transactions`;
 CREATE TABLE IF NOT EXISTS `commission_transactions` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1116,7 +1093,9 @@ CREATE TABLE IF NOT EXISTS `payout_requests` (
   `net_amount` DECIMAL(14,2) NOT NULL DEFAULT 0,
   `tds_amount` DECIMAL(14,2) NOT NULL DEFAULT 0,
   `admin_charges` DECIMAL(14,2) NOT NULL DEFAULT 0,
-  `status` ENUM('pending','approved','rejected','paid','cancelled') NOT NULL DEFAULT 'pending',
+  `status` ENUM('pending','approved','processing','rejected','paid','cancelled') NOT NULL DEFAULT 'pending',
+  `source` ENUM('manual','auto') NOT NULL DEFAULT 'manual',
+  `cycle_key` VARCHAR(20) NULL,
   `bank_account_id` BIGINT UNSIGNED NULL,
   `bank_snapshot` JSON NULL,
   `kyc_snapshot` JSON NULL,
@@ -1133,6 +1112,9 @@ CREATE TABLE IF NOT EXISTS `payout_requests` (
   `rejected_at` DATETIME NULL,
   `paid_by` BIGINT UNSIGNED NULL,
   `paid_at` DATETIME NULL,
+  `report_downloaded_at` DATETIME NULL,
+  `report_downloaded_by` BIGINT UNSIGNED NULL,
+  `report_format` VARCHAR(20) NULL,
   `created_at` DATETIME NULL DEFAULT NULL,
   `updated_at` DATETIME NULL DEFAULT NULL,
   CONSTRAINT fk_payout_requests_member_id FOREIGN KEY (`member_id`) REFERENCES `members`(id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -1140,9 +1122,12 @@ CREATE TABLE IF NOT EXISTS `payout_requests` (
   CONSTRAINT fk_payout_requests_approved_by FOREIGN KEY (`approved_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT fk_payout_requests_rejected_by FOREIGN KEY (`rejected_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT fk_payout_requests_paid_by FOREIGN KEY (`paid_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_payout_requests_report_downloaded_by FOREIGN KEY (`report_downloaded_by`) REFERENCES `admin_users`(id) ON DELETE SET NULL ON UPDATE CASCADE,
   UNIQUE KEY `uq_payout_requests_request_code` (`request_code`),
   KEY `idx_payout_requests_member_id` (`member_id`),
   KEY `idx_payout_requests_status` (`status`),
+  KEY `idx_payout_requests_source` (`source`),
+  KEY `idx_payout_requests_cycle_key` (`cycle_key`),
   KEY `idx_payout_requests_requested_at` (`requested_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -1181,6 +1166,7 @@ CREATE TABLE IF NOT EXISTS `payout_settings` (
   `require_kyc` TINYINT(1) NULL DEFAULT 1,
   `require_verified_bank` TINYINT(1) NULL DEFAULT 1,
   `auto_approve` TINYINT(1) NULL DEFAULT 0,
+  `auto_payout_enabled` TINYINT(1) NULL DEFAULT 1,
   `payouts_enabled` TINYINT(1) NULL DEFAULT 1,
   `created_at` DATETIME NULL DEFAULT NULL,
   `updated_at` DATETIME NULL DEFAULT NULL
@@ -1189,7 +1175,7 @@ CREATE TABLE IF NOT EXISTS `payout_settings` (
 DROP TABLE IF EXISTS `mlm_settings`;
 CREATE TABLE IF NOT EXISTS `mlm_settings` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `company_sponsor_code` VARCHAR(20) NOT NULL DEFAULT 'SAEE00001',
+  `company_sponsor_code` VARCHAR(20) NOT NULL DEFAULT 'SAEE00003',
   `plan_enabled` TINYINT(1) NULL DEFAULT 0,
   `commission_hold_days` INT NOT NULL DEFAULT 0,
   `direct_levels` INT NOT NULL DEFAULT 1,
@@ -1200,7 +1186,7 @@ CREATE TABLE IF NOT EXISTS `mlm_settings` (
   `royalty_auto_process` TINYINT(1) NULL DEFAULT 1,
   `royalty_requires_approval` TINYINT(1) NULL DEFAULT 1,
   `member_id_prefix` VARCHAR(10) NOT NULL DEFAULT 'SLH',
-  `member_id_padding` INT NOT NULL DEFAULT 5,
+  `member_id_padding` INT NOT NULL DEFAULT 6,
   `registration_enabled` TINYINT(1) NULL DEFAULT 1,
   `max_direct_referrals` INT NOT NULL DEFAULT 0,
   `compliance_notice` TEXT NULL,

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 require __DIR__ . '/_guard.php';
 
+use Saee\Lib\MlmCommissionEngine;
 use Saee\Lib\Pager;
 use Saee\Lib\Request;
 
@@ -35,6 +36,10 @@ $summary = db()->first(
     ['m' => $currentMemberId]
 ) ?? [];
 
+// Future commission: what recorded-but-not-yet-approved orders will pay this member. Same
+// projection the order page shows, summed, so the two can never disagree.
+$futureSummary = (new MlmCommissionEngine(db()))->futureCommissionForMember($currentMemberId);
+
 $pageTitle = 'Commission History';
 $pageHeading = 'Commission History';
 $pageSub = 'Transparent, immutable record of every commission';
@@ -42,10 +47,43 @@ $activeNav = 'commissions';
 require __DIR__ . '/includes/layout.php';
 ?>
 <div class="row g-3 mb-3">
-  <div class="col-4"><div class="mini-stat"><span>Credited</span><strong><?= money((float) ($summary['credited'] ?? 0)) ?></strong></div></div>
-  <div class="col-4"><div class="mini-stat"><span>Pending</span><strong><?= money((float) ($summary['pending'] ?? 0)) ?></strong></div></div>
-  <div class="col-4"><div class="mini-stat"><span>Reversed</span><strong><?= money((float) ($summary['reversed'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Credited</span><strong><?= money((float) ($summary['credited'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Pending</span><strong><?= money((float) ($summary['pending'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Future</span><strong><?= money((float) ($futureSummary['total'] ?? 0)) ?></strong><small>From <?= (int) ($futureSummary['orders'] ?? 0) ?> order(s) awaiting approval</small></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Reversed</span><strong><?= money((float) ($summary['reversed'] ?? 0)) ?></strong></div></div>
 </div>
+
+<?php if (!empty($futureSummary['entries'])): ?>
+  <div class="panel p-3 p-md-4 mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <h2 class="h6 mb-0"><i class="fa-solid fa-clock me-1 text-info"></i>Future commission</h2>
+      <span class="small text-muted">Pays out when each order is approved or delivered</span>
+    </div>
+    <p class="small text-muted mb-2">
+      These orders are recorded but not approved yet, so nothing below has been credited to your
+      wallet. The amounts are calculated from the same commission rules that will be applied when
+      the order is approved &mdash; they are not an estimate.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 data-table">
+        <thead><tr><th>Order</th><th>Type</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
+        <tbody>
+        <?php foreach ($futureSummary['entries'] as $futureRow): ?>
+          <tr>
+            <td class="small">
+              <a href="<?= e('order-details.php?id=' . (int) $futureRow['order_id']) ?>" class="fw-semibold"><?= e((string) $futureRow['order_number']) ?></a>
+              <div class="text-muted"><?= e((string) $futureRow['product_name']) ?></div>
+            </td>
+            <td class="small"><?= e(ucwords(str_replace('_', ' ', (string) $futureRow['type']))) ?></td>
+            <td class="small text-end fw-semibold"><?= money((float) $futureRow['amount']) ?></td>
+            <td><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Future</span></td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<?php endif; ?>
 
 <div class="panel p-3 p-md-4">
   <form class="row g-2 align-items-end mb-3" method="get">

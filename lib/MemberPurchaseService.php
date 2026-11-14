@@ -25,13 +25,40 @@ use RuntimeException;
 
 final class MemberPurchaseService
 {
-    /** Payment modes offered for an assisted purchase. Wallet is the only new one. */
+    /**
+     * Every payment mode an assisted purchase understands, with its label.
+     *
+     * This is the full vocabulary, not the list to offer: which of these an operator may
+     * actually choose is decided by availableModes(), from the Payment Methods settings.
+     */
     public const PAYMENT_MODES = [
         'wallet'        => 'Member wallet balance',
         'upi'           => 'UPI',
         'bank_transfer' => 'Bank transfer',
         'cod'           => 'Cash on delivery',
     ];
+
+    /**
+     * The modes an operator may choose right now.
+     *
+     * The Payment Methods screen is the single switchboard for this: a method turned off there
+     * must not be offered on the purchase screens either, and must not be accepted if it is
+     * posted anyway. The member wallet is not a gateway - it is the member's own balance - so it
+     * is always available and is never governed by a gateway toggle.
+     *
+     * @return array<string,string> mode => label
+     */
+    public function availableModes(): array
+    {
+        $orders = new OrderService($this->db);
+        $out = [];
+        foreach (self::PAYMENT_MODES as $mode => $label) {
+            if ($mode === PAYMENT_METHOD_WALLET || $orders->gatewayEnabled($mode)) {
+                $out[$mode] = $label;
+            }
+        }
+        return $out;
+    }
 
     public function __construct(private Database $db)
     {
@@ -114,17 +141,36 @@ final class MemberPurchaseService
      *
      * @return list<array>
      */
+    /**
+     * Active products the purchase desks offer, newest catalogue order.
+     *
+     * The desks filter client-side, so this returns the catalogue up to PRODUCT_LIMIT and pairs
+     * it with activeProductCount(): when the two differ the UI tells the operator to narrow the
+     * search instead of silently hiding products behind a 200-row cap.
+     */
+    public const PRODUCT_LIMIT = 500;
+
     public function products(string $search = ''): array
     {
-        $sql = "SELECT id, name, sku, price, mrp, stock_quantity, status, tax_percent, packaging_sizes
-                  FROM products WHERE status = 'active'";
+        $sql = "SELECT p.id, p.name, p.sku, p.price, p.mrp, p.stock_quantity, p.status,
+                       p.tax_percent, p.packaging_sizes, p.featured_image,
+                       c.name AS category_name
+                  FROM products p
+                  LEFT JOIN product_categories c ON c.id = p.category_id
+                 WHERE p.status = 'active'";
         $params = [];
         if ($search !== '') {
-            $sql .= ' AND (name LIKE :q OR sku LIKE :q)';
+            $sql .= ' AND (p.name LIKE :q OR p.sku LIKE :q)';
             $params['q'] = '%' . $search . '%';
         }
-        $sql .= ' ORDER BY name LIMIT 200';
+        $sql .= ' ORDER BY p.name LIMIT ' . self::PRODUCT_LIMIT;
         return $this->db->select($sql, $params);
+    }
+
+    /** How many active products exist in total, so the desk can say "showing 500 of 812". */
+    public function activeProductCount(): int
+    {
+        return (int) $this->db->value("SELECT COUNT(*) FROM products WHERE status = 'active'");
     }
 
     /**
@@ -162,9 +208,15 @@ final class MemberPurchaseService
             return ['ok' => false, 'message' => 'That member account is ' . $beneficiary['status'] . '; purchases are only allowed for active members.'];
         }
 
+        // Validate against what is currently switched on, not against the full vocabulary -
+        // otherwise a method turned off in Payment Methods could still be ordered by posting it.
         $mode = (string) ($data['payment_mode'] ?? '');
-        if (!array_key_exists($mode, self::PAYMENT_MODES)) {
+        $allowed = $this->availableModes();
+        if ($mode === '' || !array_key_exists($mode, self::PAYMENT_MODES)) {
             return ['ok' => false, 'message' => 'Choose a mode of payment.'];
+        }
+        if (!array_key_exists($mode, $allowed)) {
+            return ['ok' => false, 'message' => self::PAYMENT_MODES[$mode] . ' is not enabled. Choose another mode of payment, or turn it on under Payment Methods.'];
         }
 
         // ---- build the basket from the database, never from posted prices ----------------
@@ -220,10 +272,14 @@ final class MemberPurchaseService
             $walletDebit = $grandTotal;
         }
 
-        // paid now = commissions run immediately; otherwise the order waits like a storefront one
+        // Paid now = the money has settled, so the order is approved straight away below and
+        // commission runs. Otherwise it waits as "new", exactly like a storefront COD order.
+        // Note: fulfilment status is no longer derived from payment. Both retired words that used
+        // to be written here ('paid' / 'pending') were dropped from the orders.status enum, and
+        // writing either one truncated the column.
         $paidNow = in_array($mode, ['wallet', 'upi', 'bank_transfer'], true);
         $paymentStatus = $paidNow ? 'paid' : 'unpaid';
-        $status = $paidNow ? 'paid' : 'pending';
+        $status = ORDER_STATUS_DEFAULT;
         $paymentMethod = $mode === 'wallet' ? 'wallet' : $mode;
 
         $orderNumber = Sequence::orderNumber();
@@ -258,6 +314,9 @@ final class MemberPurchaseService
                     // engine walk the correct upline.
                     'member_id' => $beneficiaryId,
                     'referral_member_id' => null,
+                    // The operator. An admin placing the order has no member id, so this stays
+                    // null and the order is not attributed to any partner's own history.
+                    'created_by_member_id' => $role === 'member' ? $actorMemberId : null,
                     'customer_name' => $shippingAddress['full_name'] !== '' ? $shippingAddress['full_name'] : (string) $beneficiary['name'],
                     'customer_email' => $shippingAddress['email'] !== '' ? $shippingAddress['email'] : null,
                     'customer_mobile' => $shippingAddress['phone'] !== '' ? $shippingAddress['phone'] : (string) $beneficiary['mobile'],
@@ -348,10 +407,30 @@ final class MemberPurchaseService
         }
 
         // ---- MLM + payout rules, through the same engine the storefront uses --------------
-        $commission = ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => []];
+        // Commission is calculated and recorded the moment the purchase exists, whatever the
+        // payment mode, so the sponsor line can see it immediately. Whether it is spendable yet
+        // is the engine's decision: settled money releases it, cash on delivery holds it pending
+        // until the order is approved or delivered.
+        $commission = ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => []];
         if ($paidNow) {
+            // Settled money: approving the order both moves it forward and releases commission,
+            // through the same path a storefront order uses rather than a second copy.
+            $approved = (new OrderService($this->db))->updateStatus(
+                $orderId,
+                'processing',
+                'Recorded as an assisted purchase, paid via ' . self::PAYMENT_MODES[$mode],
+                $role === 'admin' ? 'admin' : 'member',
+                $role === 'admin' ? AdminAuth::id() : $actorMemberId
+            );
+            $commission = $approved['commission'] ?? $commission;
+        } else {
+            // Cash on delivery: record now, release when the order is approved or delivered.
+            // This branch bypasses OrderService::updateStatus(), so it has to evaluate royalty
+            // itself; the settled branch above gets that for free through runCommission().
             $commission = (new MlmCommissionEngine($this->db))->processOrder($orderId);
-            (new RoyaltyEngine($this->db))->evaluateMember($beneficiaryId);
+            if ((int) ($commission['created'] ?? 0) > 0) {
+                (new RoyaltyEngine($this->db))->evaluateMember($beneficiaryId);
+            }
         }
 
         $operatorNote = $source === 'admin'
@@ -371,7 +450,7 @@ final class MemberPurchaseService
                 ? ' ' . $commission['created'] . ' commission(s) totalling ' . money((float) $commission['total']) . ' distributed.'
                 : ' No commission was generated: ' . ($commission['messages'][0] ?? 'no eligible upline.');
         } else {
-            $message .= ' Commission will run when payment is confirmed.';
+            $message .= ' Commission will run when the order is approved or delivered.';
         }
 
         return [

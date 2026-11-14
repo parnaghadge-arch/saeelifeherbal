@@ -198,7 +198,6 @@ echo page_hero('Checkout', 'Complete your order in a few steps.', ['Cart' => 'ca
                         'cod' => 'Pay in cash when your order is delivered.',
                         'razorpay' => 'Cards, UPI, netbanking and wallets via Razorpay.',
                         'upi' => 'Pay directly to our UPI ID and upload the reference.',
-                        'bank_transfer' => 'NEFT/IMPS to our bank account; order ships after confirmation.',
                         default => '',
                     }; ?>
                   <label class="pay-option <?= old_input('payment_method', 'cod') === $key ? 'selected' : '' ?>">

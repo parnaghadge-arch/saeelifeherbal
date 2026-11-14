@@ -15,6 +15,12 @@
 @font-face { font-family: 'Roboto'; src: url('../fonts/roboto/roboto-latin-700-normal.woff2') format('woff2'); font-weight: 700; font-display: swap; }
 
 :root {
+  /* Right-hand clearance for every <select>. Bootstrap paints the dropdown chevron as a
+     background image pinned at `right .75rem` and 16px wide, so any select padded less
+     than 1.75rem on the right renders the arrow on top of the selected label. These are
+     exactly the reserves Bootstrap itself uses (2.25rem default, 2rem for -sm). */
+  --saee-select-arrow: 2.25rem;
+  --saee-select-arrow-sm: 2rem;
   --saee-primary: #247A3C;
   --saee-primary-rgb: 36, 122, 60;
   --saee-dark: #14532D;
@@ -570,6 +576,10 @@ a:hover { color: var(--saee-dark); }
 /* forms */
 .form-label { font-family: var(--saee-font-heading); font-weight: 500; font-size: .88rem; color: var(--saee-dark); margin-bottom: .35rem; }
 .form-control, .form-select { border-radius: var(--saee-radius-sm); border: 1px solid #CBD9CE; padding: .62rem .85rem; font-size: .94rem; background-color: #fff; }
+/* The rule above pads inputs and selects alike, which pulled select labels underneath
+   the chevron Bootstrap pins to the right edge. Give the arrow its space back. */
+.form-select { padding-right: var(--saee-select-arrow); }
+.form-select-sm { padding-right: var(--saee-select-arrow-sm); }
 .form-control:focus, .form-select:focus { border-color: var(--saee-primary); box-shadow: 0 0 0 3px rgba(var(--saee-primary-rgb), .12); }
 .form-control::placeholder { color: #9BAAA1; }
 .form-text { font-size: .78rem; color: var(--saee-muted); }
@@ -909,6 +919,7 @@ a:hover { color: var(--saee-dark); }
 .catalog-toolbar-form select {
   width: 100%; min-width: 0; font-size: .88rem; padding: .5rem .7rem; border-radius: 10px;
   border-color: var(--saee-border);
+  padding-right: var(--saee-select-arrow-sm);
 }
 .catalog-toolbar-form select:focus { border-color: var(--saee-primary); box-shadow: 0 0 0 .18rem rgba(36, 122, 60, .15); }
 .catalog-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; flex-wrap: wrap; }
@@ -917,12 +928,12 @@ a:hover { color: var(--saee-dark); }
 @media (min-width: 992px) {
   /* a little more presence on desktop: the bar spans the full catalogue width */
   .catalog-toolbar { grid-template-columns: minmax(0, 340px) minmax(0, 260px); gap: 1rem 1.25rem; }
-  .catalog-toolbar-form select { font-size: .9rem; padding: .55rem .8rem; }
+  .catalog-toolbar-form select { font-size: .9rem; padding: .55rem .8rem; padding-right: var(--saee-select-arrow-sm); }
 }
 @media (max-width: 575.98px) {
   .catalog-toolbar { gap: .5rem; }
   .catalog-toolbar-label { font-size: .66rem; gap: .3rem; margin-bottom: .22rem; }
-  .catalog-toolbar-form select { font-size: .8rem; padding: .45rem .5rem; border-radius: 8px; }
+  .catalog-toolbar-form select { font-size: .8rem; padding: .45rem .5rem; border-radius: 8px; padding-right: var(--saee-select-arrow-sm); }
 }
 /* 4 products per row on desktop, 2 on phones (the column classes are stock Bootstrap;
    the grid wrapper only evens the row out when the last page has a single card) */
@@ -1243,6 +1254,12 @@ a:hover { color: var(--saee-dark); }
 .crud-layout.is-form-open .crud-form-col { order: 1; }
 .crud-layout.is-form-open .crud-list-col { order: 2; max-width: 100%; }
 .crud-toolbar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .85rem; }
+/* Modules whose editor is a route of its own (Products, Categories) render one column at a
+   time, so the surviving column should take the full width instead of a grid track. */
+.crud-layout.is-form-only .crud-form-col,
+.crud-layout.is-list-only .crud-list-col,
+.crud-form-page { display: block; max-width: 900px; }
+.crud-layout.is-list-only .crud-list-col { max-width: 100%; }
 
 /* DataTables: skin it with the site palette so it reads as part of the panel. */
 div.dt-container .dt-search input,
@@ -1250,6 +1267,7 @@ div.dt-container .dt-length select {
   border: 1px solid var(--saee-border); border-radius: 8px; padding: .3rem .55rem; font-size: .82rem;
 }
 div.dt-container .dt-search input { min-width: 210px; }
+div.dt-container .dt-length select { padding-right: var(--saee-select-arrow-sm); }
 div.dt-container .dt-length { font-size: .82rem; color: var(--saee-muted); }
 div.dt-container .dt-info { font-size: .8rem; color: var(--saee-muted); padding-top: .35rem; }
 div.dt-container .dt-paging .pagination { margin: 0; }
@@ -1259,14 +1277,23 @@ div.dt-container .dt-paging .page-link {
 }
 div.dt-container .dt-paging .page-item.active .page-link { background: var(--saee-primary); border-color: var(--saee-primary); color: #fff; }
 div.dt-container .dt-paging .page-item.disabled .page-link { opacity: .5; }
-table.data-table thead th { cursor: pointer; user-select: none; white-space: nowrap; }
-table.data-table thead th:not(.sorting_disabled)::after { content: '\2195'; font-size: .7em; opacity: .35; margin-left: .35rem; }
+/* Sorting is driven by DataTables, which is only loaded on admin screens. The member panel
+   reuses .data-table purely for its mobile card layout, so the sort affordance is keyed off
+   the classes DataTables itself stamps on orderable columns rather than off .data-table.
+   Otherwise a member table shows a pointer and an arrow for a sort that cannot happen. */
+table.data-table thead th { user-select: none; white-space: nowrap; }
+table.data-table thead th.dt-orderable-asc,
+table.data-table thead th.dt-orderable-desc { cursor: pointer; }
+table.data-table thead th.dt-orderable-asc.dt-orderable-desc::after { content: '\2195'; font-size: .7em; opacity: .35; margin-left: .35rem; }
 table.data-table thead th.dt-orderable-none::after,
 table.data-table thead th:empty::after { content: ''; }
-table.data-table thead th.dt-orderable-asc.dt-orderable-desc::after { content: '\2195'; }
 table.data-table thead th.dt-ordering-asc::after { content: '\2191'; opacity: 1; color: var(--saee-primary); }
 table.data-table thead th.dt-ordering-desc::after { content: '\2193'; opacity: 1; color: var(--saee-primary); }
-table.data-table thead th:last-child::after { content: ''; }
+/* The last column is the action column; it never sorts, whatever DataTables thinks. */
+table.data-table thead th:last-child::after,
+table.data-table thead th.dt-orderable-asc.dt-orderable-desc:last-child::after,
+table.data-table thead th.dt-ordering-asc:last-child::after,
+table.data-table thead th.dt-ordering-desc:last-child::after { content: ''; }
 @media (max-width: 767.98px) {
   div.dt-container .dt-layout-row { flex-direction: column; align-items: stretch; gap: .5rem; }
   div.dt-container .dt-search input { min-width: 0; width: 100%; }
@@ -1398,7 +1425,6 @@ table.data-table thead th:last-child::after { content: ''; }
   .product-actions { flex-direction: column; gap: .35rem; }
   .product-actions .btn { width: 100%; padding: .45rem .5rem; font-size: .78rem; white-space: nowrap; }
 }
-}
 
 /* Installable-app niceties */
 @supports (padding: max(0px)) {
@@ -1460,4 +1486,447 @@ table.data-table thead th:last-child::after { content: ''; }
   .team-founder .team-social { justify-content: center; }
   .team-card-body { padding: .7rem .75rem .85rem; }
   .team-bio { display: none; }
+}
+
+/* ==========================================================================
+   Mobile app shell — complete responsive pass (all phone/tablet sizes)
+   --------------------------------------------------------------------------
+   Goals: no horizontal overflow at 320px+, safe-area aware (notch / gesture
+   bar / home indicator), 44px touch targets, 16px form text (no iOS zoom),
+   app-style sticky headers + bottom tab bars, tables that never break layout.
+   ========================================================================== */
+:root {
+  --saee-safe-left: env(safe-area-inset-left, 0px);
+  --saee-safe-right: env(safe-area-inset-right, 0px);
+  --saee-tabbar-h: 64px;
+}
+
+/* Global overflow guard: nothing may push past the viewport edge. */
+html, body { max-width: 100%; overflow-x: clip; }
+img, video, iframe, svg, canvas { max-width: 100%; }
+img { height: auto; }
+.table-responsive { max-width: 100%; }
+pre, code { word-break: break-word; }
+.d-flex > *, .row > * { min-width: 0; }
+
+/* Payout progress steps (member Payout Statement) */
+.payout-steps {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .5rem; margin-top: .5rem;
+}
+.payout-step {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: .25rem; padding: .6rem .3rem; border-radius: 12px;
+  background: #F7FAF7; border: 1px solid var(--saee-border);
+  position: relative;
+}
+.payout-step-dot {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #E4EBE5; color: var(--saee-muted); font-size: .85rem;
+}
+.payout-step.is-done { border-color: #BFE0C6; background: #F0F9F1; }
+.payout-step.is-done .payout-step-dot { background: var(--saee-primary); color: #fff; }
+.payout-step.is-current { border-color: var(--saee-primary); background: #EAF5EC; box-shadow: 0 0 0 3px rgba(var(--saee-primary-rgb), .12); }
+.payout-step.is-current .payout-step-dot { background: var(--saee-primary); color: #fff; }
+.payout-step-label { font-family: var(--saee-font-heading); font-weight: 600; font-size: .8rem; color: var(--saee-dark); line-height: 1.2; }
+.payout-step-date { font-size: .7rem; color: var(--saee-muted); line-height: 1.2; }
+@media (max-width: 575.98px) {
+  .payout-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payout-step-dot { width: 32px; height: 32px; }
+}
+
+/* Purchase history items (member Purchase History) */
+.purchase-items { display: flex; flex-direction: column; gap: .6rem; }
+.purchase-item {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .6rem .7rem; border: 1px solid var(--saee-border); border-radius: 12px;
+  background: #FBFDFB;
+}
+.purchase-item img {
+  width: 56px; height: 56px; object-fit: cover; border-radius: 10px;
+  flex: 0 0 56px; background: var(--saee-light);
+}
+.purchase-thumb-fallback {
+  width: 56px; height: 56px; border-radius: 10px; flex: 0 0 56px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--saee-light); color: var(--saee-primary); font-size: 1.1rem;
+}
+.purchase-item-info { flex: 1 1 auto; min-width: 0; }
+.purchase-item-total { font-family: var(--saee-font-heading); font-weight: 700; color: var(--saee-dark); white-space: nowrap; }
+/* Summary row thumbnail on the Purchase History list. Sized in CSS *and* by width/height
+   attributes in the markup, so a stale stylesheet can never let a product photo balloon to the
+   full width of the panel. */
+.purchase-thumb-sm {
+  width: 40px; height: 40px; object-fit: cover; border-radius: 8px;
+  flex: 0 0 40px; background: var(--saee-light);
+}
+.purchase-thumb-sm--fallback {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--saee-primary); font-size: .95rem;
+}
+@media (max-width: 575.98px) {
+  .purchase-item img, .purchase-thumb-fallback { width: 48px; height: 48px; flex-basis: 48px; }
+  .purchase-item-total { font-size: .9rem; }
+  .purchase-thumb-sm { width: 34px; height: 34px; flex-basis: 34px; }
+}
+
+/* Admin bottom tab bar (phones only) — mirrors the member/public tab bars */
+.admin-bottom-nav { display: none; }
+@media (max-width: 991.98px) {
+  .admin-bottom-nav {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1045;
+    background: rgba(255, 255, 255, .97);
+    border-top: 1px solid var(--saee-border);
+    padding: .3rem .3rem calc(.3rem + var(--saee-safe-bottom));
+    padding-left: calc(.3rem + var(--saee-safe-left));
+    padding-right: calc(.3rem + var(--saee-safe-right));
+    box-shadow: 0 -8px 24px rgba(20, 83, 45, .09);
+    backdrop-filter: saturate(180%) blur(12px);
+  }
+  .admin-bottom-nav a, .admin-bottom-nav button {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: .12rem; padding: .3rem 0 .25rem; border-radius: 12px;
+    font-family: var(--saee-font-heading); font-size: .62rem; font-weight: 500;
+    color: var(--saee-muted); text-decoration: none; line-height: 1.1;
+    background: none; border: none; min-height: 48px;
+  }
+  .admin-bottom-nav a i, .admin-bottom-nav button i { font-size: 1.05rem; }
+  .admin-bottom-nav a.active { color: var(--saee-primary); font-weight: 700; }
+  .admin-bottom-nav a:active, .admin-bottom-nav button:active { background: var(--saee-light); }
+  /* Admin content must clear the tab bar */
+  .admin-body .app-content { padding-bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 1rem); }
+}
+
+/* ---- Safe-area aware shells ---- */
+@media (max-width: 991.98px) {
+  /* Public sticky header respects the notch / status bar */
+  .site-header { padding-top: var(--saee-safe-top); }
+  /* App topbars (member + admin) respect the notch and keep content clear */
+  .app-topbar {
+    padding-top: calc(.65rem + var(--saee-safe-top));
+    padding-left: calc(1rem + var(--saee-safe-left));
+    padding-right: calc(1rem + var(--saee-safe-right));
+  }
+  /* Sidebar drawer respects left safe area and never exceeds the viewport */
+  .app-sidebar {
+    width: min(86vw, 320px);
+    padding-left: var(--saee-safe-left);
+    padding-bottom: var(--saee-safe-bottom);
+  }
+  /* Bottom tab bars respect left/right safe areas too */
+  .mobile-bottom-nav, .app-tabbar.mobile-bottom-nav {
+    padding-left: calc(.3rem + var(--saee-safe-left));
+    padding-right: calc(.3rem + var(--saee-safe-right));
+  }
+  /* Floating WhatsApp clears the tab bar + home indicator */
+  .float-wa { bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 14px); }
+  /* Member content clears its tab bar */
+  .app-body .app-content { padding-bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 1rem); }
+  /* Offcanvas drawer respects safe areas */
+  .offcanvas-mobile { padding-left: var(--saee-safe-left); padding-right: var(--saee-safe-right); }
+  /* Modals / dropdowns never touch the screen edge */
+  .modal-dialog { margin: .75rem calc(.75rem + var(--saee-safe-right)) .75rem calc(.75rem + var(--saee-safe-left)); }
+  .dropdown-menu { max-width: calc(100vw - 2rem); }
+}
+
+/* ---- Touch targets + iOS zoom prevention ---- */
+@media (max-width: 991.98px) {
+  .btn, .btn-sm, .form-control, .form-select, .form-check-input { min-height: 44px; }
+  .btn-sm { min-height: 40px; }
+  .form-control, .form-select, textarea.form-control { font-size: 16px; }
+  .header-icon-btn, .t-nav, .thumb-nav, .gallery-nav { min-width: 44px; min-height: 44px; }
+  .sidebar-nav a { min-height: 44px; }
+  .app-tabbar a, .mobile-bottom-nav a { min-height: 48px; }
+  .filter-bar .btn, .table-tools .btn { min-height: 40px; }
+  input[type="checkbox"].form-check-input, input[type="radio"].form-check-input { width: 22px; height: 22px; }
+  .dropdown-item { padding: .65rem 1rem; }
+}
+
+/* ---- Tables: scroll or card, never overflow ---- */
+@media (max-width: 991.98px) {
+  .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table { min-width: 0; }
+  /* Cells without a data-label still render as clean stacked rows */
+  .data-table tbody td:not([data-label])::before { content: none; }
+  .data-table tbody td:not([data-label]) { justify-content: flex-start; text-align: left; }
+  .table-responsive-cards tbody td:not([data-label])::before { content: none; }
+  /* Long codes / UTRs / emails wrap instead of pushing the card wide */
+  .data-table tbody td, .table-responsive-cards tbody td { overflow-wrap: anywhere; }
+}
+
+/* ---- Small phones (320–380px): tighter rhythm, no clipping ---- */
+@media (max-width: 380px) {
+  .app-content { padding: .7rem .6rem calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + .8rem); }
+  .panel-body { padding: .85rem; }
+  .panel-head { padding: .8rem .85rem; }
+  .stat-value { font-size: 1.15rem; }
+  .wallet-hero-value { font-size: 1.6rem; }
+  .wallet-hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mini-stat strong { font-size: 1rem; }
+  .filter-bar { padding: .5rem; }
+  .catalog-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .hero-slide { min-height: 460px; }
+  .hero-slide .hero-content { padding: 4.5rem 0 3.5rem; }
+  .product-body { padding: .7rem .7rem .9rem; }
+  .product-name { font-size: .92rem; }
+  .section-title { font-size: 1.45rem; }
+  .cta-band { padding: 1.5rem 1.1rem; }
+  .auth-card { padding: 1.25rem 1rem; }
+  .auth-wrap { padding: 1rem 0; }
+  .topbar { display: none; }
+}
+
+/* ---- Phones landscape + tablets: keep headers compact ---- */
+@media (max-height: 500px) and (max-width: 991.98px) {
+  .hero-slide { min-height: 340px; }
+  .hero-slide .hero-content { padding: 2.5rem 0; }
+  .site-header .navbar { min-height: 52px; }
+  .app-sidebar { height: 100dvh; }
+}
+
+/* ---- Viewport-height safe (mobile browsers with dynamic toolbars) ---- */
+.app-shell, .app-sidebar, .auth-wrap, .admin-login-body { min-height: 100dvh; }
+.app-sidebar { height: 100dvh; }
+@media (max-width: 991.98px) {
+  .app-sidebar { height: 100dvh; }
+}
+
+/* ---- Forms / panels / cards on phones ---- */
+@media (max-width: 767.98px) {
+  .panel { border-radius: 12px; }
+  .panel-head { flex-wrap: wrap; }
+  .panel-head .btn, .panel-head .table-tools { flex-wrap: wrap; }
+  .filter-bar { border-radius: 10px; }
+  .filter-bar .btn { flex: 1 1 auto; }
+  .stat-card { padding: .85rem; }
+  .stat-card .stat-value { font-size: 1.2rem; }
+  .wallet-hero { padding: 1.1rem 1rem; }
+  .wallet-hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .deduction-box { padding: .7rem .8rem; }
+  .tree-card { min-width: 0; max-width: 100%; width: 100%; }
+  .chart-box { height: 220px; }
+  .chart-box-sm { height: 190px; }
+  /* Checkout / cart summary stays reachable above the tab bar */
+  .summary-card { position: static; }
+  .cart-line { flex-wrap: wrap; }
+  .cart-line img { width: 68px; height: 68px; }
+  /* Auth + login cards fill the screen edge-to-edge with safe padding */
+  .auth-card { border-radius: 14px; }
+  .admin-login-card { padding: 1.4rem 1.1rem; border-radius: 16px; }
+  /* Footer clears the tab bar */
+  .site-footer { padding-bottom: calc(var(--saee-tabbar-h) + var(--saee-safe-bottom) + 1rem); }
+  /* DataTables controls stack full-width */
+  div.dt-container .dt-layout-row { flex-direction: column; align-items: stretch; }
+  div.dt-container .dt-search, div.dt-container .dt-length { width: 100%; }
+  /* CRUD toolbar buttons go full width */
+  .crud-toolbar .btn { flex: 1 1 auto; }
+  /* Page actions wrap under the topbar title */
+  .page-actions { width: 100%; }
+  .page-actions .btn { flex: 1 1 auto; }
+}
+
+/* ---- Desktop: ensure shells never overlap ---- */
+@media (min-width: 992px) {
+  .admin-bottom-nav { display: none !important; }
+  .app-sidebar { padding-left: 0; padding-bottom: 0; }
+}
+
+/* ============================================================================
+   Purchase picker (includes/purchase-picker.php + purchase-totals.php)
+   Used by the admin and member assisted-purchase desks.
+   The browse grid is a FIXED-HEIGHT scroll area on purpose: its height must not
+   grow with the catalogue, or the payment and delivery panels get pushed off
+   screen the moment a few dozen products exist.
+   ========================================================================== */
+.pp-step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.35rem; height: 1.35rem; margin-right: .35rem;
+  border-radius: 50%; font-size: .72rem; font-weight: 700;
+  background: var(--saee-primary); color: #fff; vertical-align: middle;
+}
+
+.pp-toolbar { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
+.pp-search { max-width: 340px; }
+.pp-cats { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .15rem; scrollbar-width: thin; }
+.pp-cats .pp-cat { white-space: nowrap; flex: 0 0 auto; }
+.pp-cats .pp-cat.is-on {
+  background: var(--saee-primary); border-color: var(--saee-primary); color: #fff;
+}
+
+.pp-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem;
+  max-height: 400px; overflow-y: auto; padding-right: .25rem;
+  border: 1px solid var(--saee-border); border-radius: 12px; padding: .5rem;
+  background: var(--saee-bg);
+}
+.pp-card {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .5rem .6rem; border-radius: 10px; cursor: pointer;
+  background: var(--saee-white); border: 1px solid var(--saee-border);
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.pp-card:hover { border-color: var(--saee-secondary); box-shadow: var(--saee-shadow-sm); }
+.pp-card.is-picked { border-color: var(--saee-primary); background: var(--saee-light); }
+.pp-card.is-picked .pp-add { background: var(--saee-primary); border-color: var(--saee-primary); color: #fff; }
+
+.pp-thumb { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 8px; overflow: hidden;
+  background: var(--saee-light); display: flex; align-items: center; justify-content: center; }
+.pp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pp-thumb-sm { width: 34px; height: 34px; border-radius: 7px; }
+.pp-thumb-ph { color: var(--saee-secondary); font-size: .95rem; }
+
+.pp-body { flex: 1 1 auto; min-width: 0; }
+.pp-name { font-size: .82rem; font-weight: 600; color: var(--saee-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-meta { font-size: .72rem; color: var(--saee-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-price { font-size: .85rem; font-weight: 700; color: var(--saee-primary); }
+.pp-mrp { font-size: .72rem; font-weight: 400; color: var(--saee-muted); }
+.pp-add { flex: 0 0 auto; }
+
+/* Selected items */
+.pp-line {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .5rem .25rem; border-bottom: 1px dashed var(--saee-border);
+}
+.pp-line:last-child { border-bottom: 0; }
+.pp-line-main { flex: 1 1 auto; min-width: 0; }
+.pp-line-name { font-size: .85rem; font-weight: 600; color: var(--saee-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-stepper { display: flex; align-items: center; gap: .2rem; flex: 0 0 auto; }
+.pp-stepper .form-control { width: 3.4rem; }
+.pp-stepper .btn { padding: .15rem .5rem; line-height: 1; }
+.pp-line-total { flex: 0 0 auto; min-width: 5.5rem; text-align: right;
+  font-size: .88rem; font-weight: 700; color: var(--saee-text); }
+
+.pp-totalbar { background: var(--saee-light); border-color: var(--saee-border); }
+.pp-totals { line-height: 1.6; }
+.pp-totals .fs-6 { border-top: 1px solid var(--saee-border); padding-top: .2rem; margin-top: .2rem; }
+
+/* Single column + taller tap targets on phones, where a 2-up grid is unreadable */
+@media (max-width: 767.98px) {
+  .pp-grid { grid-template-columns: minmax(0, 1fr); max-height: 340px; }
+  .pp-search { max-width: none; }
+  .pp-line { flex-wrap: wrap; }
+  .pp-line-total { min-width: 0; }
+  .pp-totalbar { position: sticky; bottom: calc(var(--saee-tabbar-h, 0px) + .5rem); z-index: 5;
+    box-shadow: var(--saee-shadow); }
+}
+
+/* ==========================================================================
+   RESPONSIVE SYSTEM FOR THE TWO APP PANELS (admin + member)
+
+   Scoped to body.app-body on purpose: the public storefront has its own type
+   scale and must not be rescaled by dashboard tuning.
+
+   One variable drives the base size and every panel dimension below is written
+   in `em`, so the whole interface scales from a single knob per breakpoint
+   instead of needing a separate override for each of the hundred-odd rules that
+   make up a dashboard. Small phones get a tighter, app-like base; wide desktops
+   get a larger one so the same layout reads comfortably at arm's length.
+   ========================================================================== */
+body.app-body {
+  --app-fs: 15px;
+  --app-pad: .85rem;
+  --app-touch: 44px;
+  font-size: var(--app-fs);
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+@media (min-width: 576px)  { body.app-body { --app-fs: 15.5px; --app-pad: 1rem; } }
+@media (min-width: 992px)  { body.app-body { --app-fs: 16px;   --app-pad: 1.15rem; } }
+@media (min-width: 1600px) { body.app-body { --app-fs: 16.5px; } }
+
+/* --- type: re-expressed in em so it follows --app-fs ---------------------- */
+body.app-body .app-topbar { padding: .6em var(--app-pad); gap: .6em; }
+body.app-body .app-topbar .page-title { font-size: 1.06em; line-height: 1.3; }
+body.app-body .app-topbar .page-sub { font-size: .78em; line-height: 1.35; }
+body.app-body .panel { border-radius: 1em; }
+body.app-body .panel-head { padding: .85em 1em; }
+body.app-body .panel-head h2,
+body.app-body .panel-head h3 { font-size: 1em; }
+body.app-body .panel-body { padding: 1em; }
+body.app-body h2.h6, body.app-body .h6 { font-size: 1em; }
+body.app-body .mini-stat { padding: .7em .8em; border-radius: .9em; }
+body.app-body .mini-stat span { font-size: .7em; }
+body.app-body .mini-stat strong { font-size: 1.15em; }
+body.app-body .mini-stat small { font-size: .7em; }
+body.app-body .table { font-size: .88em; margin-bottom: 0; }
+body.app-body .table > :not(caption) > * > * { padding: .6em .65em; }
+body.app-body .form-label { font-size: .82em; margin-bottom: .25em; }
+body.app-body .form-text { font-size: .75em; }
+body.app-body .small, body.app-body small { font-size: .84em; }
+body.app-body .btn { font-size: .88em; }
+body.app-body .btn-sm { font-size: .82em; padding: .38em .8em; }
+body.app-body .badge { font-size: .74em; }
+body.app-body .dropdown-menu { font-size: .88em; }
+body.app-body .sidebar-nav .nav-link { font-size: .9em; }
+
+/* --- touch: iOS zooms the page when a focused control is under 16px ------- */
+@media (max-width: 991.98px) {
+  body.app-body input,
+  body.app-body select,
+  body.app-body textarea,
+  body.app-body .form-control,
+  body.app-body .form-select { font-size: 16px; }
+  /* Comfortable finger targets, which is what makes it feel like an app. */
+  body.app-body .btn,
+  body.app-body .form-control,
+  body.app-body .form-select { min-height: var(--app-touch); }
+  body.app-body .btn-sm { min-height: 38px; }
+  body.app-body .form-check-input { width: 1.15em; height: 1.15em; }
+  body.app-body .page-link,
+  body.app-body .nav-link { min-height: 40px; display: inline-flex; align-items: center; }
+}
+
+/* --- phones: compact, single column, nothing overflows -------------------- */
+@media (max-width: 767.98px) {
+  body.app-body .app-main { padding-bottom: .5rem; }
+  body.app-body .app-topbar { flex-wrap: wrap; row-gap: .35em; }
+  body.app-body .app-topbar .page-title { font-size: 1em; }
+  body.app-body .app-topbar .page-sub { display: none; }
+  body.app-body .panel { border-radius: .8em; }
+  body.app-body .panel-body { padding: .85em; }
+  body.app-body .p-3.p-md-4, body.app-body .p-md-4 { padding: .85em !important; }
+  /* Toolbars and filter rows stack instead of squeezing side by side. */
+  body.app-body .crud-toolbar,
+  body.app-body .d-flex.gap-2,
+  body.app-body .d-flex.gap-3 { flex-wrap: wrap; }
+  body.app-body .crud-toolbar .btn,
+  body.app-body .page-actions .btn { flex: 1 1 auto; }
+  /* Stat grids go 2-up, which is the most a phone can read at a glance. */
+  body.app-body .row.g-3 > [class*="col-lg-3"] { flex: 0 0 auto; width: 50%; }
+  /* Long unbroken strings (codes, emails, hashes) must not force a scroll. */
+  body.app-body td, body.app-body th,
+  body.app-body .text-break { overflow-wrap: anywhere; word-break: break-word; }
+  body.app-body .table { font-size: .84em; }
+  /* DataTables chrome stacks rather than overflowing. */
+  body.app-body div.dt-container .dt-layout-row { flex-direction: column; align-items: stretch; gap: .4rem; }
+  body.app-body div.dt-container .dt-search input,
+  body.app-body div.dt-container .dt-length select { width: 100%; }
+  /* Modal dialogs fill the screen edge to edge on a phone. */
+  body.app-body .modal-dialog { margin: .5rem; max-width: none; }
+  body.app-body .modal-content { border-radius: .8em; }
+  /* The purchase picker: single column, shorter, and its sticky total clears the tab bar. */
+  body.app-body .pp-grid { grid-template-columns: minmax(0, 1fr); max-height: 60vh; }
+  body.app-body .pp-search { max-width: none; }
+  body.app-body .pp-line { flex-wrap: wrap; row-gap: .35rem; }
+  body.app-body .pp-stepper { order: 3; }
+}
+
+/* --- very small phones (<=360px): drop a step, keep it legible ------------ */
+@media (max-width: 359.98px) {
+  body.app-body { --app-fs: 14px; }
+  body.app-body .app-topbar .page-title { font-size: .95em; }
+  body.app-body .btn { padding-left: .6em; padding-right: .6em; }
+  body.app-body .pp-stepper .form-control { width: 3rem; }
+}
+
+/* --- short landscape phones: keep the sticky bars from eating the screen -- */
+@media (max-height: 500px) and (max-width: 991.98px) {
+  body.app-body .pp-grid { max-height: 40vh; }
+  body.app-body .pp-totalbar { position: static; }
 }

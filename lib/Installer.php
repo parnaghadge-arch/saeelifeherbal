@@ -47,6 +47,19 @@ final class Installer
         $this->seedSocialLinks($now);
         $this->seedFaqs($now);
         $this->seedLegalContent($now);
+        $this->seedCompanyStructure($now);
+    }
+
+    /**
+     * The three company accounts at the top of the tree (SAEE00001 -> 00002 -> 00003).
+     *
+     * Seeded on every install so the sponsor fallback always resolves. They carry explicit
+     * member codes and never consume the member_code sequence, so the first real partner is
+     * still SLH000001.
+     */
+    private function seedCompanyStructure(string $now): void
+    {
+        (new CompanyStructure($this->db))->seed();
     }
 
     private function setting(string $key, string $value, string $type = 'string', string $group = 'general'): void
@@ -127,7 +140,7 @@ final class Installer
             ['upi_enabled', '0', 'bool', 'payments'],
             ['upi_id', '', 'string', 'payments'],
             ['upi_name', '', 'string', 'payments'],
-            ['bank_transfer_enabled', '1', 'bool', 'payments'],
+            ['bank_transfer_enabled', '0', 'bool', 'payments'],
             ['bank_transfer_details', "Account Name: Saee Life Herbal\nBank: State Bank of India\nA/C No: 000000000000\nIFSC: SBIN0000000\nBranch: Nagpur Main", 'text', 'payments'],
             ['cod_max_amount', '20000', 'string', 'payments'],
             // notifications
@@ -190,7 +203,6 @@ final class Installer
             ['View Bank Details', 'bank.view', 'members'],
             ['Verify Bank Details', 'bank.verify', 'members'],
             ['View MLM Tree', 'mlm.tree', 'mlm'],
-            ['Manage Commission Rules', 'mlm.commission_rules', 'mlm'],
             ['Process Commissions', 'mlm.process', 'mlm'],
             ['Reverse Commissions', 'mlm.reverse', 'mlm'],
             ['Manage Royalty Rules', 'royalty.manage', 'royalty'],
@@ -239,7 +251,7 @@ final class Installer
         $map = [
             'super-admin' => array_keys($permIds),
             'administrator' => array_values(array_diff(array_keys($permIds), ['roles.manage', 'backups.manage'])),
-            'finance-manager' => ['dashboard.view', 'members.view', 'mlm.tree', 'mlm.process', 'mlm.reverse', 'mlm.commission_rules', 'royalty.manage', 'royalty.approve', 'wallets.view', 'wallets.adjust', 'payouts.approve', 'payouts.pay', 'payouts.reports', 'reports.view', 'members.export'],
+            'finance-manager' => ['dashboard.view', 'members.view', 'mlm.tree', 'mlm.process', 'mlm.reverse', 'royalty.manage', 'royalty.approve', 'wallets.view', 'wallets.adjust', 'payouts.approve', 'payouts.pay', 'payouts.reports', 'reports.view', 'members.export'],
             'kyc-verifier' => ['dashboard.view', 'members.view', 'kyc.view', 'kyc.verify', 'bank.view', 'bank.verify'],
             'content-editor' => ['dashboard.view', 'products.manage', 'categories.manage', 'cms.pages', 'cms.sliders', 'cms.blogs', 'cms.gallery', 'cms.content', 'cms.navigation', 'cms.media', 'enquiries.view', 'b2b.view', 'settings.manage'],
             'support-executive' => ['dashboard.view', 'members.view', 'orders.view', 'orders.update', 'enquiries.view', 'enquiries.manage', 'b2b.view', 'b2b.manage', 'payouts.request'],
@@ -288,7 +300,11 @@ final class Installer
         $this->db->insertIgnore('mlm_settings', [
             'id' => 1,
             'company_sponsor_code' => DEFAULT_COMPANY_SPONSOR_ID,
-            'plan_enabled' => 0,
+            // On by default. Every product is seeded with its own commission values and the
+            // company chain exists specifically to earn them, so an install that silently
+            // calculates nothing is a broken install. The switch on the MLM settings page turns
+            // it off - and now actually reaches the engine.
+            'plan_enabled' => 1,
             'commission_hold_days' => 0,
             'direct_levels' => 1,
             'grand_direct_levels' => 1,
@@ -298,7 +314,7 @@ final class Installer
             'royalty_auto_process' => 1,
             'royalty_requires_approval' => 1,
             'member_id_prefix' => 'SLH',
-            'member_id_padding' => 5,
+            'member_id_padding' => 6,
             'registration_enabled' => 1,
             'max_direct_referrals' => 0,
             'compliance_notice' => 'Commissions are earned only on genuine product sales. No joining fee. No recruitment-only income.',
@@ -316,6 +332,7 @@ final class Installer
             'require_kyc' => 1,
             'require_verified_bank' => 1,
             'auto_approve' => 0,
+            'auto_payout_enabled' => 1,
             'payouts_enabled' => 1,
             'created_at' => $now,
             'updated_at' => $now,
@@ -458,6 +475,7 @@ final class Installer
             ['bank_updated', 'Bank Details Updated', 'Your bank account details were updated and are pending verification.', ''],
             ['payout_requested', 'Payout Request Received', 'Your payout request {{request_code}} for {{amount}} has been received.', 'request_code,amount'],
             ['payout_approved', 'Payout Approved', 'Your payout request {{request_code}} has been approved.', 'request_code'],
+            ['payout_in_progress', 'Payout In Progress', 'Your payout {{request_code}} of {{amount}} is now in progress. The accounts team has downloaded the payout report and payment is being processed to your bank account.', 'request_code,amount'],
             ['payout_rejected', 'Payout Rejected', 'Your payout request {{request_code}} was rejected. Reason: {{reason}}.', 'request_code,reason'],
             ['payout_completed', 'Payout Completed', 'Your payout {{request_code}} of {{amount}} was paid. UTR: {{utr}}.', 'request_code,amount,utr'],
             ['enquiry_received', 'We received your message', 'Thank you for contacting Saee Life Herbal. Our team will respond within one business day.', ''],

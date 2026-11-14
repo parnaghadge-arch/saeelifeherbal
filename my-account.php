@@ -84,7 +84,7 @@ if (is_post()) {
 $addresses = db()->select('SELECT * FROM customer_addresses WHERE customer_id = :c ORDER BY is_default DESC, id DESC', ['c' => $customer['id']]);
 $orders = db()->select('SELECT * FROM orders WHERE customer_id = :c ORDER BY id DESC LIMIT 5', ['c' => $customer['id']]);
 $orderStats = db()->first(
-    "SELECT COUNT(*) AS total, COALESCE(SUM(grand_total),0) AS spend FROM orders WHERE customer_id = :c AND status NOT IN ('cancelled','refunded')",
+    "SELECT COUNT(*) AS total, COALESCE(SUM(grand_total),0) AS spend FROM orders WHERE customer_id = :c AND status <> 'cancelled'",
     ['c' => $customer['id']]
 );
 $pageTitle = 'My Account';

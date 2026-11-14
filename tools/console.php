@@ -9,6 +9,7 @@
  *   php tools/console.php schema:sqlite
  *   php tools/console.php royalty:run
  *   php tools/console.php commissions:process
+ *   php tools/console.php payouts:auto   (create auto payouts from earnings, cron)
  *   php tools/console.php backups:run
  */
 declare(strict_types=1);
@@ -44,6 +45,7 @@ $commands = [
     'schema:mysql', 'schema:sqlite',
     'collation:repair', 'collation:heal',
     'logs', 'commissions:process', 'royalty:run', 'backups:run', 'sitemap', 'seed-payouts', 'warn:scan',
+    'payouts:auto', 'mlm:drop-commission-rules', 'production:reset',
 ];
 
 if (!in_array($command, $commands, true)) {
@@ -58,9 +60,15 @@ if (!in_array($command, $commands, true)) {
     echo "  logs                  show recent PHP errors (use a code from the error page)\n";
     echo "      --tail=40 --grep=ERR-XXXXXXXX --clear\n";
     echo "  demo                 seed demo catalogue, members, orders and commissions\n";
+    echo "  production:reset     WIPE everything and rebuild a clean production database\n";
+    echo "      keeps settings/products/pages, seeds no demo partners or orders,\n";
+    echo "      creates the SAEE00001-00002-00003 company chain (fallback = SAEE00003)\n";
+    echo "      --admin-user=admin --admin-pass='Admin@12345' --yes\n";
     echo "  schema:mysql         write database/schema.sql from the schema definition\n";
     echo "  schema:sqlite        write database/schema.sqlite.sql\n";
     echo "  commissions:process  release matured commission holds (cron)\n";
+    echo "  mlm:drop-commission-rules  drop the retired mlm_commission_rules table\n";
+    echo "  payouts:auto         create auto payouts from eligible earnings (cron)\n";
     echo "  royalty:run          evaluate royalty achievements (cron)\n";
     echo "  backups:run          write a database backup into storage/backups (cron)\n";
     echo "  sitemap              regenerate sitemap.xml (cron)\n";
@@ -424,19 +432,22 @@ switch ($command) {
         break;
 
     case 'upgrade':
-        $created = \Saee\Lib\Schema::ensureTables($db);
-        if ($created === []) {
-            echo "No missing tables." . PHP_EOL;
-        } else {
-            echo "Created " . count($created) . " table(s): " . implode(', ', $created) . PHP_EOL;
-        }
-        // Report (and repair) column drift too: ensureTables() already ran ensureColumns()
-        // for every existing table, so re-run it here purely to print what was added.
+        // Columns first, then tables: ensureTables() internally also runs
+        // ensureColumns() for existing tables, so running it first would add the
+        // columns silently and the report below would wrongly print
+        // "No missing columns" even though columns were just added. Running the
+        // column pass first makes the report truthful.
         $addedColumns = [];
         foreach (\Saee\Lib\Schema::tables() as $table => $definition) {
             foreach (\Saee\Lib\Schema::ensureColumns($db, $table, $definition) as $entry) {
                 $addedColumns[] = $entry;
             }
+        }
+        $created = \Saee\Lib\Schema::ensureTables($db);
+        if ($created === []) {
+            echo "No missing tables." . PHP_EOL;
+        } else {
+            echo "Created " . count($created) . " table(s): " . implode(', ', $created) . PHP_EOL;
         }
         if ($addedColumns === []) {
             echo "No missing columns." . PHP_EOL;
@@ -445,6 +456,33 @@ switch ($command) {
         }
         if ($created === [] && $addedColumns === []) {
             echo "Schema already up to date." . PHP_EOL;
+        }
+        // Order lifecycle: the eight-value status list was shortened to
+        // new -> processing -> shipped -> delivered (+ cancelled). Existing rows still carry the
+        // old words, and ensureColumns() never rewrites values or narrows a column, so this runs
+        // its own migration.
+        foreach (\Saee\Lib\Schema::migrateOrderStatuses($db) as $line) {
+            echo $line . PHP_EOL;
+        }
+        // The MLM settings form wrote to the wrong store, so the commission engine never saw the
+        // plan switch. Reconcile it here or an upgraded install keeps calculating nothing.
+        $mlmLines = \Saee\Lib\Schema::migrateMlmSettings($db);
+        if ($mlmLines === []) {
+            echo "MLM settings already consistent." . PHP_EOL;
+        }
+        foreach ($mlmLines as $line) {
+            echo $line . PHP_EOL;
+        }
+        // Auto-payout enum: ensureColumns() only adds columns, it never widens an ENUM.
+        // Existing MySQL installs need the 'processing' value added explicitly, otherwise
+        // moving a payout to "in progress" fails with a truncated-value error.
+        if ($db->driver() === 'mysql') {
+            try {
+                $db->statement("ALTER TABLE payout_requests MODIFY status ENUM('pending','approved','processing','rejected','paid','cancelled') NOT NULL DEFAULT 'pending'");
+                echo "Payout status enum widened (processing)." . PHP_EOL;
+            } catch (\Throwable $e) {
+                echo "Payout enum widen skipped: " . $e->getMessage() . PHP_EOL;
+            }
         }
         // 2026-11 menu simplification: the public header is now a flat list with no submenus,
         // Products opens the full catalogue, Solutions opens agriculture solutions and Gallery
@@ -471,6 +509,53 @@ switch ($command) {
             $touched++;
         }
         echo "Header menu normalised (" . $touched . " items, no submenus)." . PHP_EOL;
+        // Auto-payout notification template for existing installs (insertIgnore keeps
+        // a customised template untouched).
+        $db->insertIgnore('notification_templates', [
+            'code' => 'payout_in_progress',
+            'name' => 'Payout In Progress',
+            'channel' => 'in_system',
+            'subject' => 'Payout In Progress',
+            'body' => 'Your payout {{request_code}} of {{amount}} is now in progress. The accounts team has downloaded the payout report and payment is being processed to your bank account.',
+            'variables' => 'request_code,amount',
+            'status' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        echo "Payout in-progress template ensured." . PHP_EOL;
+        break;
+
+    case 'production:reset':
+        // Destructive by design: this rebuilds the database from nothing. Guard it behind an
+        // explicit flag so it can never run by accident from a shell history mistake.
+        if (empty($opts['yes'])) {
+            fwrite(STDERR, "This DELETES every member, order, payout, commission and wallet in the database." . PHP_EOL);
+            fwrite(STDERR, "Re-run with --yes to confirm:  php tools/console.php production:reset --yes" . PHP_EOL);
+            exit(1);
+        }
+
+        echo "Rebuilding the database from scratch..." . PHP_EOL;
+        $installer = new Installer($db);
+        // fresh = true drops every table first, so nothing from the previous installation
+        // survives — not even rows in tables this script does not know about.
+        $installer->install([
+            'name' => $opts['admin-name'] ?? 'Super Administrator',
+            'email' => $opts['admin-email'] ?? 'admin@saeelifeherbal.com',
+            'username' => $opts['admin-user'] ?? 'admin',
+            'password' => $opts['admin-pass'] ?? 'Admin@12345',
+        ], true);
+
+        // Catalogue and website content only. No demo partners, no demo orders.
+        (new \Saee\Lib\DemoSeeder($db))->seedContent();
+
+        $chain = (new \Saee\Lib\CompanyStructure($db))->seed();
+
+        echo PHP_EOL . "Production database ready." . PHP_EOL;
+        echo "  Admin login    : " . ($opts['admin-user'] ?? 'admin') . " / " . ($opts['admin-pass'] ?? 'Admin@12345') . PHP_EOL;
+        echo "  Company chain  : " . implode('  ->  ', array_keys($chain)) . PHP_EOL;
+        echo "  Sponsor fallback: " . \Saee\Lib\MlmSettings::companySponsorCode() . PHP_EOL;
+        echo "  Next member ID : SLH" . str_pad('1', (int) \Saee\Lib\MlmSettings::get('member_id_padding', 6), '0', STR_PAD_LEFT)
+            . "  (password = the member ID)" . PHP_EOL;
         break;
 
     case 'demo':
@@ -681,9 +766,56 @@ switch ($command) {
         echo 'Done. Reload the page.' . PHP_EOL;
         break;
 
+    case 'mlm:drop-commission-rules':
+        // Commission moved onto the product row itself, so this table is dead weight on an
+        // upgraded install. Dropping it destroys the old rule history, which is why the console
+        // asks rather than doing it on boot. Commission already credited lives in
+        // commission_transactions and is untouched.
+        if (!$db->statement("SELECT name FROM sqlite_master WHERE type='table' AND name='mlm_commission_rules'")->fetch()
+            && $db->driver() === 'sqlite') {
+            echo "mlm_commission_rules does not exist - nothing to do." . PHP_EOL;
+            break;
+        }
+        if ($db->driver() !== 'sqlite') {
+            $exists = (bool) $db->value(
+                'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?',
+                ['mlm_commission_rules']
+            );
+            if (!$exists) {
+                echo "mlm_commission_rules does not exist - nothing to do." . PHP_EOL;
+                break;
+            }
+        }
+        $rows = (int) $db->value('SELECT COUNT(*) FROM mlm_commission_rules');
+        if (!in_array('--force', $argv, true)) {
+            echo "mlm_commission_rules holds $rows row(s) of retired rule history." . PHP_EOL;
+            echo "Re-run with --force to drop the table. Commission already credited is unaffected." . PHP_EOL;
+            break;
+        }
+        if ($db->driver() === 'sqlite') {
+            $db->statement('PRAGMA foreign_keys = OFF');
+        } else {
+            $db->statement('SET FOREIGN_KEY_CHECKS = 0');
+        }
+        $db->statement('DROP TABLE IF EXISTS mlm_commission_rules');
+        if ($db->driver() === 'sqlite') {
+            $db->statement('PRAGMA foreign_keys = ON');
+        } else {
+            $db->statement('SET FOREIGN_KEY_CHECKS = 1');
+        }
+        echo "Dropped mlm_commission_rules ($rows row(s) of retired history)." . PHP_EOL;
+        break;
+
     case 'commissions:process':
         $n = (new \Saee\Lib\MlmCommissionEngine($db))->processEligibleOrders();
         echo "Processed $n order(s)." . PHP_EOL;
+        break;
+
+    case 'payouts:auto':
+        // Auto payouts also sync on report/member page loads; this cron entry keeps
+        // the register current even when nobody opens those pages.
+        $n = (new \Saee\Lib\PayoutService($db))->syncAutoPayouts();
+        echo "Created $n auto payout(s)." . PHP_EOL;
         break;
 
     case 'royalty:run':

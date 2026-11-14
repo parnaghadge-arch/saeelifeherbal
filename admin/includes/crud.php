@@ -99,6 +99,14 @@ if (!function_exists('crud_page')) {
         $listRoute = $config['route'] ?? basename((string) ($_SERVER['SCRIPT_NAME'] ?? 'index.php'));
         $intro = $config['intro'] ?? '';
 
+        // A module can put its editor on its own route instead of beside the table.
+        //   form_route on the list page  -> list only, "New" and the pencil link out.
+        //   form_only  on the form page  -> editor only, "route" names the list to return to.
+        $formRoute = isset($config['form_route']) ? (string) $config['form_route'] : null;
+        $formOnly = (bool) ($config['form_only'] ?? false);
+        $listOnly = $formRoute !== null && !$formOnly;
+        $selfRoute = basename((string) ($_SERVER['SCRIPT_NAME'] ?? 'index.php'));
+
         $editId = Request::int('id');
         $record = $editId ? $db->first("SELECT * FROM $table WHERE id = :id", ['id' => $editId]) : null;
         $errors = [];
@@ -266,7 +274,7 @@ if (!function_exists('crud_page')) {
                         Audit::log('create', $module, 'Created ' . $singular . ' #' . $newId, $table, $newId);
                         Session::success($singular . ' created.');
                     }
-                    Request::redirect($listRoute . '?id=' . $newId . '&saved=1');
+                    Request::redirect($formOnly ? $listRoute : $listRoute . '?id=' . $newId . '&saved=1');
                 } catch (\Throwable $e) {
                     $errors['_general'] = ['Could not save: ' . friendlyDbError($e)];
                 }
@@ -295,24 +303,36 @@ if (!function_exists('crud_page')) {
 
         // The form only opens on demand: "+ New <singular>" or the edit pencil. The table owns
         // the page by default — a plain list URL never shows an empty add form next to it.
-        $formOpen = $record !== null || !empty($errors) || Request::query('new') !== null;
+        // On a dedicated form route the editor is the whole page, so it is always open.
+        $formOpen = $formOnly || (!$listOnly && ($record !== null || !empty($errors) || Request::query('new') !== null));
         $searchQuery = $search !== '' ? '&q=' . urlencode($search) : '';
+        // Where the "+ New" button and the edit pencil go: the editor's own route when the module
+        // has one, otherwise this page.
+        $newRoute = $listOnly ? $formRoute : $listRoute . '?new=1';
+        $editRoute = $listOnly ? $formRoute : $listRoute;
 
-        $pageTitle = $title;
-        $pageHeading = $title;
-        $pageSub = $total . ' record(s)' . ($intro !== '' ? ' · ' . $intro : '');
+        $pageTitle = $formOnly ? ($record ? 'Edit ' . $singular : 'Add ' . $singular) : $title;
+        $pageHeading = $formOnly ? ($record ? 'Edit ' . $singular : 'Add ' . $singular) : $title;
+        $pageSub = $formOnly
+            ? ($intro !== '' ? $intro : $title)
+            : $total . ' record(s)' . ($intro !== '' ? ' · ' . $intro : '');
         $activeModule = $module;
-        $pageActions = $formOpen
-            ? '<a class="btn btn-sm btn-outline-secondary" href="' . e($listRoute . ($search !== '' ? '?q=' . urlencode($search) : '')) . '"><i class="fa-solid fa-list me-1"></i>Back to list</a>'
-            : '<a class="btn btn-sm btn-primary" href="' . e($listRoute . '?new=1') . '"><i class="fa-solid fa-plus me-1"></i>New ' . e($singular) . '</a>';
+        if ($formOnly) {
+            $pageActions = '<a class="btn btn-sm btn-outline-secondary" href="' . e($listRoute) . '"><i class="fa-solid fa-arrow-left me-1"></i>Back to ' . e(strtolower($title)) . '</a>';
+        } else {
+            $pageActions = $formOpen && !$listOnly
+                ? '<a class="btn btn-sm btn-outline-secondary" href="' . e($listRoute . ($search !== '' ? '?q=' . urlencode($search) : '')) . '"><i class="fa-solid fa-list me-1"></i>Back to list</a>'
+                : '<a class="btn btn-sm btn-primary" href="' . e($newRoute) . '"><i class="fa-solid fa-plus me-1"></i>New ' . e($singular) . '</a>';
+        }
         require dirname(__DIR__) . '/includes/layout.php';
         ?>
-        <div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?>">
+        <div class="crud-layout<?= $formOpen ? ' is-form-open' : '' ?><?= $formOnly ? ' is-form-only' : '' ?><?= $listOnly ? ' is-list-only' : '' ?>">
+          <?php if (!$listOnly): ?>
           <div class="crud-form-col<?= $formOpen ? '' : ' d-none' ?>" id="crudForm">
             <div class="panel p-3 p-md-4">
               <div class="d-flex justify-content-between align-items-center mb-3">
                 <h2 class="h6 mb-0"><?= $record ? 'Edit ' . e($singular) : 'Add ' . e($singular) ?></h2>
-                <a class="btn btn-sm btn-outline-secondary" href="<?= e($listRoute . ($search !== '' ? '?q=' . urlencode($search) : '')) ?>">Cancel</a>
+                <a class="btn btn-sm btn-outline-secondary" href="<?= e($listRoute . (!$formOnly && $search !== '' ? '?q=' . urlencode($search) : '')) ?>">Cancel</a>
               </div>
               <?php if (!empty($errors['_general'])): ?><div class="alert alert-danger small"><?= e($errors['_general'][0]) ?></div><?php endif; ?>
               <?php if (!empty($errors)): ?><div class="alert alert-danger small">Please correct the highlighted fields.</div><?php endif; ?>
@@ -396,6 +416,8 @@ if (!function_exists('crud_page')) {
               <?php endif; ?>
             </div>
           </div>
+          <?php endif; ?>
+          <?php if (!$formOnly): ?>
           <div class="crud-list-col">
             <div class="panel p-3 p-md-4">
               <div class="crud-toolbar">
@@ -438,7 +460,7 @@ if (!function_exists('crud_page')) {
                           </td>
                         <?php endforeach; ?>
                         <td class="text-end">
-                          <a class="btn btn-sm btn-light-green" href="<?= e($listRoute) ?>?id=<?= (int) $row['id'] ?>"><i class="fa-solid fa-pen"></i></a>
+                          <a class="btn btn-sm btn-light-green" href="<?= e($editRoute) ?>?id=<?= (int) $row['id'] ?>"><i class="fa-solid fa-pen"></i></a>
                           <form method="post" class="d-inline" data-confirm="Delete this record?">
                             <?= csrf_field() ?>
                             <input type="hidden" name="action" value="delete">
@@ -458,6 +480,7 @@ if (!function_exists('crud_page')) {
               <?php endif; ?>
             </div>
           </div>
+          <?php endif; ?>
         </div>
         <?php
         $needsEditor = (bool) array_filter($fields, static fn ($f) => ($f['type'] ?? '') === 'richtext');

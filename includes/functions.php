@@ -241,7 +241,7 @@ function get_testimonials(int $limit = 6): array
 }
 
 /**
- * Allowed values for the products.commission_basis / mlm_commission_rules.commission_basis
+ * Allowed values for the products.commission_basis
  * enum, with the label shown in the admin panel.
  *
  * The database enum is the source of truth: sending anything outside this list raises
@@ -553,6 +553,36 @@ function invalid_class(array $errors, string $field): string
 /** Human readable payment method. */
 function payment_label(?string $method): string
 {
-    $labels = PAYMENT_METHODS + ['wallet' => 'Wallet Balance'];
+    $labels = PAYMENT_METHODS + PAYMENT_METHODS_LEGACY + ['wallet' => 'Wallet Balance'];
     return $labels[$method ?? ''] ?? ucfirst(str_replace('_', ' ', (string) $method));
+}
+
+/**
+ * Label for an order status, or for a row of order_status_history.
+ *
+ * The history column is free text on purpose: it records fulfilment statuses *and* payment
+ * events, so not every word in it is an order status. Retired status words are translated too,
+ * which keeps timelines written before the list was shortened readable.
+ */
+function order_status_label(?string $status): string
+{
+    $status = (string) $status;
+    // Payment events share the timeline but are not fulfilment statuses.
+    $events = [
+        'paid' => 'Payment confirmed',
+        'unpaid' => 'Awaiting payment',
+        'failed' => 'Payment failed',
+        'refunded' => 'Refunded',
+    ];
+    if (isset($events[$status])) {
+        return $events[$status];
+    }
+    if (isset(ORDER_STATUSES[$status])) {
+        return ORDER_STATUSES[$status];
+    }
+    $mapped = ORDER_STATUS_LEGACY[$status] ?? null;
+    if ($mapped !== null) {
+        return ORDER_STATUSES[$mapped];
+    }
+    return ucwords(str_replace('_', ' ', $status));
 }

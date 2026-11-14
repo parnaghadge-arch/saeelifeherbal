@@ -13,7 +13,7 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/includes/env.php';
 
 define('APP_NAME', 'Saee Life Herbal');
-define('APP_VERSION', '1.1.0');
+define('APP_VERSION', '1.5.0');
 define('APP_ENV', getenv('SAEE_ENV') ?: 'production');
 define('APP_DEBUG', filter_var(getenv('SAEE_DEBUG') ?: (APP_ENV === 'local'), FILTER_VALIDATE_BOOLEAN));
 
@@ -40,7 +40,10 @@ define('CURRENCY', 'INR');
 // with the wrong encoding used to turn the rupee sign into stray digits (262145), which
 // then appeared inside every price on the site.
 define('CURRENCY_SYMBOL', "\u{20B9}");
-define('DEFAULT_COMPANY_SPONSOR_ID', 'SAEE00001');
+// The bottom of the company chain (SAEE00001 -> SAEE00002 -> SAEE00003). Every partner who
+// registers without naming a sponsor is attached here, so this must be the LAST account in
+// the chain rather than the root — see lib/CompanyStructure.php.
+define('DEFAULT_COMPANY_SPONSOR_ID', 'SAEE00003');
 
 date_default_timezone_set(DEFAULT_TIMEZONE);
 

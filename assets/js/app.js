@@ -804,6 +804,18 @@
   /* ---------------------------------------------------------------- PWA */  /* ---------------------------------------------------------------- PWA */
   function initPWA() {
     if (!('serviceWorker' in navigator)) { return; }
+    // Explicit opt-out (the admin panel sets it): those pages are never cached, so a
+    // worker there buys nothing and only risks taking control of an authenticated area.
+    if (SAEE.pwa === false) { return; }
+    // Without an injected base the install path is unknown. Guessing would build a
+    // root-absolute /service-worker.js, which 404s on any sub-directory install —
+    // so say why offline support is off instead of firing a request that cannot work.
+    if (typeof SAEE.base !== 'string') {
+      if (window.console && console.warn) {
+        console.warn('Offline support disabled: window.SAEE.base was not set by this page.');
+      }
+      return;
+    }
     window.addEventListener('load', function () {
       navigator.serviceWorker.register(SAEE.path('service-worker.js'), { scope: SAEE.path('') }).then(function (reg) {
         reg.addEventListener('updatefound', function () {

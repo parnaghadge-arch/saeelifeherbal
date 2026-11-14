@@ -6,6 +6,7 @@ admin_require('settings.manage');
 
 use Saee\Lib\Audit;
 use Saee\Lib\MlmSettings;
+use Saee\Lib\PayoutService;
 use Saee\Lib\Request;
 use Saee\Lib\Security;
 use Saee\Lib\Session;
@@ -13,6 +14,9 @@ use Saee\Lib\Settings;
 use Saee\Lib\Url;
 
 $db = db();
+// auto_payout_enabled only exists after the schema repair; add it before the
+// payout form below tries to UPDATE it (otherwise 1054 Unknown column).
+PayoutService::ensureSchema($db);
 // Each form on this page posts its own 'form' key. Dispatch on it: the plan form and the payout
 // form used to share one handler, so saving payout policy fell into the plan branch, reported
 // "MLM settings saved", and switched every plan CHECKBOX off (an unticked box is absent from
@@ -37,6 +41,32 @@ if ($form === 'plan') {
     foreach (['mlm_plan_enabled', 'mlm_plan_public', 'mlm_registration_enabled', 'mlm_show_earnings_public'] as $flag) {
         Settings::set($flag, Request::bool($flag) ? '1' : '0', 'boolean');
     }
+    // Everything the commission engine actually reads lives in the mlm_settings TABLE, not in
+    // the `settings` key/value store. Writing only the settings row leaves the switch looking
+    // saved on this page while MlmCommissionEngine keeps reading the old value - which is how a
+    // fresh install ended up never calculating any commission at all, with no way to turn it on.
+    // The rows above are still written so anything reading `settings` stays consistent.
+    $table = [];
+    if (array_key_exists('mlm_company_sponsor_code', $_POST)) {
+        $code = strtoupper(trim((string) Request::input('mlm_company_sponsor_code', '')));
+        if ($code !== '') {
+            $table['company_sponsor_code'] = $code;
+        }
+    }
+    if (array_key_exists('mlm_plan_enabled', $_POST)) {
+        $table['plan_enabled'] = Request::bool('mlm_plan_enabled') ? 1 : 0;
+    }
+    if (array_key_exists('mlm_commission_hold_days', $_POST)) {
+        $table['commission_hold_days'] = max(0, Request::int('mlm_commission_hold_days'));
+    }
+    if (array_key_exists('mlm_credit_status', $_POST)) {
+        // The form speaks auto/manual; the engine's enum is available/pending.
+        $table['auto_credit_status'] = Request::input('mlm_credit_status') === 'manual' ? 'pending' : 'available';
+    }
+    if ($table !== []) {
+        $table['updated_at'] = date('Y-m-d H:i:s');
+        $db->update('mlm_settings', $table, 'id = 1');
+    }
     MlmSettings::flush();
     Settings::flush();
     Audit::log('update', 'mlm', 'MLM settings updated', 'settings');
@@ -44,14 +74,16 @@ if ($form === 'plan') {
     Request::redirect('mlm-settings.php');
 }
 
+// These three come from MlmSettings, because that is what the commission engine reads. Reading
+// them back from `settings` is what made the form display a state the engine never had.
 $current = [
-    'mlm_plan_enabled' => (string) Settings::get('mlm_plan_enabled', '0'),
+    'mlm_plan_enabled' => (string) ((int) MlmSettings::get('plan_enabled', 0) === 1 ? '1' : '0'),
+    'mlm_commission_hold_days' => (string) MlmSettings::get('commission_hold_days', 0),
+    'mlm_credit_status' => ((string) MlmSettings::get('auto_credit_status', 'available') === 'pending' ? 'manual' : 'auto'),
     'mlm_plan_public' => (string) Settings::get('mlm_plan_public', '0'),
     'mlm_registration_enabled' => (string) Settings::get('mlm_registration_enabled', '1'),
     'mlm_show_earnings_public' => (string) Settings::get('mlm_show_earnings_public', '1'),
-    'mlm_company_sponsor_code' => (string) Settings::get('mlm_company_sponsor_code', 'SAEE00001'),
-    'mlm_commission_hold_days' => (string) Settings::get('mlm_commission_hold_days', '0'),
-    'mlm_credit_status' => (string) Settings::get('mlm_credit_status', 'auto'),
+    'mlm_company_sponsor_code' => MlmSettings::companySponsorCode(),
     'mlm_max_commission_levels' => (string) Settings::get('mlm_max_commission_levels', '2'),
     'mlm_compliance_note' => (string) Settings::get('mlm_compliance_note', 'The compensation plan is subject to legal and tax review before public activation. Income depends on genuine product sales and is not guaranteed.'),
 ];
@@ -69,6 +101,7 @@ if ($form === 'payout') {
         'require_kyc' => Request::bool('require_kyc') ? 1 : 0,
         'require_verified_bank' => Request::bool('require_verified_bank') ? 1 : 0,
         'auto_approve' => Request::bool('auto_approve') ? 1 : 0,
+        'auto_payout_enabled' => Request::bool('auto_payout_enabled') ? 1 : 0,
         'payouts_enabled' => Request::bool('payouts_enabled') ? 1 : 0,
         'updated_at' => date('Y-m-d H:i:s'),
     ];
@@ -99,12 +132,14 @@ if ($form === 'payout') {
     }
 
     if ($payoutSettings) {
-        $db->update('payout_settings', $policy, 'id = :id', ['id' => (int) $payoutSettings['id']]);
+        // Filter to existing columns as a fallback: if the repair could not add
+        // auto_payout_enabled, save everything else instead of throwing 1054.
+        $db->update('payout_settings', $db->filterColumns('payout_settings', $policy), 'id = :id', ['id' => (int) $payoutSettings['id']]);
         $payoutRowId = (int) $payoutSettings['id'];
     } else {
         // The installer normally seeds this row; if it is missing, create it instead of silently
         // doing nothing and still saying "saved".
-        $payoutRowId = (int) $db->insert('payout_settings', $policy + ['created_at' => date('Y-m-d H:i:s')]);
+        $payoutRowId = (int) $db->insert('payout_settings', $db->filterColumns('payout_settings', $policy) + ['created_at' => date('Y-m-d H:i:s')]);
     }
     Audit::log('update', 'mlm', 'Payout settings updated', 'payout_settings', $payoutRowId, $policy);
     Session::success('Payout settings saved.');
@@ -187,12 +222,14 @@ require __DIR__ . '/includes/layout.php';
             <div class="form-check"><input class="form-check-input" type="checkbox" name="require_kyc" value="1" id="rk" <?= (int) $payoutSettings['require_kyc'] === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="rk">Require approved KYC</label></div>
             <div class="form-check"><input class="form-check-input" type="checkbox" name="require_verified_bank" value="1" id="rb" <?= (int) $payoutSettings['require_verified_bank'] === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="rb">Require verified bank account</label></div>
             <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_approve" value="1" id="aa" <?= (int) $payoutSettings['auto_approve'] === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="aa">Auto approve requests</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_payout_enabled" value="1" id="ape" <?= (int) ($payoutSettings['auto_payout_enabled'] ?? 1) === 1 ? 'checked' : '' ?>><label class="form-check-label small" for="ape">Auto payouts (earnings appear in report without member request)</label></div>
           </div>
         </div>
         <button class="btn btn-primary w-100 mt-3">Save payout policy</button>
       </form>
       <div class="alert alert-warning small mt-3 mb-0">
         KYC and bank details are never mandatory for using the member dashboard — they only gate payouts.
+        With auto payouts on, eligible earnings appear in Payout Reports automatically; downloading the report moves them to In Progress.
       </div>
     </div>
   </div>

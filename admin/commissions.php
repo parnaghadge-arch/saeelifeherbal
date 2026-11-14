@@ -18,16 +18,65 @@ $engine = new MlmCommissionEngine($db);
 if (is_post()) {
     Security::verifyCsrf();
     $action = (string) Request::input('action', '');
-    if ($action === 'reverse' && AdminAuth::can('mlm.reverse')) {
+    if ($action === 'mark_paid' && AdminAuth::can('payouts.approve')) {
+        // Cash (or any offline) settlement handed to the member by an accountant. Debits the
+        // wallet by what was handed over, so the remaining figure stays truthful.
+        $wallet = new \Saee\Lib\WalletService($db);
+        $mode = (string) Request::input('pay_mode', 'cash');
+        $ref = trim((string) Request::input('pay_reference', ''));
+        $who = (string) (AdminAuth::user()['name'] ?? 'admin');
+        $memberId = Request::int('member_id');
+        if ($memberId > 0) {
+            $res = $wallet->markMemberCommissionPaid($memberId, $mode, $ref, $who);
+        } else {
+            $r = $wallet->markCommissionPaid(Request::int('commission_id'), $mode, $ref, $who);
+            $res = ['ok' => $r['ok'], 'message' => $r['message'], 'remaining' => $r['remaining']];
+        }
+        // Spell the remaining balance out: the whole point of marking part of a balance paid is
+        // knowing what is still owed.
+        $remaining = (float) ($res['remaining'] ?? 0);
+        $text = (string) $res['message'];
+        if (!empty($res['ok'])) {
+            $text .= $remaining > 0
+                ? ' Remaining balance: ' . money($remaining) . '.'
+                : ' Balance is now zero.';
+        }
+        Session::{$res['ok'] ? 'success' : 'error'}($text);
+    } elseif ($action === 'reverse' && AdminAuth::can('mlm.reverse')) {
         $commissionId = Request::int('commission_id');
         $reason = trim((string) Request::input('reason', 'Reversed by admin'));
         $ok = $engine->reverseCommission($commissionId, $reason);
         Audit::log('commission_reversed', 'mlm', 'Commission #' . $commissionId . ' reversed: ' . $reason, 'commission_transactions', $commissionId);
         Session::{$ok ? 'success' : 'error'}($ok ? 'Commission reversed and ledger updated.' : 'This commission cannot be reversed.');
     } elseif ($action === 'process' && AdminAuth::can('mlm.process')) {
-        $count = $engine->processEligibleOrders();
-        Audit::log('process', 'mlm', 'Commission processing run processed ' . $count . ' order(s)', 'commission_transactions');
-        Session::success('Processed ' . $count . ' eligible order(s).');
+        // Catches up every order that never got a commission row, including ones still at "new".
+        $run = $engine->backfillOrders();
+        Audit::log('process', 'mlm', sprintf(
+            'Commission processing run: %d of %d order(s) recorded %s, %d entries credited',
+            $run['recorded'], $run['orders'], money($run['total']), $run['released']
+        ), 'commission_transactions');
+        if ($run['recorded'] === 0 && $run['released'] === 0) {
+            // Saying "already up to date" when nothing was recorded hides the actual reason -
+            // which is how a disabled compensation plan stayed invisible behind a friendly
+            // message. Surface what the engine reported for the first order instead.
+            $why = (string) ($run['notes'][0] ?? '');
+            $why = $why !== '' ? preg_replace('/^[^:]+:\s*/', '', $why) : '';
+            if (str_contains($why, 'disabled')) {
+                Session::error('No commission was calculated: the compensation plan is switched off. Turn it on under MLM Settings, then run processing again.');
+            } elseif ($run['orders'] === 0) {
+                Session::success('Nothing to do — every order already has its commission recorded.');
+            } else {
+                Session::success('Checked ' . $run['orders'] . ' order(s) — no new commission was payable.' . ($why !== '' ? ' (' . $why . ')' : ''));
+            }
+        } else {
+            Session::success(sprintf(
+                'Recorded commission for %d of %d order(s) totalling %s%s.',
+                $run['recorded'],
+                $run['orders'],
+                money($run['total']),
+                $run['released'] > 0 ? ', ' . $run['released'] . ' entr' . ($run['released'] === 1 ? 'y' : 'ies') . ' credited to wallets now' : ''
+            ));
+        }
     } elseif ($action === 'release' && AdminAuth::can('mlm.process')) {
         $released = $engine->releaseMaturedCommissions();
         Audit::log('release', 'mlm', 'Released ' . $released . ' matured commission(s)', 'commission_transactions');
@@ -61,6 +110,9 @@ $summary = $db->first(
      FROM commission_transactions c LEFT JOIN members m ON m.id = c.member_id WHERE $whereSql",
     $params
 ) ?? [];
+// Future commission: what the orders still awaiting approval will pay out, computed from the
+// same projection the order page shows so the headline and the detail always agree.
+$futureTotal = (new MlmCommissionEngine($db))->futureCommissionTotal();
 $pager = new Pager($total, 25);
 $rows = $db->select(
     "SELECT c.*, m.name AS member_name, m.member_code FROM commission_transactions c
@@ -78,12 +130,31 @@ if (AdminAuth::can('mlm.process')) {
     $actions .= ' <form method="post" class="d-inline">' . csrf_field() . '<input type="hidden" name="action" value="release"><button class="btn btn-sm btn-outline-secondary">Release matured</button></form>';
 }
 $pageActions = $actions;
+// A switched-off plan means no order will ever earn anything. That used to be invisible: the
+// ledger simply stayed empty and "Run processing" reported that everything was up to date.
+$planOn = (int) (\Saee\Lib\MlmSettings::get('plan_enabled', 0)) === 1;
 require __DIR__ . '/includes/layout.php';
 ?>
+<?php if (!$planOn): ?>
+<div class="alert alert-danger d-flex flex-wrap align-items-center gap-2 py-2">
+  <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+  <div class="small">
+    <strong>The compensation plan is switched off.</strong>
+    No commission is being calculated on any order, and nothing will appear here until it is
+    turned on. Enable it under
+    <a class="alert-link" href="mlm-settings.php">MLM Settings</a>, then press
+    <em>Run processing</em> to catch up the orders that were placed while it was off.
+  </div>
+</div>
+<?php endif; ?>
 <div class="row g-3 mb-3">
-  <div class="col-4"><div class="mini-stat"><span>Credited</span><strong><?= money((float) ($summary['credited'] ?? 0)) ?></strong></div></div>
-  <div class="col-4"><div class="mini-stat"><span>Pending</span><strong><?= money((float) ($summary['pending'] ?? 0)) ?></strong></div></div>
-  <div class="col-4"><div class="mini-stat"><span>Reversed</span><strong><?= money((float) ($summary['reversed'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-xl-3"><div class="mini-stat"><span>Credited</span><strong><?= money((float) ($summary['credited'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-xl-3"><div class="mini-stat"><span>Pending</span><strong><?= money((float) ($summary['pending'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-xl-3">
+    <div class="mini-stat"><span>Future</span><strong><?= money((float) ($futureTotal['total'] ?? 0)) ?></strong>
+      <small>From <?= (int) ($futureTotal['orders'] ?? 0) ?> unapproved order(s)<?= !empty($futureTotal['capped']) ? ' (newest 200 only)' : '' ?></small></div>
+  </div>
+  <div class="col-6 col-xl-3"><div class="mini-stat"><span>Reversed</span><strong><?= money((float) ($summary['reversed'] ?? 0)) ?></strong></div></div>
 </div>
 
 <div class="panel p-3 p-md-4">
@@ -118,6 +189,21 @@ require __DIR__ . '/includes/layout.php';
           <td data-label="Amount" class="text-end small fw-semibold"><?= money((float) $row['amount']) ?><?php if ((float) $row['reversed_amount'] > 0): ?><div class="text-danger">−<?= money((float) $row['reversed_amount']) ?></div><?php endif; ?></td>
           <td data-label="Status"><?= status_badge((string) $row['status']) ?></td>
           <td class="text-end">
+            <?php if (AdminAuth::can('payouts.approve') && (string) $row['status'] === 'available'): ?>
+              <form method="post" class="d-flex gap-1 justify-content-end mb-1"
+                    data-confirm="Mark <?= e(money((float) $row['amount'])) ?> as paid to <?= e((string) ($row['member_code'] ?? 'this member')) ?>? This debits their wallet balance.">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="mark_paid">
+                <input type="hidden" name="commission_id" value="<?= (int) $row['id'] ?>">
+                <select class="form-select form-select-sm" name="pay_mode" style="max-width:110px" aria-label="Payment mode">
+                  <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank</option>
+                  <option value="upi">UPI</option>
+                </select>
+                <input class="form-control form-control-sm" name="pay_reference" placeholder="Ref / receipt no." style="max-width:150px">
+                <button class="btn btn-sm btn-success">Mark paid</button>
+              </form>
+            <?php endif; ?>
             <?php if (AdminAuth::can('mlm.reverse') && (float) $row['reversed_amount'] <= 0 && !in_array($row['status'], ['reversed', 'cancelled'], true)): ?>
               <form method="post" class="d-flex gap-1" data-confirm="Reverse this commission?">
                 <?= csrf_field() ?>

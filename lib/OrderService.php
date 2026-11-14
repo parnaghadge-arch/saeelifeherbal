@@ -9,16 +9,35 @@ namespace Saee\Lib;
 
 final class OrderService
 {
+    /**
+     * Fulfilment only ever moves forward, and skipping a step is legitimate: a cash-on-delivery
+     * order handed over at the door goes straight to delivered without anyone recording a
+     * "processing" or "shipped" click first. The old table forced new -> processing -> shipped ->
+     * delivered, so the status dropdown offered "Delivered" on a new order and then refused it
+     * with "Cannot move an order from New to Delivered" — the order silently stayed new and the
+     * member panel kept showing New after the operator believed they had delivered it.
+     * Cancel is reachable from any unfinished state.
+     */
     public const ALLOWED_TRANSITIONS = [
-        'pending' => ['payment_pending', 'paid', 'cancelled'],
-        'payment_pending' => ['paid', 'cancelled', 'pending'],
-        'paid' => ['processing', 'shipped', 'cancelled', 'refunded', 'delivered'],
-        'processing' => ['shipped', 'cancelled', 'refunded', 'delivered'],
-        'shipped' => ['delivered', 'refunded'],
-        'delivered' => ['refunded'],
+        'new' => ['processing', 'shipped', 'delivered', 'cancelled'],
+        'processing' => ['shipped', 'delivered', 'cancelled'],
+        'shipped' => ['delivered', 'cancelled'],
+        'delivered' => [],
         'cancelled' => [],
-        'refunded' => [],
     ];
+
+    /**
+     * Read an order status that may predate the shortened status list.
+     * Legacy words are mapped onto the current set so old rows still drive the state machine.
+     */
+    public static function normalizeStatus(?string $status): string
+    {
+        $status = (string) $status;
+        if (array_key_exists($status, ORDER_STATUSES)) {
+            return $status;
+        }
+        return ORDER_STATUS_LEGACY[$status] ?? ORDER_STATUS_DEFAULT;
+    }
 
     public function __construct(private Database $db)
     {
@@ -67,7 +86,9 @@ final class OrderService
         $orderNumber = Sequence::orderNumber();
         $invoiceNumber = Sequence::invoiceNumber();
         $paymentStatus = $paymentMethod === 'cod' ? 'unpaid' : 'pending';
-        $status = $paymentMethod === 'cod' ? 'pending' : 'payment_pending';
+        // Every order starts life as "new" and waits for the admin to approve it. Whether the
+        // money has arrived is a separate fact, recorded on payment_status.
+        $status = ORDER_STATUS_DEFAULT;
 
         $orderId = $this->db->transaction(function (Database $db) use ($totals, $data, $shipping, $billing, $customer, $memberId, $referralMemberId, $paymentMethod, $orderNumber, $invoiceNumber, $paymentStatus, $status) {
             $now = date('Y-m-d H:i:s');
@@ -76,6 +97,9 @@ final class OrderService
                 'customer_id' => CustomerAuth::id(),
                 'member_id' => $memberId,
                 'referral_member_id' => $referralMemberId,
+                // A storefront checkout is placed by the member themselves when they are signed
+                // in, so they are both the beneficiary and the operator.
+                'created_by_member_id' => $memberId,
                 'customer_name' => $shipping['full_name'] ?? ($customer['name'] ?? 'Guest'),
                 'customer_email' => $shipping['email'] ?? ($customer['email'] ?? null),
                 'customer_mobile' => $shipping['phone'] ?? ($customer['mobile'] ?? ''),
@@ -163,6 +187,14 @@ final class OrderService
 
         $cartService->close();
 
+        // Record commission the moment the purchase exists, exactly as an assisted purchase does,
+        // so a sponsor line can see what a website order earned them straight away. The rows land
+        // as pending unless the payment has already settled; approval or delivery releases them.
+        // Idempotent, so the later trigger in updateStatus() simply finds nothing new to write.
+        if ($memberId || $referralMemberId) {
+            $this->runCommission($orderId);
+        }
+
         Notification::send('customer', (int) (CustomerAuth::id() ?: 0), 'order_placed', 'Order Placed Successfully',
             'Your order ' . $orderNumber . ' for ' . money($totals['grand_total']) . ' has been received.',
             ['order_number' => $orderNumber, 'amount' => money($totals['grand_total'])],
@@ -216,7 +248,7 @@ final class OrderService
         if (!$order) {
             return ['ok' => false, 'message' => 'Order not found.'];
         }
-        if ($order['payment_status'] === 'paid' && $order['status'] !== 'pending') {
+        if ($order['payment_status'] === 'paid') {
             return ['ok' => true, 'message' => 'Order already paid.', 'already' => true];
         }
         $gateway = $payment['gateway'] ?? $order['payment_method'];
@@ -231,9 +263,11 @@ final class OrderService
 
         $this->db->transaction(function (Database $db) use ($orderId, $order, $gateway, $payment, $paymentId) {
             $now = date('Y-m-d H:i:s');
+            // Recording a payment no longer moves the order forward. Fulfilment status is the
+            // admin's decision (New -> Processing -> Shipped -> Delivered), and commission follows
+            // that decision rather than the arrival of money.
             $db->update('orders', [
                 'payment_status' => 'paid',
-                'status' => 'paid',
                 'paid_at' => $now,
                 'updated_at' => $now,
             ], 'id = :id', ['id' => $orderId]);
@@ -266,18 +300,33 @@ final class OrderService
             ]);
         });
 
-        // Commissions are generated after payment, inside their own transaction.
-        $engine = new MlmCommissionEngine($this->db);
-        $result = $engine->processOrder($orderId);
-
-        (new RoyaltyEngine($this->db))->evaluateMember((int) ($order['member_id'] ?? 0));
+        // Settling the payment is one of the two moments commission becomes spendable (the other
+        // is the order being approved or delivered). The rows are normally already recorded from
+        // when the purchase was made, so this releases them; if an older order never got any,
+        // processOrder() records them here. Either way it is idempotent.
+        $this->runCommission($orderId);
 
         Notification::send('member', (int) ($order['member_id'] ?? 0), 'order_status_updated', 'Payment Confirmed',
             'Payment for order ' . $order['order_number'] . ' has been confirmed.',
             ['order_number' => $order['order_number'], 'status' => 'Paid'],
             ['link' => 'orders', 'type' => 'success', 'icon' => 'fa-circle-check']);
 
-        return ['ok' => true, 'message' => 'Payment recorded and commissions processed.', 'commission' => $result];
+        return ['ok' => true, 'message' => 'Payment recorded.'];
+    }
+
+    /**
+     * Generate commission for an order once it has been approved or delivered.
+     * Idempotent: MlmCommissionEngine refuses an order whose commission_status is already credited.
+     */
+    private function runCommission(int $orderId): array
+    {
+        $engine = new MlmCommissionEngine($this->db);
+        $result = $engine->processOrder($orderId);
+        $order = $this->db->first('SELECT member_id FROM orders WHERE id = :id', ['id' => $orderId]);
+        if ($order && $order['member_id']) {
+            (new RoyaltyEngine($this->db))->evaluateMember((int) $order['member_id']);
+        }
+        return $result;
     }
 
     public function updateStatus(int $orderId, string $status, ?string $note = null, string $actorType = 'admin', ?int $actorId = null): array
@@ -289,12 +338,15 @@ final class OrderService
         if (!array_key_exists($status, ORDER_STATUSES)) {
             return ['ok' => false, 'message' => 'Unknown order status.'];
         }
-        if ($status === $order['status']) {
+        // Orders written before the status list was shortened carry old words; map them first so
+        // the transition table below always sees the current vocabulary.
+        $current = self::normalizeStatus($order['status']);
+        if ($status === $current) {
             return ['ok' => false, 'message' => 'Order is already in that status.'];
         }
-        $allowed = self::ALLOWED_TRANSITIONS[$order['status']] ?? [];
+        $allowed = self::ALLOWED_TRANSITIONS[$current] ?? [];
         if (!in_array($status, $allowed, true)) {
-            return ['ok' => false, 'message' => 'Cannot move an order from ' . $order['status'] . ' to ' . $status . '.'];
+            return ['ok' => false, 'message' => 'Cannot move an order from ' . (ORDER_STATUSES[$current] ?? $current) . ' to ' . (ORDER_STATUSES[$status] ?? $status) . '.'];
         }
 
         $updates = ['status' => $status, 'updated_at' => date('Y-m-d H:i:s')];
@@ -305,17 +357,9 @@ final class OrderService
                 break;
             case 'delivered':
                 $updates['delivered_at'] = $now;
-                if ($order['payment_method'] === 'cod') {
-                    $updates['payment_status'] = 'paid';
-                    $updates['paid_at'] = $now;
-                }
                 break;
             case 'cancelled':
                 $updates['cancelled_at'] = $now;
-                break;
-            case 'refunded':
-                $updates['refunded_at'] = $now;
-                $updates['payment_status'] = 'refunded';
                 break;
         }
         $this->db->update('orders', $updates, 'id = :id', ['id' => $orderId]);
@@ -324,12 +368,38 @@ final class OrderService
             'changed_by_type' => $actorType, 'changed_by_id' => $actorId, 'created_at' => $now,
         ]);
 
-        // Commission side effects
-        if (in_array($status, ['cancelled', 'refunded'], true) && $order['commission_status'] === 'credited') {
-            (new MlmCommissionEngine($this->db))->reverseOrder($orderId, 'Order ' . $status);
+        $result = ['ok' => true, 'message' => 'Order status updated to ' . (ORDER_STATUSES[$status] ?? $status) . '.'];
+
+        // Delivery settles the money, for every payment method. Cash on Delivery is collected at
+        // the door; for any other method an operator confirming delivery is confirming the sale
+        // went through. Routed through markPaid() rather than a bare column write so the order
+        // gains a payment-trail row like any other settlement — otherwise the member panel shows
+        // "Paid" above an empty trail. A refund already recorded is left alone, because that money
+        // genuinely went back.
+        if ($status === 'delivered' && !in_array((string) $order['payment_status'], ['paid', 'refunded'], true)) {
+            $settled = $this->markPaid($orderId, [
+                'gateway' => (string) $order['payment_method'],
+                'payment_id' => 'delivery-' . $orderId,
+                'note' => 'Settled on delivery',
+            ]);
+            $result['payment'] = $settled;
+            if (!empty($settled['ok']) && empty($settled['already'])) {
+                $result['message'] .= ' Payment marked as paid.';
+            }
         }
-        if ($status === 'delivered' && $order['payment_status'] === 'paid') {
-            (new MlmCommissionEngine($this->db))->processOrder($orderId);
+
+        // Commission side effects. Approval (processing) and delivery are the two triggers;
+        // payment alone never pays anyone out.
+        if ($status === 'cancelled') {
+            // Commission is now recorded at purchase time, so a cancelled order can hold rows
+            // that are recorded-but-pending as well as credited ones. Reverse both: reverseOrder()
+            // already skips anything already reversed or rejected.
+            if (in_array($order['commission_status'], ['credited', 'pending'], true)) {
+                (new MlmCommissionEngine($this->db))->reverseOrder($orderId, 'Order cancelled');
+                $result['commission'] = ['reversed' => true];
+            }
+        } elseif (in_array($status, ORDER_COMMISSION_STATUSES, true)) {
+            $result['commission'] = $this->runCommission($orderId);
         }
         if ($order['member_id']) {
             Notification::send('member', (int) $order['member_id'], 'order_status_updated', 'Order Status Updated',
@@ -337,19 +407,19 @@ final class OrderService
                 ['order_number' => $order['order_number'], 'status' => ORDER_STATUSES[$status] ?? $status],
                 ['link' => 'orders', 'type' => 'info', 'icon' => 'fa-truck-fast']);
         }
-        Audit::log('order_status_changed', 'ecommerce', sprintf('Order %s: %s -> %s', $order['order_number'], $order['status'], $status), 'order', $orderId);
-        return ['ok' => true, 'message' => 'Order status updated to ' . (ORDER_STATUSES[$status] ?? $status) . '.'];
+        Audit::log('order_status_changed', 'ecommerce', sprintf('Order %s: %s -> %s', $order['order_number'], $current, $status), 'order', $orderId);
+        return $result;
     }
 
     public function stats(): array
     {
         $row = $this->db->first(
             "SELECT COUNT(*) AS total_orders,
-                    COALESCE(SUM(CASE WHEN status IN ('paid','processing','shipped','delivered') THEN grand_total ELSE 0 END),0) AS total_sales,
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                    COALESCE(SUM(CASE WHEN status IN ('processing','shipped','delivered') THEN grand_total ELSE 0 END),0) AS total_sales,
+                    SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS pending,
                     SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
                     SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-                    SUM(CASE WHEN status NOT IN ('cancelled','refunded') THEN 1 ELSE 0 END) AS active_orders
+                    SUM(CASE WHEN status <> 'cancelled' THEN 1 ELSE 0 END) AS active_orders
              FROM orders"
         ) ?? [];
         return [
