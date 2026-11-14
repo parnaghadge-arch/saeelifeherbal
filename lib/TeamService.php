@@ -100,8 +100,12 @@ final class TeamService
             $sponsorId = $this->db->value('SELECT sponsor_id FROM members WHERE id = :id', ['id' => $memberId]);
             $guard = 0;
             while ($sponsorId && $guard++ < 25) {
-                $row = $this->db->first('SELECT id, sponsor_id, is_company FROM members WHERE id = :id', ['id' => $sponsorId]);
-                if (!$row || (int) $row['is_company'] === 1) {
+                $row = $this->db->first('SELECT id, sponsor_id FROM members WHERE id = :id', ['id' => $sponsorId]);
+                // The walk used to stop at a company account, which left the company's own
+                // direct/downline counts frozen. It earns commission like any other sponsor now,
+                // so its team numbers have to be maintained too. The loop still terminates on its
+                // own: the top company account has no sponsor.
+                if (!$row) {
                     break;
                 }
                 $d = $this->directStats((int) $row['id']);

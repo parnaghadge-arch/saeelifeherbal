@@ -172,8 +172,6 @@ final class MlmCommissionEngine
             return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Buyer has no sponsor in the chain.']];
         }
 
-        $companyId = $this->companyMemberId();
-
         foreach ($items as $item) {
             if (empty($item['product_id'])) {
                 continue;
@@ -190,8 +188,8 @@ final class MlmCommissionEngine
                     continue;
                 }
                 $beneficiaryId = (int) $upline[$level - 1];
-                if ($beneficiaryId === (int) $buyer['id'] || $beneficiaryId === $companyId) {
-                    continue; // never pay the buyer or the company itself
+                if ($beneficiaryId === (int) $buyer['id']) {
+                    continue; // never pay the buyer for their own purchase
                 }
                 $beneficiary = $this->db->first('SELECT id, name, member_code, status FROM members WHERE id = :id', ['id' => $beneficiaryId]);
                 if (!$beneficiary || $beneficiary['status'] === 'suspended') {
@@ -384,24 +382,24 @@ final class MlmCommissionEngine
 
     // ------------------------------------------------------------ internals
     /**
-     * Returns sponsor ids ordered by level starting at level 1. Stops at the company
-     * sponsor (which never earns) but keeps walking up to gather the configured levels.
+     * Returns sponsor ids ordered by level starting at level 1.
+     *
+     * The chain used to stop dead at the company account on the theory that the company never
+     * earns. That left every member sponsored directly by SAEE00003 with an empty upline, so
+     * their orders generated no commission at all — not for the company, and not for anyone
+     * above it. The company is now an ordinary link in the chain and is paid like any other
+     * sponsor; the walk still ends on its own because the top company account has no sponsor.
      */
     public function uplineChain(array $buyer, int $levels): array
     {
         $chain = [];
         $current = $buyer['sponsor_id'] !== null ? (int) $buyer['sponsor_id'] : null;
         $visited = [];
-        $companyId = $this->companyMemberId();
         for ($i = 0; $i < $levels; $i++) {
             if ($current === null || isset($visited[$current])) {
                 break;
             }
             $visited[$current] = true;
-            if ($current === $companyId) {
-                // Company is the sponsor: no commission for the company, chain ends.
-                break;
-            }
             $sponsor = $this->db->first('SELECT id, sponsor_id, status FROM members WHERE id = :id', ['id' => $current]);
             if (!$sponsor) {
                 break;
