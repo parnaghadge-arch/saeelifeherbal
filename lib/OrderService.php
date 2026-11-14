@@ -9,8 +9,17 @@ namespace Saee\Lib;
 
 final class OrderService
 {
+    /**
+     * Fulfilment only ever moves forward, and skipping a step is legitimate: a cash-on-delivery
+     * order handed over at the door goes straight to delivered without anyone recording a
+     * "processing" or "shipped" click first. The old table forced new -> processing -> shipped ->
+     * delivered, so the status dropdown offered "Delivered" on a new order and then refused it
+     * with "Cannot move an order from New to Delivered" — the order silently stayed new and the
+     * member panel kept showing New after the operator believed they had delivered it.
+     * Cancel is reachable from any unfinished state.
+     */
     public const ALLOWED_TRANSITIONS = [
-        'new' => ['processing', 'cancelled'],
+        'new' => ['processing', 'shipped', 'delivered', 'cancelled'],
         'processing' => ['shipped', 'delivered', 'cancelled'],
         'shipped' => ['delivered', 'cancelled'],
         'delivered' => [],
@@ -335,11 +344,6 @@ final class OrderService
                 break;
             case 'delivered':
                 $updates['delivered_at'] = $now;
-                // Cash on Delivery is collected on the doorstep, so delivery settles the money.
-                if ($order['payment_method'] === 'cod') {
-                    $updates['payment_status'] = 'paid';
-                    $updates['paid_at'] = $now;
-                }
                 break;
             case 'cancelled':
                 $updates['cancelled_at'] = $now;
@@ -352,6 +356,24 @@ final class OrderService
         ]);
 
         $result = ['ok' => true, 'message' => 'Order status updated to ' . (ORDER_STATUSES[$status] ?? $status) . '.'];
+
+        // Delivery settles the money, for every payment method. Cash on Delivery is collected at
+        // the door; for any other method an operator confirming delivery is confirming the sale
+        // went through. Routed through markPaid() rather than a bare column write so the order
+        // gains a payment-trail row like any other settlement — otherwise the member panel shows
+        // "Paid" above an empty trail. A refund already recorded is left alone, because that money
+        // genuinely went back.
+        if ($status === 'delivered' && !in_array((string) $order['payment_status'], ['paid', 'refunded'], true)) {
+            $settled = $this->markPaid($orderId, [
+                'gateway' => (string) $order['payment_method'],
+                'payment_id' => 'delivery-' . $orderId,
+                'note' => 'Settled on delivery',
+            ]);
+            $result['payment'] = $settled;
+            if (!empty($settled['ok']) && empty($settled['already'])) {
+                $result['message'] .= ' Payment marked as paid.';
+            }
+        }
 
         // Commission side effects. Approval (processing) and delivery are the two triggers;
         // payment alone never pays anyone out.

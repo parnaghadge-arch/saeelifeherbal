@@ -17,9 +17,9 @@ const ORDER_STATUSES = [
     'cancelled'  => 'Cancelled',
 ];
 const ORDER_STATUS_DEFAULT = 'new';
-// Statuses an admin can pick in the dropdown. Cancel is a separate action, not a dropdown
-// choice, so it is not listed here.
-const ORDER_STATUS_ACTIONS = ['new', 'processing', 'shipped', 'delivered'];
+// The statuses an admin may pick come from OrderService::ALLOWED_TRANSITIONS for the order's
+// current state, not from a flat list. A flat list here let the dropdown offer "Delivered" on a
+// new order, which the transition table then refused, leaving the order stuck on New.
 // Orders written before the list was shortened still carry the old words. They are read
 // through this map so history rows and legacy data keep making sense on screen.
 const ORDER_STATUS_LEGACY = [
