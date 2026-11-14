@@ -18,9 +18,12 @@ $orderId = Request::int('id');
 $order = $db->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
 
 // Only the member this order belongs to may see it. The referral member is included because
-// the summary list counts those orders as part of their purchase history too.
+// the summary list counts those orders as part of their purchase history too. So is the member
+// who placed it on a teammate's behalf: they entered it, so it is part of their own history and
+// they need the invoice. Everyone else is still refused.
 $ownsIt = $order && ((int) ($order['member_id'] ?? 0) === $currentMemberId
-    || (int) ($order['referral_member_id'] ?? 0) === $currentMemberId);
+    || (int) ($order['referral_member_id'] ?? 0) === $currentMemberId
+    || (int) ($order['created_by_member_id'] ?? 0) === $currentMemberId);
 if (!$ownsIt) {
     Session::error('That order could not be found.');
     Request::redirect('orders.php');

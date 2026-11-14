@@ -552,6 +552,11 @@ final class Schema
                     'customer_id' => 'fk:customers:setnull|null|index',
                     'member_id' => 'fk:members:setnull|null|index',
                     'referral_member_id' => 'fk:members:setnull|null|index',
+                    // Who actually placed the order, as distinct from member_id (the beneficiary
+                    // the commission engine walks up from). A sponsor buying for a downline
+                    // member is the operator here; without this the operator has no way to see
+                    // the orders they placed for their team, only free text in `notes`.
+                    'created_by_member_id' => 'fk:members:setnull|null|index',
                     'customer_name' => 'string:150|notnull',
                     'customer_email' => 'string:191|null',
                     'customer_mobile' => 'string:15|notnull',

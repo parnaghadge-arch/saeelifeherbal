@@ -49,7 +49,7 @@ $bottomNav = [
     ['wallet', 'Wallet', 'fa-wallet', 'wallet.php'],
     ['referrals', 'Team', 'fa-user-group', 'referrals.php'],
     ['payouts', 'Payout', 'fa-money-bill-transfer', 'payouts.php'],
-    ['profile', 'Profile', 'fa-user', 'profile.php'],
+    ['orders', 'Orders', 'fa-bag-shopping', 'orders.php'],
 ];
 ?>
 <!DOCTYPE html>
@@ -97,9 +97,6 @@ $bottomNav = [
           </a>
         <?php endforeach; ?>
       <?php endforeach; ?>
-      <div class="nav-section">More</div>
-      <a href="<?= e(Url::to('')) ?>"><i class="fa-solid fa-store"></i><span>Visit Website</span></a>
-      <a href="<?= e(\Saee\Lib\Url::member('logout.php')) ?>"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a>
     </nav>
   </aside>
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
@@ -123,8 +120,9 @@ $bottomNav = [
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="<?= e(\Saee\Lib\Url::member('profile.php')) ?>"><i class="fa-solid fa-user me-2"></i>My Profile</a></li>
             <li><a class="dropdown-item" href="<?= e(\Saee\Lib\Url::member('password.php')) ?>"><i class="fa-solid fa-key me-2"></i>Change Password</a></li>
+            <li><a class="dropdown-item" href="<?= e(Url::to('')) ?>"><i class="fa-solid fa-store me-2"></i>Visit Website</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item text-danger" href="<?= e(\Saee\Lib\Url::member('logout.php')) ?>"><i class="fa-solid fa-right-from-bracket me-2"></i>Logout</a></li>
+            <li><a class="dropdown-item text-danger" href="<?= e(\Saee\Lib\Url::member('logout.php?confirm=1')) ?>" data-confirm-link="Sign out of your partner account?"><i class="fa-solid fa-right-from-bracket me-2"></i>Logout</a></li>
           </ul>
         </div>
       </div>

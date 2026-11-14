@@ -97,6 +97,9 @@ final class OrderService
                 'customer_id' => CustomerAuth::id(),
                 'member_id' => $memberId,
                 'referral_member_id' => $referralMemberId,
+                // A storefront checkout is placed by the member themselves when they are signed
+                // in, so they are both the beneficiary and the operator.
+                'created_by_member_id' => $memberId,
                 'customer_name' => $shipping['full_name'] ?? ($customer['name'] ?? 'Guest'),
                 'customer_email' => $shipping['email'] ?? ($customer['email'] ?? null),
                 'customer_mobile' => $shipping['phone'] ?? ($customer['mobile'] ?? ''),

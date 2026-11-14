@@ -18,7 +18,31 @@ $engine = new MlmCommissionEngine($db);
 if (is_post()) {
     Security::verifyCsrf();
     $action = (string) Request::input('action', '');
-    if ($action === 'reverse' && AdminAuth::can('mlm.reverse')) {
+    if ($action === 'mark_paid' && AdminAuth::can('payouts.approve')) {
+        // Cash (or any offline) settlement handed to the member by an accountant. Debits the
+        // wallet by what was handed over, so the remaining figure stays truthful.
+        $wallet = new \Saee\Lib\WalletService($db);
+        $mode = (string) Request::input('pay_mode', 'cash');
+        $ref = trim((string) Request::input('pay_reference', ''));
+        $who = (string) (AdminAuth::user()['name'] ?? 'admin');
+        $memberId = Request::int('member_id');
+        if ($memberId > 0) {
+            $res = $wallet->markMemberCommissionPaid($memberId, $mode, $ref, $who);
+        } else {
+            $r = $wallet->markCommissionPaid(Request::int('commission_id'), $mode, $ref, $who);
+            $res = ['ok' => $r['ok'], 'message' => $r['message'], 'remaining' => $r['remaining']];
+        }
+        // Spell the remaining balance out: the whole point of marking part of a balance paid is
+        // knowing what is still owed.
+        $remaining = (float) ($res['remaining'] ?? 0);
+        $text = (string) $res['message'];
+        if (!empty($res['ok'])) {
+            $text .= $remaining > 0
+                ? ' Remaining balance: ' . money($remaining) . '.'
+                : ' Balance is now zero.';
+        }
+        Session::{$res['ok'] ? 'success' : 'error'}($text);
+    } elseif ($action === 'reverse' && AdminAuth::can('mlm.reverse')) {
         $commissionId = Request::int('commission_id');
         $reason = trim((string) Request::input('reason', 'Reversed by admin'));
         $ok = $engine->reverseCommission($commissionId, $reason);
@@ -165,6 +189,21 @@ require __DIR__ . '/includes/layout.php';
           <td data-label="Amount" class="text-end small fw-semibold"><?= money((float) $row['amount']) ?><?php if ((float) $row['reversed_amount'] > 0): ?><div class="text-danger">−<?= money((float) $row['reversed_amount']) ?></div><?php endif; ?></td>
           <td data-label="Status"><?= status_badge((string) $row['status']) ?></td>
           <td class="text-end">
+            <?php if (AdminAuth::can('payouts.approve') && (string) $row['status'] === 'available'): ?>
+              <form method="post" class="d-flex gap-1 justify-content-end mb-1"
+                    data-confirm="Mark <?= e(money((float) $row['amount'])) ?> as paid to <?= e((string) ($row['member_code'] ?? 'this member')) ?>? This debits their wallet balance.">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="mark_paid">
+                <input type="hidden" name="commission_id" value="<?= (int) $row['id'] ?>">
+                <select class="form-select form-select-sm" name="pay_mode" style="max-width:110px" aria-label="Payment mode">
+                  <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank</option>
+                  <option value="upi">UPI</option>
+                </select>
+                <input class="form-control form-control-sm" name="pay_reference" placeholder="Ref / receipt no." style="max-width:150px">
+                <button class="btn btn-sm btn-success">Mark paid</button>
+              </form>
+            <?php endif; ?>
             <?php if (AdminAuth::can('mlm.reverse') && (float) $row['reversed_amount'] <= 0 && !in_array($row['status'], ['reversed', 'cancelled'], true)): ?>
               <form method="post" class="d-flex gap-1" data-confirm="Reverse this commission?">
                 <?= csrf_field() ?>

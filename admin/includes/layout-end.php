@@ -36,11 +36,7 @@ document.getElementById('sidebarBackdrop')?.addEventListener('click', function (
   document.getElementById('appSidebar').classList.remove('open');
   this.classList.remove('show');
 });
-document.querySelectorAll('[data-confirm]').forEach(function (form) {
-  form.addEventListener('submit', function (e) {
-    if (!window.confirm(form.dataset.confirm)) { e.preventDefault(); }
-  });
-});
+
 </script>
 <script src="<?= e(\Saee\Lib\Url::asset('vendor/jquery/jquery.min.js')) ?>"></script>
 <script src="<?= e(\Saee\Lib\Url::asset('vendor/bootstrap/bootstrap.bundle.min.js')) ?>"></script>
@@ -146,6 +142,7 @@ document.querySelectorAll('[data-confirm]').forEach(function (form) {
 })();
 </script>
 <?php require dirname(__DIR__, 2) . '/includes/invoice-modal.php'; ?>
+<?php require dirname(__DIR__, 2) . '/includes/confirm-modal.php'; ?>
 <?php if (!empty($extraScripts)) { echo $extraScripts; } ?>
 </body>
 </html>

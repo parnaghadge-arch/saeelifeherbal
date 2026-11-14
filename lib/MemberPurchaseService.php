@@ -314,6 +314,9 @@ final class MemberPurchaseService
                     // engine walk the correct upline.
                     'member_id' => $beneficiaryId,
                     'referral_member_id' => null,
+                    // The operator. An admin placing the order has no member id, so this stays
+                    // null and the order is not attributed to any partner's own history.
+                    'created_by_member_id' => $role === 'member' ? $actorMemberId : null,
                     'customer_name' => $shippingAddress['full_name'] !== '' ? $shippingAddress['full_name'] : (string) $beneficiary['name'],
                     'customer_email' => $shippingAddress['email'] !== '' ? $shippingAddress['email'] : null,
                     'customer_mobile' => $shippingAddress['phone'] !== '' ? $shippingAddress['phone'] : (string) $beneficiary['mobile'],

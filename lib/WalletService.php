@@ -227,6 +227,139 @@ final class WalletService
         });
     }
 
+    /**
+     * Record that a commission entry has been handed to the member - typically cash over the
+     * counter by an accountant.
+     *
+     * The entry moves to 'paid' and the amount is debited from the wallet, so the balance drops
+     * by exactly what was handed over. Marking some of a member's entries paid leaves the rest
+     * available, which is what makes the remaining figure on the wallet and commission screens
+     * mean something.
+     *
+     * Only entries that are actually spendable can be paid out: a pending or approved entry has
+     * not been credited to the wallet yet, so paying it would hand over money the ledger never
+     * gave them. Reversed entries are excluded for the same reason.
+     *
+     * @return array{ok:bool,message:string,amount:float,remaining:float}
+     */
+    public function markCommissionPaid(
+        int $commissionId,
+        string $mode = 'cash',
+        string $reference = '',
+        string $actor = 'admin'
+    ): array {
+        return $this->db->transaction(function (Database $db) use ($commissionId, $mode, $reference, $actor) {
+            $nothing = static fn (string $m): array => ['ok' => false, 'message' => $m, 'amount' => 0.0, 'remaining' => 0.0];
+
+            $tx = $db->first('SELECT * FROM commission_transactions WHERE id = :id', ['id' => $commissionId]);
+            if (!$tx) {
+                return $nothing('Commission entry not found.');
+            }
+            if ((string) $tx['status'] === 'paid') {
+                return $nothing('This commission is already marked as paid.');
+            }
+            if (!in_array((string) $tx['status'], ['available'], true)) {
+                return $nothing('Only commission that has been credited to the wallet can be marked as paid. This entry is ' . (string) $tx['status'] . '.');
+            }
+
+            $memberId = (int) $tx['member_id'];
+            $amount = self::fromPaise(self::toPaise((float) $tx['amount']));
+            $type = (string) $tx['commission_type'];
+
+            $db->update('commission_transactions', [
+                'status' => 'paid',
+                'paid_at' => date('Y-m-d H:i:s'),
+                'remittance_reference' => $reference !== '' ? mb_substr($reference, 0, 80) : null,
+                'remarks' => trim(($tx['remarks'] ?? '') . ' | paid via ' . $mode . ' by ' . $actor),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ], 'id = :id', ['id' => $commissionId]);
+
+            // Debit the wallet by what was handed over, clamped to what the category actually
+            // holds so a rounding difference can never push a balance negative.
+            $account = $this->account($memberId);
+            $held = (float) ($account[$type . '_balance'] ?? 0);
+            $debit = min($amount, $held);
+            if ($debit > 0) {
+                $this->post($memberId, $type, $debit, [
+                    'direction' => 'debit',
+                    'reference_type' => 'commission_payout',
+                    'reference_id' => $commissionId,
+                    'status' => 'paid',
+                    'description' => ucwords(str_replace('_', ' ', $type)) . ' paid via ' . $mode
+                        . ($reference !== '' ? ' (' . $reference . ')' : ''),
+                ]);
+            }
+            $this->recalculate($memberId);
+
+            Audit::log(
+                'commission_paid',
+                'mlm',
+                sprintf('Commission #%d (%s) marked paid via %s%s', $commissionId, money($amount), $mode, $reference !== '' ? ' ref ' . $reference : ''),
+                'commission_transactions',
+                $commissionId
+            );
+            Notification::send(
+                'member',
+                $memberId,
+                'commission_paid',
+                'Commission Paid',
+                ucwords(str_replace('_', ' ', $type)) . ' of ' . money($amount) . ' has been paid to you via ' . $mode . '.',
+                ['commission_type' => ucwords(str_replace('_', ' ', $type)), 'amount' => money($amount), 'mode' => $mode],
+                ['link' => 'commissions', 'type' => 'success', 'icon' => 'fa-money-bill-wave']
+            );
+
+            return [
+                'ok' => true,
+                'message' => 'Marked ' . money($amount) . ' as paid via ' . $mode . '.',
+                'amount' => $amount,
+                'remaining' => $this->availableBalance($memberId),
+            ];
+        });
+    }
+
+    /**
+     * Pay out everything a member can currently withdraw, oldest entry first.
+     *
+     * This is the cash-over-the-counter case: the accountant counts out the whole balance and
+     * wants one action, not one click per ledger row. Stops at the first entry that cannot be
+     * paid and reports what was left behind.
+     *
+     * @return array{ok:bool,message:string,paid:int,total:float,remaining:float,skipped:int}
+     */
+    public function markMemberCommissionPaid(
+        int $memberId,
+        string $mode = 'cash',
+        string $reference = '',
+        string $actor = 'admin'
+    ): array {
+        $rows = $this->db->select(
+            "SELECT id FROM commission_transactions
+              WHERE member_id = :m AND status = 'available' AND reversed_amount = 0
+              ORDER BY id ASC",
+            ['m' => $memberId]
+        );
+        $paid = 0; $total = 0.0; $skipped = 0;
+        foreach ($rows as $row) {
+            $res = $this->markCommissionPaid((int) $row['id'], $mode, $reference, $actor);
+            if (!empty($res['ok'])) {
+                $paid++;
+                $total = round($total + (float) $res['amount'], 2);
+            } else {
+                $skipped++;
+            }
+        }
+        return [
+            'ok' => $paid > 0,
+            'message' => $paid > 0
+                ? sprintf('Marked %d entr%s totalling %s as paid via %s.', $paid, $paid === 1 ? 'y' : 'ies', money($total), $mode)
+                : 'Nothing was available to pay out.',
+            'paid' => $paid,
+            'total' => $total,
+            'remaining' => $this->availableBalance($memberId),
+            'skipped' => $skipped,
+        ];
+    }
+
     // ------------------------------------------------------------ utilities
     public static function toPaise(float|int|string|null $amount): int
     {
