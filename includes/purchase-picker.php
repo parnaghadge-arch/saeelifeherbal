@@ -58,8 +58,6 @@ foreach ($ppProducts as $ppRow) {
         'stock' => $ppStock,
         'category' => $ppCategory,
         'image' => !empty($ppRow['featured_image']) ? \Saee\Lib\Url::media((string) $ppRow['featured_image']) : '',
-        // Pre-built lowercase haystack so the filter does not allocate a string per product per keystroke.
-        'hay' => mb_strtolower(trim(($ppRow['name'] ?? '') . ' ' . ($ppRow['sku'] ?? '') . ' ' . $ppCategory)),
     ];
 }
 $ppCategories = array_keys($ppCategories);
@@ -136,7 +134,12 @@ document.addEventListener('DOMContentLoaded', function () {
   var SHIPPING_FLAT = 60;
 
   var byId = {};
-  CATALOG.forEach(function (p) { byId[p.id] = p; });
+  // The lowercase haystack is derived here rather than shipped in the payload: with a few
+  // hundred products that string would nearly double the inline JSON on every page load.
+  CATALOG.forEach(function (p) {
+    p.hay = (p.name + ' ' + p.sku + ' ' + p.category).toLowerCase();
+    byId[p.id] = p;
+  });
 
   var grid = document.querySelector('[data-pp-grid]');
   var lineBox = document.querySelector('[data-pp-lines]');
