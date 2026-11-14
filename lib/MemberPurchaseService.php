@@ -114,17 +114,36 @@ final class MemberPurchaseService
      *
      * @return list<array>
      */
+    /**
+     * Active products the purchase desks offer, newest catalogue order.
+     *
+     * The desks filter client-side, so this returns the catalogue up to PRODUCT_LIMIT and pairs
+     * it with activeProductCount(): when the two differ the UI tells the operator to narrow the
+     * search instead of silently hiding products behind a 200-row cap.
+     */
+    public const PRODUCT_LIMIT = 500;
+
     public function products(string $search = ''): array
     {
-        $sql = "SELECT id, name, sku, price, mrp, stock_quantity, status, tax_percent, packaging_sizes
-                  FROM products WHERE status = 'active'";
+        $sql = "SELECT p.id, p.name, p.sku, p.price, p.mrp, p.stock_quantity, p.status,
+                       p.tax_percent, p.packaging_sizes, p.featured_image,
+                       c.name AS category_name
+                  FROM products p
+                  LEFT JOIN product_categories c ON c.id = p.category_id
+                 WHERE p.status = 'active'";
         $params = [];
         if ($search !== '') {
-            $sql .= ' AND (name LIKE :q OR sku LIKE :q)';
+            $sql .= ' AND (p.name LIKE :q OR p.sku LIKE :q)';
             $params['q'] = '%' . $search . '%';
         }
-        $sql .= ' ORDER BY name LIMIT 200';
+        $sql .= ' ORDER BY p.name LIMIT ' . self::PRODUCT_LIMIT;
         return $this->db->select($sql, $params);
+    }
+
+    /** How many active products exist in total, so the desk can say "showing 500 of 812". */
+    public function activeProductCount(): int
+    {
+        return (int) $this->db->value("SELECT COUNT(*) FROM products WHERE status = 'active'");
     }
 
     /**
@@ -220,10 +239,14 @@ final class MemberPurchaseService
             $walletDebit = $grandTotal;
         }
 
-        // paid now = commissions run immediately; otherwise the order waits like a storefront one
+        // Paid now = the money has settled, so the order is approved straight away below and
+        // commission runs. Otherwise it waits as "new", exactly like a storefront COD order.
+        // Note: fulfilment status is no longer derived from payment. Both retired words that used
+        // to be written here ('paid' / 'pending') were dropped from the orders.status enum, and
+        // writing either one truncated the column.
         $paidNow = in_array($mode, ['wallet', 'upi', 'bank_transfer'], true);
         $paymentStatus = $paidNow ? 'paid' : 'unpaid';
-        $status = $paidNow ? 'paid' : 'pending';
+        $status = ORDER_STATUS_DEFAULT;
         $paymentMethod = $mode === 'wallet' ? 'wallet' : $mode;
 
         $orderNumber = Sequence::orderNumber();
@@ -348,10 +371,19 @@ final class MemberPurchaseService
         }
 
         // ---- MLM + payout rules, through the same engine the storefront uses --------------
+        // Commission is triggered by approval, not by payment, so a settled assisted purchase is
+        // approved here. Going through OrderService::updateStatus() keeps one commission path for
+        // storefront and assisted orders instead of a second copy of the trigger logic.
         $commission = ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => []];
         if ($paidNow) {
-            $commission = (new MlmCommissionEngine($this->db))->processOrder($orderId);
-            (new RoyaltyEngine($this->db))->evaluateMember($beneficiaryId);
+            $approved = (new OrderService($this->db))->updateStatus(
+                $orderId,
+                'processing',
+                'Recorded as an assisted purchase, paid via ' . self::PAYMENT_MODES[$mode],
+                $role === 'admin' ? 'admin' : 'member',
+                $role === 'admin' ? AdminAuth::id() : $actorMemberId
+            );
+            $commission = $approved['commission'] ?? $commission;
         }
 
         $operatorNote = $source === 'admin'
@@ -371,7 +403,7 @@ final class MemberPurchaseService
                 ? ' ' . $commission['created'] . ' commission(s) totalling ' . money((float) $commission['total']) . ' distributed.'
                 : ' No commission was generated: ' . ($commission['messages'][0] ?? 'no eligible upline.');
         } else {
-            $message .= ' Commission will run when payment is confirmed.';
+            $message .= ' Commission will run when the order is approved or delivered.';
         }
 
         return [
