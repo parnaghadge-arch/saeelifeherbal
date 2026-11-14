@@ -183,15 +183,15 @@ require __DIR__ . '/includes/layout.php';
         <p class="small text-muted mb-0">No commissions yet. Commission is credited when your referral places a paid product order.</p>
       <?php else: ?>
         <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
+          <table class="table table-sm align-middle mb-0 data-table">
             <thead><tr><th>Date</th><th>Type</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
             <tbody>
             <?php foreach ($recentCommissions as $row): ?>
               <tr>
-                <td class="small"><?= e(format_date((string) $row['created_at'], 'd M y')) ?></td>
-                <td class="small"><?= e(ucwords(str_replace('_', ' ', (string) $row['commission_type']))) ?></td>
-                <td class="text-end small fw-semibold"><?= money((float) $row['amount']) ?></td>
-                <td><?= status_badge((string) $row['status']) ?></td>
+                <td class="small" data-label="Date"><?= e(format_date((string) $row['created_at'], 'd M y')) ?></td>
+                <td class="small" data-label="Type"><?= e(ucwords(str_replace('_', ' ', (string) $row['commission_type']))) ?></td>
+                <td class="text-end small fw-semibold" data-label="Amount"><?= money((float) $row['amount']) ?></td>
+                <td data-label="Status"><?= status_badge((string) $row['status']) ?></td>
               </tr>
             <?php endforeach; ?>
             </tbody>
@@ -241,7 +241,7 @@ require __DIR__ . '/includes/layout.php';
     <p class="small text-muted mb-0">No orders yet. Products you buy with your member ID appear here with a printable invoice.</p>
   <?php else: ?>
     <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0">
+      <table class="table table-sm align-middle mb-0 data-table">
         <thead>
           <tr>
             <th>Order</th>
@@ -250,18 +250,18 @@ require __DIR__ . '/includes/layout.php';
             <th class="text-end">Total</th>
             <th>Payment</th>
             <th>Status</th>
-            <th class="text-end no-sort">Invoice</th>
+            <th class="text-end">Invoice</th>
           </tr>
         </thead>
         <tbody>
         <?php foreach ($memberOrders as $o): ?>
           <tr>
-            <td class="small fw-semibold"><?= e((string) $o['order_number']) ?></td>
-            <td class="small text-nowrap"><?= e(format_date((string) $o['created_at'], 'd M Y')) ?></td>
-            <td class="small text-end"><?= (int) $o['item_count'] ?> (<?= (int) $o['total_qty'] ?>)</td>
-            <td class="small text-end fw-semibold text-nowrap"><?= money((float) $o['grand_total']) ?></td>
-            <td><?= status_badge((string) $o['payment_status']) ?></td>
-            <td><?= status_badge((string) $o['status']) ?></td>
+            <td class="small fw-semibold" data-label="Order"><?= e((string) $o['order_number']) ?></td>
+            <td class="small text-nowrap" data-label="Date"><?= e(format_date((string) $o['created_at'], 'd M Y')) ?></td>
+            <td class="small text-end" data-label="Items"><?= (int) $o['item_count'] ?> (<?= (int) $o['total_qty'] ?>)</td>
+            <td class="small text-end fw-semibold text-nowrap" data-label="Total"><?= money((float) $o['grand_total']) ?></td>
+            <td data-label="Payment"><?= status_badge((string) $o['payment_status']) ?></td>
+            <td data-label="Status"><?= status_badge((string) $o['status']) ?></td>
             <td class="text-end text-nowrap">
               <button type="button" class="btn btn-sm btn-outline-primary"
                       data-invoice-id="<?= (int) $o['id'] ?>"
@@ -281,7 +281,7 @@ require __DIR__ . '/includes/layout.php';
   <a class="quick-tile" href="<?= e(Url::member('payouts.php')) ?>"><i class="fa-solid fa-money-bill-transfer"></i><span>Payout statement</span></a>
   <a class="quick-tile" href="<?= e(Url::member('genealogy.php')) ?>"><i class="fa-solid fa-network-wired"></i><span>Genealogy</span></a>
   <a class="quick-tile" href="<?= e(Url::member('statements.php')) ?>"><i class="fa-solid fa-file-arrow-down"></i><span>Statements</span></a>
-  <a class="quick-tile" href="<?= e(Url::to('our-products')) ?>"><i class="fa-solid fa-seedling"></i><span>Buy products</span></a>
+  <a class="quick-tile" href="<?= e(Url::member('buy-products.php')) ?>"><i class="fa-solid fa-seedling"></i><span>Buy products</span></a>
 </div>
 <?php
 $extraScripts = '<script src="' . e(Url::asset('vendor/chart.js/chart.umd.js')) . '" defer></script>

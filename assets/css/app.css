@@ -1277,14 +1277,23 @@ div.dt-container .dt-paging .page-link {
 }
 div.dt-container .dt-paging .page-item.active .page-link { background: var(--saee-primary); border-color: var(--saee-primary); color: #fff; }
 div.dt-container .dt-paging .page-item.disabled .page-link { opacity: .5; }
-table.data-table thead th { cursor: pointer; user-select: none; white-space: nowrap; }
-table.data-table thead th:not(.sorting_disabled)::after { content: '\2195'; font-size: .7em; opacity: .35; margin-left: .35rem; }
+/* Sorting is driven by DataTables, which is only loaded on admin screens. The member panel
+   reuses .data-table purely for its mobile card layout, so the sort affordance is keyed off
+   the classes DataTables itself stamps on orderable columns rather than off .data-table.
+   Otherwise a member table shows a pointer and an arrow for a sort that cannot happen. */
+table.data-table thead th { user-select: none; white-space: nowrap; }
+table.data-table thead th.dt-orderable-asc,
+table.data-table thead th.dt-orderable-desc { cursor: pointer; }
+table.data-table thead th.dt-orderable-asc.dt-orderable-desc::after { content: '\2195'; font-size: .7em; opacity: .35; margin-left: .35rem; }
 table.data-table thead th.dt-orderable-none::after,
 table.data-table thead th:empty::after { content: ''; }
-table.data-table thead th.dt-orderable-asc.dt-orderable-desc::after { content: '\2195'; }
 table.data-table thead th.dt-ordering-asc::after { content: '\2191'; opacity: 1; color: var(--saee-primary); }
 table.data-table thead th.dt-ordering-desc::after { content: '\2193'; opacity: 1; color: var(--saee-primary); }
-table.data-table thead th:last-child::after { content: ''; }
+/* The last column is the action column; it never sorts, whatever DataTables thinks. */
+table.data-table thead th:last-child::after,
+table.data-table thead th.dt-orderable-asc.dt-orderable-desc:last-child::after,
+table.data-table thead th.dt-ordering-asc:last-child::after,
+table.data-table thead th.dt-ordering-desc:last-child::after { content: ''; }
 @media (max-width: 767.98px) {
   div.dt-container .dt-layout-row { flex-direction: column; align-items: stretch; gap: .5rem; }
   div.dt-container .dt-search input { min-width: 0; width: 100%; }
