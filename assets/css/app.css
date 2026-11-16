@@ -715,6 +715,19 @@ a:hover { color: var(--saee-dark); }
   position: absolute; bottom: .6rem; right: .6rem; z-index: 3; font-size: .74rem; font-weight: 600;
   background: rgba(20, 83, 45, .78); color: #fff; padding: .15rem .55rem; border-radius: 999px;
 }
+/* Stops the automatic rotation. Sits opposite the counter so the two do not overlap. */
+.gallery-play {
+  position: absolute; bottom: .6rem; left: .6rem; z-index: 3;
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: rgba(20, 83, 45, .78); color: #fff; font-size: .7rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: var(--saee-transition);
+}
+.gallery-play:hover { background: var(--saee-primary); color: #fff; }
+.gallery-play:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* The stage takes focus so the arrow keys work; show where the focus landed. */
+.gallery-main:focus-visible { outline: 3px solid var(--saee-primary); outline-offset: 2px; }
+.gallery-main:focus:not(:focus-visible) { outline: none; }
 /* thumbnail strip: one horizontal rail that scrolls by wheel, drag or swipe */
 .gallery-thumbs-wrap { display: flex; align-items: center; gap: .4rem; margin-top: .7rem; }
 .gallery-thumbs {

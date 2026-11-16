@@ -86,7 +86,10 @@ require INCLUDES_PATH . '/header.php';
   <div class="container">
     <div class="row g-4 g-lg-5">
       <div class="col-lg-6">
-        <div class="gallery-main" data-gallery-stage>
+        <?php // tabindex makes the arrow-key handler reachable: a bare <div> cannot take focus,
+              // so without it the keyboard only worked while a control inside had focus. ?>
+        <div class="gallery-main" data-gallery-stage tabindex="0" role="group"
+             aria-roledescription="carousel" aria-label="<?= e($product['name']) ?> images">
           <img data-gallery-main src="<?= e(Url::media($images[0]['image_path'] ?? '')) ?>"
                alt="<?= e($product['name']) ?>" fetchpriority="high">
           <?php if (count($images) > 1): ?>
@@ -97,6 +100,12 @@ require INCLUDES_PATH . '/header.php';
               <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
             </button>
             <span class="gallery-counter" data-gallery-counter>1 / <?= count($images) ?></span>
+            <?php // The images rotate on their own, so there has to be a way to stop them.
+                  // Starts as pause because autoplay is on by default. ?>
+            <button type="button" class="gallery-play" data-gallery-play aria-pressed="true"
+                    aria-label="Pause automatic image rotation">
+              <i class="fa-solid fa-pause" aria-hidden="true"></i>
+            </button>
           <?php endif; ?>
         </div>
         <?php if (count($images) > 1): ?>
