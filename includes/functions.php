@@ -115,9 +115,49 @@ function get_product_by_slug(string $slug): ?array
     );
 }
 
+/**
+ * Gallery images for a product.
+ *
+ * Ordered exactly as the admin product form lists them (primary first, then sort order), so
+ * the strip a partner arranges in the panel is the strip a visitor sees. This deliberately
+ * excludes products.featured_image: that lives on the product row and is prepended by the
+ * caller, because it is a separate upload the gallery table knows nothing about.
+ */
 function get_product_images(int $productId): array
 {
-    return db()->select('SELECT * FROM product_images WHERE product_id = :p ORDER BY sort_order ASC, id ASC', ['p' => $productId]);
+    return db()->select(
+        'SELECT * FROM product_images WHERE product_id = :p ORDER BY is_primary DESC, sort_order ASC, id ASC',
+        ['p' => $productId]
+    );
+}
+
+/**
+ * The thumbnail for a product card: the featured image, or the first gallery image when the
+ * admin only filled in the gallery.
+ *
+ * Without the fallback a product with gallery uploads but no featured image rendered an empty
+ * src on every listing. Results are cached per product id, so a grid of cards costs one query
+ * per product at most - and none at all in the common case where the featured image is set.
+ */
+function product_thumb(array $product): string
+{
+    static $cache = [];
+
+    $featured = trim((string) ($product['featured_image'] ?? ''));
+    if ($featured !== '') {
+        return $featured;
+    }
+    $id = (int) ($product['id'] ?? 0);
+    if ($id <= 0) {
+        return '';
+    }
+    if (!array_key_exists($id, $cache)) {
+        $cache[$id] = (string) (db()->value(
+            'SELECT image_path FROM product_images WHERE product_id = :p ORDER BY is_primary DESC, sort_order ASC, id ASC LIMIT 1',
+            ['p' => $id]
+        ) ?? '');
+    }
+    return $cache[$id];
 }
 
 function get_product_videos(int $productId): array

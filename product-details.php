@@ -24,9 +24,30 @@ if (!$product) {
 
 db()->execute('UPDATE products SET views = views + 1 WHERE id = :id', ['id' => $product['id']]);
 
-$images = get_product_images((int) $product['id']);
-if ($images === [] && $product['featured_image']) {
-    $images = [['image_path' => $product['featured_image'], 'alt_text' => $product['name']]];
+// Every image the admin uploaded belongs in the gallery, and the featured one leads so it is
+// what a visitor sees the moment the page loads.
+//
+// products.featured_image and product_images are two separate stores that nothing keeps in
+// sync, so this used to fall back to the featured image only when the gallery was empty - a
+// product with both showed the gallery alone and the featured image never appeared at all.
+$featuredPath = trim((string) ($product['featured_image'] ?? ''));
+// Compare on a normalised path: the same file can be stored with or without a leading slash,
+// and listing it twice would put an identical thumbnail in the strip.
+$normalisePath = static fn (string $p): string => strtolower(ltrim(trim($p), '/'));
+$images = [];
+$seenPaths = [];
+if ($featuredPath !== '') {
+    $images[] = ['image_path' => $featuredPath, 'alt_text' => (string) $product['name'], 'is_featured' => 1];
+    $seenPaths[$normalisePath($featuredPath)] = true;
+}
+foreach (get_product_images((int) $product['id']) as $galleryImage) {
+    $path = trim((string) ($galleryImage['image_path'] ?? ''));
+    if ($path === '' || isset($seenPaths[$normalisePath($path)])) {
+        continue;
+    }
+    $seenPaths[$normalisePath($path)] = true;
+    $galleryImage['is_featured'] = 0;
+    $images[] = $galleryImage;
 }
 $videos = get_product_videos((int) $product['id']);
 $related = get_related_products((int) $product['id'], $product['category_id'] ? (int) $product['category_id'] : null, 4);
