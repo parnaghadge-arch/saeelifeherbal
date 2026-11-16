@@ -34,6 +34,11 @@ $purchaseService = new MemberPurchaseService($db);
 $companySponsor = $service->companySponsor();
 $fallbackSponsorCode = (string) ($companySponsor['member_code'] ?? 'SAEE00003');
 
+// Only the methods switched on under Payment Methods, so the opening purchase cannot be
+// recorded against a method the business has turned off. Resolved BEFORE the POST handler,
+// which validates the posted payment mode against this list.
+$modeLabels = $purchaseService->availableModes();
+
 $errors = [];
 $old = [
     'name' => '', 'mobile' => '', 'email' => '', 'role' => 'distributor',
@@ -150,9 +155,6 @@ $products = $db->select(
     "SELECT id, name, sku, price, stock_quantity FROM products
       WHERE status = 'active' ORDER BY name ASC LIMIT 300"
 );
-// Only the methods switched on under Payment Methods, so the opening purchase cannot be
-// recorded against a method the business has turned off.
-$modeLabels = $purchaseService->availableModes();
 
 $pageTitle = 'Add Member';
 $pageHeading = 'Add Member';
