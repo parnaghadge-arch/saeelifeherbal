@@ -88,14 +88,39 @@ $bottomNav = [
     </div>
     <nav class="sidebar-nav">
       <?php foreach ($navGroups as $group => $items): ?>
-        <div class="nav-section"><?= e($group) ?></div>
-        <?php foreach ($items as [$key, $label, $icon, $href]): ?>
-          <a href="<?= e(\Saee\Lib\Url::member($href)) ?>" class="<?= $activeNav === $key ? 'active' : '' ?>">
-            <i class="fa-solid <?= e($icon) ?>"></i><span><?= e($label) ?></span>
-            <?php if ($key === 'notifications' && $unread > 0): ?><span class="nav-badge"><?= (int) $unread ?></span><?php endif; ?>
-            <?php if ($key === 'kyc' && $kycStatus !== 'approved'): ?><span class="nav-badge" style="background:#FFB020">!</span><?php endif; ?>
-          </a>
-        <?php endforeach; ?>
+        <?php
+        // Groups collapse, and only the one holding the current page starts open. A closed
+        // group must not swallow an alert, so an unread count or a missing KYC inside it is
+        // repeated on the heading itself.
+        $groupSlug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower((string) $group)), '-');
+        $groupOpen = false;
+        $groupUnread = 0;
+        $groupNeedsKyc = false;
+        foreach ($items as [$key, $label, $icon, $href]) {
+            if ($activeNav === $key) { $groupOpen = true; }
+            if ($key === 'notifications' && $unread > 0) { $groupUnread += (int) $unread; }
+            if ($key === 'kyc' && $kycStatus !== 'approved') { $groupNeedsKyc = true; }
+        }
+        ?>
+        <details class="nav-group" data-nav-group="<?= e($groupSlug) ?>"<?= $groupOpen ? ' open' : '' ?>>
+          <summary class="nav-group-toggle">
+            <span><?= e($group) ?></span>
+            <span class="nav-group-mark">
+              <?php if ($groupUnread > 0): ?><span class="nav-badge"><?= (int) $groupUnread ?></span><?php endif; ?>
+              <?php if ($groupNeedsKyc): ?><span class="nav-badge" style="background:#FFB020">!</span><?php endif; ?>
+              <i class="fa-solid fa-chevron-down nav-group-chevron" aria-hidden="true"></i>
+            </span>
+          </summary>
+          <div class="nav-group-items">
+            <?php foreach ($items as [$key, $label, $icon, $href]): ?>
+              <a href="<?= e(\Saee\Lib\Url::member($href)) ?>" class="<?= $activeNav === $key ? 'active' : '' ?>">
+                <i class="fa-solid <?= e($icon) ?>"></i><span><?= e($label) ?></span>
+                <?php if ($key === 'notifications' && $unread > 0): ?><span class="nav-badge"><?= (int) $unread ?></span><?php endif; ?>
+                <?php if ($key === 'kyc' && $kycStatus !== 'approved'): ?><span class="nav-badge" style="background:#FFB020">!</span><?php endif; ?>
+              </a>
+            <?php endforeach; ?>
+          </div>
+        </details>
       <?php endforeach; ?>
     </nav>
   </aside>

@@ -573,6 +573,37 @@
   }
 
   /* -------------------------------------------------- mobile app shell */
+  /* -------------------------------------------------- collapsible sidebar groups */
+  function initNavGroups() {
+    var groups = document.querySelectorAll('.nav-group[data-nav-group]');
+    if (!groups.length) { return; }
+
+    // Kept per panel: the admin and member menus have different groups, and sharing one key
+    // would let a choice made in one fold the other away.
+    var storeKey = 'saee.navGroups.' + (document.body.classList.contains('admin-body') ? 'admin' : 'member');
+    var saved = {};
+    try { saved = JSON.parse(window.localStorage.getItem(storeKey) || '{}') || {}; } catch (err) { saved = {}; }
+
+    groups.forEach(function (group) {
+      var id = group.getAttribute('data-nav-group');
+      var holdsActive = !!group.querySelector('a.active');
+
+      // The server already opened the group holding the current page. A remembered choice wins
+      // over that default so the menu stays as the user left it - except for the group they are
+      // actually on, which is always opened so nobody loses track of where they are.
+      if (holdsActive) {
+        group.open = true;
+      } else if (Object.prototype.hasOwnProperty.call(saved, id)) {
+        group.open = !!saved[id];
+      }
+
+      group.addEventListener('toggle', function () {
+        saved[id] = group.open;
+        try { window.localStorage.setItem(storeKey, JSON.stringify(saved)); } catch (err) { /* private mode */ }
+      });
+    });
+  }
+
   function initMobileShell() {
     var tabbar = document.querySelector('.app-tabbar');
     if (!tabbar) { return; }
@@ -875,6 +906,7 @@
     initQtyInputs();
     initCopy();
     initBackToTop();
+    initNavGroups();
     initMobileShell();
     initTestimonialCarousel();
     initCategoryCarousel();

@@ -97,12 +97,29 @@ $menu = [
         $visible = array_values(array_filter($items, static fn ($i): bool => $can($i['perm'])));
         if ($visible === []) { continue; }
         ?>
-        <div class="nav-section"><?= e($group) ?></div>
-        <?php foreach ($visible as $item): ?>
-          <a href="<?= e(\Saee\Lib\Url::admin($item['href'])) ?>" class="<?= $activeModule === $item['key'] ? 'active' : '' ?>">
-            <i class="fa-solid <?= e($item['icon']) ?>"></i><span><?= e($item['label']) ?></span>
-          </a>
-        <?php endforeach; ?>
+        <?php
+        // Groups collapse. Only the group holding the current page starts open, so the sidebar
+        // shows a handful of headings instead of every screen at once. <details> is used rather
+        // than a JS widget so the menu still opens and closes with scripting unavailable.
+        $groupSlug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower((string) $group)), '-');
+        $groupOpen = false;
+        foreach ($visible as $item) {
+            if ($activeModule === $item['key']) { $groupOpen = true; break; }
+        }
+        ?>
+        <details class="nav-group" data-nav-group="<?= e($groupSlug) ?>"<?= $groupOpen ? ' open' : '' ?>>
+          <summary class="nav-group-toggle">
+            <span><?= e($group) ?></span>
+            <i class="fa-solid fa-chevron-down nav-group-chevron" aria-hidden="true"></i>
+          </summary>
+          <div class="nav-group-items">
+            <?php foreach ($visible as $item): ?>
+              <a href="<?= e(\Saee\Lib\Url::admin($item['href'])) ?>" class="<?= $activeModule === $item['key'] ? 'active' : '' ?>">
+                <i class="fa-solid <?= e($item['icon']) ?>"></i><span><?= e($item['label']) ?></span>
+              </a>
+            <?php endforeach; ?>
+          </div>
+        </details>
       <?php endforeach; ?>
     </nav>
   </aside>
