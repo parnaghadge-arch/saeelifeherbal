@@ -400,6 +400,37 @@ function menu_url(string $url): string
     return Url::to($url);
 }
 
+/**
+ * True when a link sends the visitor to the partner sign-in or registration form.
+ *
+ * The site offers partner login and registration from several places, and two of those are
+ * admin-authored data rather than template markup - the footer menu (navigation_menus) and the
+ * homepage slider buttons (website_slides). Once a member is signed in those links are noise,
+ * and the registration ones are worse than noise: they invite the visitor to do something they
+ * have already done. This is the single place that decides what counts, so the footer, the
+ * slider and the header cannot drift apart.
+ *
+ * Both the clean route ("member/login") and the raw script name ("member/login.php") are
+ * listed, plus the page slugs that alias to them, because admins type either form.
+ */
+function is_member_auth_url(string $url): bool
+{
+    $target = strtolower(ltrim(trim($url), '/'));
+    return in_array($target, [
+        'member/login', 'member/login.php', 'partner-login',
+        'member/register', 'member/register.php', 'partner-registration', 'farmer-registration',
+    ], true);
+}
+
+/** True when a link points at partner registration specifically, as opposed to sign-in. */
+function is_member_register_url(string $url): bool
+{
+    $target = strtolower(ltrim(trim($url), '/'));
+    return in_array($target, [
+        'member/register', 'member/register.php', 'partner-registration', 'farmer-registration',
+    ], true);
+}
+
 function get_page_by_slug(string $slug): ?array
 {
     return db()->first("SELECT * FROM website_pages WHERE slug = :s AND status = 'published'", ['s' => $slug]);

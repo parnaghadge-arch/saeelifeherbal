@@ -8,6 +8,27 @@ use Saee\Lib\Settings;
 use Saee\Lib\Url;
 
 $footerMenu = get_menu('footer');
+// A signed-in partner must not be handed a login link in the footer either. The slot becomes
+// their dashboard rather than disappearing, so the two footer columns keep their shape and
+// the link turns into something useful instead of leaving a gap.
+if (\Saee\Lib\MemberAuth::check()) {
+    foreach ($footerMenu as $footerIndex => $footerItem) {
+        $footerUrl = (string) $footerItem['url'];
+        if (!is_member_auth_url($footerUrl)) {
+            continue;
+        }
+        // A register entry just goes: there is nothing sensible to point it at. A login entry
+        // becomes the dashboard, which keeps the column the same length and swaps a dead door
+        // for a useful one.
+        if (is_member_register_url($footerUrl)) {
+            unset($footerMenu[$footerIndex]);
+            continue;
+        }
+        $footerMenu[$footerIndex]['label'] = 'Partner Dashboard';
+        $footerMenu[$footerIndex]['url'] = 'member/dashboard';
+    }
+    $footerMenu = array_values($footerMenu);
+}
 $footerSocials = get_social_links();
 $newsletterOn = (int) Settings::get('footer_show_newsletter', 1) === 1;
 $whatsapp = preg_replace('/\D/', '', (string) Settings::get('whatsapp_number', ''));

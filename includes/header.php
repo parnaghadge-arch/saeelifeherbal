@@ -62,7 +62,18 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
         <span><i class="fa-solid fa-truck-fast me-2"></i>Pan-India delivery for farm inputs</span>
       </div>
       <div class="d-flex align-items-center gap-3">
-        <a href="<?= e(Url::member('dashboard')) ?>" class="small"><i class="fa-solid fa-user-tie me-1"></i>Partner Login</a>
+        <?php // Handing a signed-in partner a "Partner Login" link is noise, so the same slot
+              // names them instead and goes straight to their dashboard. ?>
+        <?php if ($memberUser): ?>
+          <a href="<?= e(Url::member('dashboard')) ?>" class="small topbar-member" title="Open your partner dashboard">
+            <span class="topbar-member-avatar" aria-hidden="true"><?= e(initials((string) ($memberUser['name'] ?? 'U'))) ?></span>
+            <span class="topbar-member-name"><?= e((string) ($memberUser['name'] ?? '')) ?></span>
+            <span class="topbar-member-code"><?= e((string) ($memberUser['member_code'] ?? '')) ?></span>
+            <i class="fa-solid fa-arrow-right-long" aria-hidden="true"></i>
+          </a>
+        <?php else: ?>
+          <a href="<?= e(Url::member('dashboard')) ?>" class="small"><i class="fa-solid fa-user-tie me-1"></i>Partner Login</a>
+        <?php endif; ?>
         <div class="topbar-social">
           <?php foreach ($socials as $social): ?>
             <a href="<?= e($social['url']) ?>" target="_blank" rel="noopener" aria-label="<?= e($social['display_name'] ?: $social['platform']) ?>"><i class="<?= e($social['icon'] ?: 'fa-solid fa-link') ?>"></i></a>
@@ -95,14 +106,36 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
           <i class="fa-solid fa-bag-shopping" aria-hidden="true"></i>
           <span class="count-badge" data-cart-count><?= (int) $cartCount ?></span>
         </a>
-        <?php if ($customer): ?>
+        <?php // This menu used to hinge on $customer alone, so a partner who had not also
+              // opened a shop account saw no account control at all. Either identity now
+              // earns it, and a partner gets their name and code at the top. ?>
+        <?php if ($customer || $memberUser): ?>
           <div class="dropdown d-none d-sm-block">
-            <button class="header-icon-btn" data-bs-toggle="dropdown" aria-label="My account"><i class="fa-solid fa-user" aria-hidden="true"></i></button>
-            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-              <li><a class="dropdown-item" href="<?= e(Url::to('my-account.php')) ?>"><i class="fa-solid fa-gauge-high me-2"></i>My Account</a></li>
-              <li><a class="dropdown-item" href="<?= e(Url::to('my-orders.php')) ?>"><i class="fa-solid fa-box me-2"></i>My Orders</a></li>
-              <li><a class="dropdown-item" href="<?= e(Url::member('dashboard')) ?>"><i class="fa-solid fa-users me-2"></i>Partner Dashboard</a></li>
+            <button class="header-icon-btn" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
+                    aria-label="<?= $memberUser ? 'My account — ' . e((string) ($memberUser['name'] ?? '')) : 'My account' ?>">
+              <i class="fa-solid fa-user" aria-hidden="true"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm header-account-menu">
+              <?php if ($memberUser): ?>
+                <li class="header-account-id">
+                  <span class="avatar-circle" aria-hidden="true"><?= e(initials((string) ($memberUser['name'] ?? 'U'))) ?></span>
+                  <span class="min-w-0 d-flex flex-column">
+                    <span class="header-account-name"><?= e((string) ($memberUser['name'] ?? '')) ?></span>
+                    <span class="header-account-code"><?= e((string) ($memberUser['member_code'] ?? '')) ?></span>
+                  </span>
+                </li>
+                <li><hr class="dropdown-divider my-1"></li>
+                <li><a class="dropdown-item" href="<?= e(Url::member('dashboard')) ?>"><i class="fa-solid fa-gauge-high me-2"></i>Partner Dashboard</a></li>
+                <li><a class="dropdown-item" href="<?= e(Url::member('wallet.php')) ?>"><i class="fa-solid fa-wallet me-2"></i>Wallet</a></li>
+                <li><a class="dropdown-item" href="<?= e(Url::member('team.php')) ?>"><i class="fa-solid fa-users me-2"></i>My Team</a></li>
+                <?php if ($customer): ?><li><hr class="dropdown-divider my-1"></li><?php endif; ?>
+              <?php endif; ?>
+              <?php if ($customer): ?>
+                <li><a class="dropdown-item" href="<?= e(Url::to('my-account.php')) ?>"><i class="fa-solid fa-user me-2"></i>My Account</a></li>
+                <li><a class="dropdown-item" href="<?= e(Url::to('my-orders.php')) ?>"><i class="fa-solid fa-box me-2"></i>My Orders</a></li>
+              <?php endif; ?>
               <li><hr class="dropdown-divider"></li>
+              <?php // logout.php clears both sessions, so one Sign out is correct for either. ?>
               <li><a class="dropdown-item text-danger" href="<?= e(Url::to('logout.php')) ?>"><i class="fa-solid fa-right-from-bracket me-2"></i>Sign out</a></li>
             </ul>
           </div>
@@ -177,9 +210,27 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
       <?php endforeach; ?>
     </ul>
     <div class="p-3">
-      <a href="<?= e(Url::member('register')) ?>" class="btn btn-primary w-100 mb-2"><i class="fa-solid fa-user-plus me-2"></i>Register Free</a>
-      <a href="<?= e(Url::member('login')) ?>" class="btn btn-outline-primary w-100 mb-2"><i class="fa-solid fa-right-to-bracket me-2"></i>Partner Login</a>
-      <a href="<?= e(Url::to('my-account.php')) ?>" class="btn btn-light-green w-100"><i class="fa-solid fa-user me-2"></i>Customer Account</a>
+      <?php // The drawer is where a signed-in partner most often hit "Partner Login" again,
+            // because the desktop dropdown is hidden below the sm breakpoint. ?>
+      <?php if ($memberUser): ?>
+        <div class="mnav-account mb-2">
+          <span class="avatar-circle" aria-hidden="true"><?= e(initials((string) ($memberUser['name'] ?? 'U'))) ?></span>
+          <span class="min-w-0 d-flex flex-column">
+            <span class="mnav-account-name"><?= e((string) ($memberUser['name'] ?? '')) ?></span>
+            <span class="mnav-account-code"><?= e((string) ($memberUser['member_code'] ?? '')) ?></span>
+          </span>
+        </div>
+        <a href="<?= e(Url::member('dashboard')) ?>" class="btn btn-primary w-100 mb-2"><i class="fa-solid fa-gauge-high me-2"></i>Partner Dashboard</a>
+        <a href="<?= e(Url::to('logout.php')) ?>" class="btn btn-outline-primary w-100 mb-2"><i class="fa-solid fa-right-from-bracket me-2"></i>Sign out</a>
+      <?php else: ?>
+        <a href="<?= e(Url::member('register')) ?>" class="btn btn-primary w-100 mb-2"><i class="fa-solid fa-user-plus me-2"></i>Register Free</a>
+        <a href="<?= e(Url::member('login')) ?>" class="btn btn-outline-primary w-100 mb-2"><i class="fa-solid fa-right-to-bracket me-2"></i>Partner Login</a>
+      <?php endif; ?>
+      <?php if (!$customer && $memberUser): ?>
+        <a href="<?= e(Url::to('login.php')) ?>" class="btn btn-light-green w-100"><i class="fa-solid fa-user me-2"></i>Customer Login</a>
+      <?php else: ?>
+        <a href="<?= e(Url::to('my-account.php')) ?>" class="btn btn-light-green w-100"><i class="fa-solid fa-user me-2"></i>Customer Account</a>
+      <?php endif; ?>
       <hr>
       <p class="small text-muted mb-1"><i class="fa-solid fa-phone me-2"></i><?= e(Settings::get('contact_phone', '')) ?></p>
       <p class="small text-muted mb-0"><i class="fa-regular fa-envelope me-2"></i><?= e(Settings::get('contact_email', '')) ?></p>

@@ -148,6 +148,29 @@ a:hover { color: var(--saee-dark); }
 .topbar-social a { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 50%; background: rgba(255, 255, 255, .12); margin-left: .3rem; font-size: .72rem; transition: var(--saee-transition); }
 .topbar-social a:hover { background: var(--saee-accent); color: #12260d; }
 
+/* Signed-in partner identity --------------------------------------------------
+   These replace the "Partner Login" and "Register Free" links in the site chrome
+   once a member session exists, so the header never offers a door the visitor
+   has already come through. Each sits on the dark topbar, in the account dropdown
+   or in the mobile drawer, which is why there are three small variants. */
+.topbar-member { display: inline-flex; align-items: center; gap: .45rem; max-width: 280px; }
+.topbar-member-avatar { display: inline-flex; width: 20px; height: 20px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 50%; background: var(--saee-accent); color: #12260d; font-size: .62rem; font-weight: 700; transition: var(--saee-transition); }
+.topbar-member-name { font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-member-code { opacity: .6; font-size: .74rem; }
+.topbar-member .fa-arrow-right-long { font-size: .7rem; opacity: .7; }
+.topbar-member:hover .topbar-member-avatar { background: #fff; }
+
+.header-account-menu { min-width: 236px; padding: .4rem; }
+.header-account-id { display: flex; align-items: center; gap: .6rem; padding: .45rem .55rem; }
+.header-account-id .avatar-circle { width: 34px; height: 34px; font-size: .72rem; }
+.header-account-name { font-weight: 600; font-size: .88rem; color: var(--saee-dark); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-account-code { font-size: .74rem; color: var(--saee-muted); }
+
+.mnav-account { display: flex; align-items: center; gap: .7rem; padding: .75rem .9rem; border-radius: 12px; background: var(--saee-light); }
+.mnav-account .avatar-circle { width: 38px; height: 38px; font-size: .78rem; }
+.mnav-account-name { font-weight: 600; font-size: .92rem; color: var(--saee-dark); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mnav-account-code { font-size: .76rem; color: var(--saee-muted); }
+
 /* Header layout -------------------------------------------------------------
    A three-zone flex bar that never overflows: brand (flexible, truncated) on the
    left, primary nav centred on large screens, actions on the right. Sizes are
