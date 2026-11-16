@@ -140,7 +140,9 @@ final class Cart
         }
         $stock = (int) $product['stock_quantity'];
         if ($stock > 0 && $quantity > $stock) {
-            return ['ok' => false, 'message' => 'Only ' . $stock . ' units available in stock.'];
+            // Deliberately vague: the storefront shows availability, never the count, so the
+            // message cannot leak the number the labels no longer give.
+            return ['ok' => false, 'message' => 'We have limited stock of this item. Please lower the quantity and try again.'];
         }
         $cart = $this->current();
         $existing = $this->db->first(
@@ -181,7 +183,7 @@ final class Cart
         $product = $this->db->first('SELECT stock_quantity FROM products WHERE id = :id', ['id' => $item['product_id']]);
         $stock = (int) ($product['stock_quantity'] ?? 0);
         if ($stock > 0 && $quantity > $stock) {
-            return ['ok' => false, 'message' => 'Only ' . $stock . ' units available.'];
+            return ['ok' => false, 'message' => 'We have limited stock of this item. Please lower the quantity.'];
         }
         $this->db->update('cart_items', ['quantity' => $quantity, 'updated_at' => date('Y-m-d H:i:s')], 'id = :id', ['id' => $itemId]);
         return ['ok' => true, 'message' => 'Cart updated.'];

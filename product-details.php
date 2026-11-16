@@ -75,7 +75,8 @@ require INCLUDES_PATH . '/header.php';
         <p class="product-idband-meta">
           <?php if ($product['category_name']): ?><span><i class="fa-solid fa-layer-group"></i><?= e($product['category_name']) ?></span><?php endif; ?>
           <?php if (!empty($product['sku'])): ?><span><i class="fa-solid fa-barcode"></i>SKU <?= e((string) $product['sku']) ?></span><?php endif; ?>
-          <span><i class="fa-solid <?= $stock > 0 ? 'fa-circle-check' : 'fa-circle-xmark' ?>"></i><?= $stock > 0 ? 'In stock (' . $stock . ' units)' : 'Out of stock' ?></span>
+          <?php // Availability only - the count itself stays in the back office. ?>
+          <span><i class="fa-solid <?= $stock > 0 ? 'fa-circle-check' : 'fa-circle-xmark' ?>"></i><?= $stock > 0 ? 'In stock' : 'Out of stock' ?></span>
         </p>
       </div>
       <?php if ($discount > 0): ?><span class="product-idband-off"><?= $discount ?>% OFF</span><?php endif; ?>
@@ -160,7 +161,7 @@ require INCLUDES_PATH . '/header.php';
           </div>
 
         <div class="trust-strip">
-          <span><i class="fa-solid fa-box"></i><?= $stock > 0 ? 'In stock (' . $stock . ' units)' : 'Currently out of stock' ?></span>
+          <span><i class="fa-solid fa-box"></i><?= $stock > 0 ? 'In stock' : 'Currently out of stock' ?></span>
           <?php if ($product['packaging_sizes']): ?><span><i class="fa-solid fa-flask"></i><?= e($product['packaging_sizes']) ?></span><?php endif; ?>
           <span><i class="fa-solid fa-truck-fast"></i>Dispatch in 1-2 days</span>
         </div>
