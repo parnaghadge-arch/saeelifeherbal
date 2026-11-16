@@ -29,7 +29,16 @@ if (!$ownsIt) {
     Request::redirect('orders.php');
 }
 
-$orderItems = order_items_for($orderId);
+// Normalised order lines (see includes/functions.php). Falls back to the plain query when
+// that helper is not deployed yet; the template guards below keep the page warning-free.
+$orderItems = function_exists('order_items_for')
+    ? order_items_for($orderId)
+    : $db->select(
+        'SELECT i.*, p.featured_image AS product_image, p.slug AS product_slug
+         FROM order_items i LEFT JOIN products p ON p.id = i.product_id
+         WHERE i.order_id = :o ORDER BY i.id ASC',
+        ['o' => $orderId]
+    );
 $history = $db->select(
     'SELECT * FROM order_status_history WHERE order_id = :o ORDER BY id ASC',
     ['o' => $orderId]
@@ -68,23 +77,23 @@ require __DIR__ . '/includes/layout.php';
             <div class="purchase-item">
               <?php if (!empty($item['product_image'])): ?>
                 <img src="<?= e(Url::media((string) $item['product_image'])) ?>"
-                     alt="<?= e((string) $item['product_name']) ?>" loading="lazy" width="56" height="56">
+                     alt="<?= e((string) ($item['product_name'] ?? '')) ?>" loading="lazy" width="56" height="56">
               <?php else: ?>
                 <span class="purchase-thumb-fallback"><i class="fa-solid fa-seedling"></i></span>
               <?php endif; ?>
               <div class="purchase-item-info">
                 <?php if (!empty($item['product_slug'])): ?>
-                  <a class="fw-semibold small text-decoration-none" href="<?= e(product_url((string) $item['product_slug'])) ?>"><?= e((string) $item['product_name']) ?></a>
+                  <a class="fw-semibold small text-decoration-none" href="<?= e(product_url((string) $item['product_slug'])) ?>"><?= e((string) ($item['product_name'] ?? '')) ?></a>
                 <?php else: ?>
-                  <div class="fw-semibold small"><?= e((string) $item['product_name']) ?></div>
+                  <div class="fw-semibold small"><?= e((string) ($item['product_name'] ?? '')) ?></div>
                 <?php endif; ?>
                 <div class="small text-muted">
                   <?= e((string) ($item['product_sku'] ?? '')) ?>
                   <?php if (!empty($item['pack_size'])): ?> · <?= e((string) $item['pack_size']) ?><?php endif; ?>
                 </div>
-                <div class="small text-muted"><?= money((float) $item['unit_price']) ?> × <?= (int) $item['quantity'] ?></div>
+                <div class="small text-muted"><?= money((float) ($item['unit_price'] ?? 0)) ?> × <?= (int) ($item['quantity'] ?? 0) ?></div>
               </div>
-              <div class="purchase-item-total"><?= money((float) $item['line_total']) ?></div>
+              <div class="purchase-item-total"><?= money((float) ($item['line_total'] ?? 0)) ?></div>
             </div>
           <?php endforeach; ?>
         </div>

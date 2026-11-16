@@ -27,7 +27,16 @@ if (!$order || !can_view_order($order)) {
 // HSN/SAC is what a GST invoice wants in that column, but the catalogue does not carry
 // it yet — so join it only where the column exists and fall back to the SKU otherwise.
 $hasHsn = db()->hasColumn('products', 'hsn_code');
-$items = order_items_for($orderId, $hasHsn ? 'p.hsn_code' : '');
+// Normalised order lines (see includes/functions.php); plain query fallback for deployments
+// where that helper is not present yet, with guarded reads below.
+$items = function_exists('order_items_for')
+    ? order_items_for($orderId, $hasHsn ? 'p.hsn_code' : '')
+    : db()->select(
+        'SELECT i.*' . ($hasHsn ? ', p.hsn_code' : '') . '
+           FROM order_items i LEFT JOIN products p ON p.id = i.product_id
+          WHERE i.order_id = :o ORDER BY i.id',
+        ['o' => $orderId]
+    );
 
 $shipping = json_decode((string) $order['shipping_address'], true) ?: [];
 $billing = json_decode((string) ($order['billing_address'] ?? ''), true) ?: [];
@@ -276,21 +285,21 @@ Mobile: <?= e((string) ($shipping['mobile'] ?? $order['customer_mobile'])) ?></d
     <?php
     $sumTaxable = 0.0; $sumTax = 0.0; $sumQty = 0;
     foreach ($items as $i => $item):
-        $lineTaxable = (float) $item['line_total'];
+        $lineTaxable = (float) ($item['line_total'] ?? 0);
         $lineTax = (float) ($item['tax_amount'] ?? 0);
         $rate = $lineTaxable > 0 ? round($lineTax / $lineTaxable * 100, 2) : 0.0;
-        $sumTaxable += $lineTaxable; $sumTax += $lineTax; $sumQty += (int) $item['quantity'];
+        $sumTaxable += $lineTaxable; $sumTax += $lineTax; $sumQty += (int) ($item['quantity'] ?? 0);
         $hsn = (string) ($item['hsn_code'] ?? '');
     ?>
       <tr>
         <td><?= $i + 1 ?></td>
         <td>
-          <div class="desc"><?= e((string) $item['product_name']) ?></div>
+          <div class="desc"><?= e((string) ($item['product_name'] ?? '')) ?></div>
           <?php if (!empty($item['pack_size'])): ?><div class="sub">Pack: <?= e((string) $item['pack_size']) ?></div><?php endif; ?>
         </td>
         <td><?= $hsn !== '' ? e($hsn) : e((string) ($item['product_sku'] ?? '—')) ?></td>
-        <td class="right"><?= (int) $item['quantity'] ?></td>
-        <td class="right"><?= money((float) $item['unit_price']) ?></td>
+        <td class="right"><?= (int) ($item['quantity'] ?? 0) ?></td>
+        <td class="right"><?= money((float) ($item['unit_price'] ?? 0)) ?></td>
         <td class="right"><?= money($lineTaxable) ?></td>
         <td class="right"><?= rtrim(rtrim(number_format($rate, 2), '0'), '.') ?>%</td>
         <?php if ($intraState): ?>

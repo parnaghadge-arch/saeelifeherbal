@@ -47,7 +47,57 @@ if (is_post()) {
     Request::redirect('order-details.php?id=' . $id);
 }
 
-$items = order_items_for($id);
+// Order lines with catalogue fallbacks, normalised so every display key exists whatever the
+// local database columns look like. When includes/functions.php predates order_items_for(),
+// a compact inline normaliser takes over: this page must never fatal or warn even on a
+// half-updated deployment.
+if (function_exists('order_items_for')) {
+    $items = order_items_for($id);
+} else {
+    if (!function_exists('normalize_order_item')) {
+        function normalize_order_item(array $row): array
+        {
+            $pick = static function (array $r, array $names) {
+                foreach ($names as $n) {
+                    if (isset($r[$n]) && $r[$n] !== '') {
+                        return $r[$n];
+                    }
+                }
+                foreach ($r as $k => $v) {
+                    if ($v === null || $v === '') {
+                        continue;
+                    }
+                    foreach ($names as $n) {
+                        if (strcasecmp((string) $k, $n) === 0) {
+                            return $v;
+                        }
+                    }
+                }
+                return null;
+            };
+            $name = $pick($row, ['product_name', 'product_title', 'title', 'name']);
+            $row['product_name'] = (string) ($name ?? ($row['_fb_product_name'] ?? ''));
+            $price = $pick($row, ['unit_price', 'price']);
+            $row['unit_price'] = (float) ($price ?? ($row['_fb_product_price'] ?? 0));
+            $row['quantity'] = (int) ($pick($row, ['quantity', 'qty']) ?? 1);
+            $line = $pick($row, ['line_total', 'total']);
+            $row['line_total'] = $line !== null && $line !== ''
+                ? (float) $line
+                : round($row['unit_price'] * $row['quantity'], 2);
+            return $row;
+        }
+    }
+    $items = $db->select(
+        'SELECT i.*, p.name AS _fb_product_name, p.price AS _fb_product_price
+           FROM order_items i LEFT JOIN products p ON p.id = i.product_id
+          WHERE i.order_id = :o ORDER BY i.id ASC',
+        ['o' => $id]
+    );
+    foreach ($items as &$itemRow) {
+        $itemRow = normalize_order_item($itemRow);
+    }
+    unset($itemRow);
+}
 $payments = $db->select('SELECT * FROM order_payments WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
 $history = $db->select('SELECT * FROM order_status_history WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
 $commissions = $db->select('SELECT c.*, m.member_code, m.name FROM commission_transactions c LEFT JOIN members m ON m.id = c.member_id WHERE c.order_id = :o ORDER BY c.id ASC', ['o' => $id]);
@@ -75,10 +125,10 @@ require __DIR__ . '/includes/layout.php';
           <tbody>
           <?php foreach ($items as $item): ?>
             <tr>
-              <td class="small"><?= e((string) $item['product_name']) ?><div class="text-muted"><?= e((string) ($item['product_sku'] ?? '')) ?> <?= e((string) ($item['pack_size'] ?? '')) ?></div></td>
-              <td class="small text-end"><?= money((float) $item['unit_price']) ?></td>
-              <td class="small"><?= (int) $item['quantity'] ?></td>
-              <td class="small text-end fw-semibold"><?= money((float) $item['line_total']) ?></td>
+              <td class="small"><?= e((string) ($item['product_name'] ?? '')) ?><div class="text-muted"><?= e((string) ($item['product_sku'] ?? '')) ?> <?= e((string) ($item['pack_size'] ?? '')) ?></div></td>
+              <td class="small text-end"><?= money((float) ($item['unit_price'] ?? 0)) ?></td>
+              <td class="small"><?= (int) ($item['quantity'] ?? 0) ?></td>
+              <td class="small text-end fw-semibold"><?= money((float) ($item['line_total'] ?? 0)) ?></td>
             </tr>
           <?php endforeach; ?>
           </tbody>
