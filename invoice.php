@@ -27,12 +27,7 @@ if (!$order || !can_view_order($order)) {
 // HSN/SAC is what a GST invoice wants in that column, but the catalogue does not carry
 // it yet — so join it only where the column exists and fall back to the SKU otherwise.
 $hasHsn = db()->hasColumn('products', 'hsn_code');
-$items = db()->select(
-    'SELECT i.*' . ($hasHsn ? ', p.hsn_code' : '') . '
-       FROM order_items i LEFT JOIN products p ON p.id = i.product_id
-      WHERE i.order_id = :o ORDER BY i.id',
-    ['o' => $orderId]
-);
+$items = order_items_for($orderId, $hasHsn ? 'p.hsn_code' : '');
 
 $shipping = json_decode((string) $order['shipping_address'], true) ?: [];
 $billing = json_decode((string) ($order['billing_address'] ?? ''), true) ?: [];

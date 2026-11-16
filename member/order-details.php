@@ -29,12 +29,7 @@ if (!$ownsIt) {
     Request::redirect('orders.php');
 }
 
-$orderItems = $db->select(
-    'SELECT i.*, p.featured_image AS product_image, p.slug AS product_slug
-     FROM order_items i LEFT JOIN products p ON p.id = i.product_id
-     WHERE i.order_id = :o ORDER BY i.id ASC',
-    ['o' => $orderId]
-);
+$orderItems = order_items_for($orderId);
 $history = $db->select(
     'SELECT * FROM order_status_history WHERE order_id = :o ORDER BY id ASC',
     ['o' => $orderId]

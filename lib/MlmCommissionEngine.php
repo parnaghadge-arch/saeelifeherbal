@@ -366,7 +366,7 @@ final class MlmCommissionEngine
                     'type' => $type,
                     'order_item_id' => (int) $item['id'],
                     'product_id' => (int) $item['product_id'],
-                    'product_name' => (string) $item['product_name'],
+                    'product_name' => (string) ($item['product_name'] ?? ''),
                     'basis' => $basis,
                     'rate_type' => (string) $rule[$typeKey],
                     'rate_value' => (float) $rule[$valueKey],

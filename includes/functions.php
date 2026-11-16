@@ -8,6 +8,7 @@ use Saee\Lib\Cart;
 use Saee\Lib\CustomerAuth;
 use Saee\Lib\Database;
 use Saee\Lib\Notification;
+use Saee\Lib\Schema;
 use Saee\Lib\SeoService;
 use Saee\Lib\Settings;
 use Saee\Lib\Url;
@@ -656,4 +657,111 @@ function order_status_label(?string $status): string
         return ORDER_STATUSES[$mapped];
     }
     return ucwords(str_replace('_', ' ', $status));
+}
+
+/**
+ * Order line items with the keys every template reads guaranteed to exist.
+ *
+ * A live database can lag behind the code: an order_items table created before these columns
+ * were named this way (or imported with different casing) returns rows without product_name,
+ * unit_price, quantity and line_total, and every template then warns on each line. Three
+ * layers keep the pages rendering real data instead of warnings:
+ *
+ *   1. missing columns are repaired once per request, the same self-heal PayoutService does;
+ *   2. normalize_order_item() resolves each key case-insensitively and through legacy names;
+ *   3. anything still missing falls back to the product catalogue (name and current price),
+ *      and line_total is recomputed from unit_price x quantity.
+ *
+ * @param string $extraSelect extra "p.column" expressions for the products join (e.g. 'p.hsn_code')
+ * @return list<array> item rows, always with product_name, product_sku, unit_price, quantity, line_total
+ */
+function order_items_for(int $orderId, string $extraSelect = ''): array
+{
+    $sql = 'SELECT i.*, p.name AS _fb_product_name, p.price AS _fb_product_price,
+                   p.featured_image AS product_image, p.slug AS product_slug'
+        . ($extraSelect !== '' ? ', ' . $extraSelect : '') . '
+              FROM order_items i
+              LEFT JOIN products p ON p.id = i.product_id
+             WHERE i.order_id = :o
+             ORDER BY i.id ASC';
+
+    $rows = db()->select($sql, ['o' => $orderId]);
+
+    // Repair only when the table actually lags: checking the fetched rows costs nothing and
+    // a healthy install never runs the ALTER path.
+    if ($rows !== []) {
+        $missing = false;
+        foreach (['product_name', 'unit_price', 'quantity', 'line_total'] as $key) {
+            if (!array_key_exists($key, $rows[0])) {
+                $missing = true;
+                break;
+            }
+        }
+        if ($missing) {
+            try {
+                $tables = Schema::tables();
+                if (isset($tables['order_items'])) {
+                    Schema::ensureColumns(db(), 'order_items', $tables['order_items']);
+                    $rows = db()->select($sql, ['o' => $orderId]);
+                }
+            } catch (\Throwable $e) {
+                error_log('order_items schema repair failed: ' . $e->getMessage());
+            }
+        }
+    }
+
+    foreach ($rows as &$row) {
+        $row = normalize_order_item($row);
+    }
+    unset($row);
+    return $rows;
+}
+
+/**
+ * Guarantee the display keys on one order_items row.
+ *
+ * Resolution order per key: exact column name, then the same name in any casing (PHP keys
+ * are case-sensitive, MySQL columns are not), then a legacy column name from older schemas,
+ * then a sane fallback. Never throws on rows missing half their columns.
+ */
+function normalize_order_item(array $row): array
+{
+    $pick = static function (array $row, array $names) {
+        foreach ($names as $name) {
+            if (array_key_exists($name, $row) && $row[$name] !== null && $row[$name] !== '') {
+                return $row[$name];
+            }
+        }
+        foreach ($row as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            foreach ($names as $name) {
+                if (strcasecmp((string) $key, $name) === 0) {
+                    return $value;
+                }
+            }
+        }
+        return null;
+    };
+
+    $name = $pick($row, ['product_name', 'product_title', 'title', 'name']);
+    if ($name === null || $name === '') {
+        $name = $row['_fb_product_name'] ?? '';
+    }
+    $row['product_name'] = (string) $name;
+
+    $row['product_sku'] = (string) ($pick($row, ['product_sku', 'sku']) ?? ($row['product_sku'] ?? ''));
+
+    $price = $pick($row, ['unit_price', 'price']);
+    $row['unit_price'] = (float) ($price ?? ($row['_fb_product_price'] ?? 0));
+
+    $row['quantity'] = (int) ($pick($row, ['quantity', 'qty']) ?? 1);
+
+    $line = $pick($row, ['line_total', 'total']);
+    $row['line_total'] = $line !== null && $line !== ''
+        ? (float) $line
+        : round($row['unit_price'] * $row['quantity'], 2);
+
+    return $row;
 }

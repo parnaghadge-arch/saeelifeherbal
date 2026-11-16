@@ -47,7 +47,7 @@ if (is_post()) {
     Request::redirect('order-details.php?id=' . $id);
 }
 
-$items = $db->select('SELECT * FROM order_items WHERE order_id = :o ORDER BY id ASC', ['o' => $id]);
+$items = order_items_for($id);
 $payments = $db->select('SELECT * FROM order_payments WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
 $history = $db->select('SELECT * FROM order_status_history WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
 $commissions = $db->select('SELECT c.*, m.member_code, m.name FROM commission_transactions c LEFT JOIN members m ON m.id = c.member_id WHERE c.order_id = :o ORDER BY c.id ASC', ['o' => $id]);
