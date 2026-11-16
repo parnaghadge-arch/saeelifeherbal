@@ -21,6 +21,24 @@
      exactly the reserves Bootstrap itself uses (2.25rem default, 2rem for -sm). */
   --saee-select-arrow: 2.25rem;
   --saee-select-arrow-sm: 2rem;
+
+  /* Form-control metrics, declared once and reused at every width.
+     Vertical padding is deliberately a single value shared by the top and the bottom of
+     every field, so a textbox, a select and a search box all sit on the same baseline -
+     and because nothing below re-declares these inside a media query, a field is the same
+     size on a phone as it is on a desktop. */
+  --saee-field-pad-y: .62rem;
+  --saee-field-pad-x: .85rem;
+  --saee-field-pad-y-sm: .42rem;
+  --saee-field-pad-x-sm: .65rem;
+  --saee-field-height: 44px;
+  --saee-field-height-sm: 38px;
+  /* Checkbox and radio are square: one value drives both axes, so neither can drift into
+     the tall rectangle a stray min-height used to produce. */
+  --saee-check-size: 1.15rem;
+  --saee-check-size-sm: 1rem;
+  /* Finger target for a check row. Applied to the row, never to the box itself. */
+  --saee-check-row: 44px;
   --saee-primary: #247A3C;
   --saee-primary-rgb: 36, 122, 60;
   --saee-dark: #14532D;
@@ -575,11 +593,44 @@ a:hover { color: var(--saee-dark); }
 
 /* forms */
 .form-label { font-family: var(--saee-font-heading); font-weight: 500; font-size: .88rem; color: var(--saee-dark); margin-bottom: .35rem; }
-.form-control, .form-select { border-radius: var(--saee-radius-sm); border: 1px solid #CBD9CE; padding: .62rem .85rem; font-size: .94rem; background-color: #fff; }
+.form-control, .form-select {
+  border-radius: var(--saee-radius-sm); border: 1px solid #CBD9CE; background-color: #fff;
+  font-size: .94rem;
+  /* Equal padding above and below, and a floor on the height so the box never depends on
+     line-height rounding. Both come from the variables above, so the -sm and -lg variants
+     cannot drift out of step with the default size. */
+  padding: var(--saee-field-pad-y) var(--saee-field-pad-x);
+  min-height: var(--saee-field-height);
+}
+/* Size variants keep the same symmetry; only the numbers change. */
+.form-control-sm, .form-select-sm {
+  padding: var(--saee-field-pad-y-sm) var(--saee-field-pad-x-sm);
+  min-height: var(--saee-field-height-sm);
+}
+.form-control-lg, .form-select-lg {
+  padding: calc(var(--saee-field-pad-y) + .18rem) calc(var(--saee-field-pad-x) + .15rem);
+  min-height: calc(var(--saee-field-height) + 6px);
+}
 /* The rule above pads inputs and selects alike, which pulled select labels underneath
    the chevron Bootstrap pins to the right edge. Give the arrow its space back. */
 .form-select { padding-right: var(--saee-select-arrow); }
 .form-select-sm { padding-right: var(--saee-select-arrow-sm); }
+
+/* Checkboxes and radios.
+   Square at every width, and min-height is explicitly zeroed: a general touch-target rule
+   elsewhere sets min-height on form fields, and because min-height beats height, inheriting
+   it here stretched each box into a 22px-wide, 44px-tall rectangle. */
+.form-check-input {
+  width: var(--saee-check-size); height: var(--saee-check-size);
+  min-height: 0; min-width: 0; margin-top: 0;
+}
+.form-check-input.form-check-input-sm,
+.form-check-sm .form-check-input { width: var(--saee-check-size-sm); height: var(--saee-check-size-sm); }
+/* Bootstrap switches are deliberately pill-shaped, so they are exempt from the square rule. */
+.form-switch .form-check-input { width: 2em; height: var(--saee-check-size); min-height: 0; }
+/* The finger target belongs to the row, not the box, so the box can stay square. */
+.form-check { min-height: var(--saee-check-row); display: flex; align-items: center; }
+.form-check .form-check-label { padding-top: 0; padding-bottom: 0; }
 .form-control:focus, .form-select:focus { border-color: var(--saee-primary); box-shadow: 0 0 0 3px rgba(var(--saee-primary-rgb), .12); }
 .form-control::placeholder { color: #9BAAA1; }
 .form-text { font-size: .78rem; color: var(--saee-muted); }
@@ -917,9 +968,13 @@ a:hover { color: var(--saee-dark); }
 .catalog-toolbar-label i { color: var(--saee-primary); font-size: .78rem; }
 .catalog-toolbar-form { display: flex; align-items: center; gap: .4rem; min-width: 0; }
 .catalog-toolbar-form select {
-  width: 100%; min-width: 0; font-size: .88rem; padding: .5rem .7rem; border-radius: 10px;
-  border-color: var(--saee-border);
+  width: 100%; min-width: 0; border-radius: 10px; border-color: var(--saee-border);
+  /* Shares the field metrics, so this select is the same height and the same padding as
+     every other select in the site rather than having its own three size scales. */
+  font-size: .88rem;
+  padding: var(--saee-field-pad-y-sm) var(--saee-field-pad-x-sm);
   padding-right: var(--saee-select-arrow-sm);
+  min-height: var(--saee-field-height-sm);
 }
 .catalog-toolbar-form select:focus { border-color: var(--saee-primary); box-shadow: 0 0 0 .18rem rgba(36, 122, 60, .15); }
 .catalog-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; flex-wrap: wrap; }
@@ -928,12 +983,14 @@ a:hover { color: var(--saee-dark); }
 @media (min-width: 992px) {
   /* a little more presence on desktop: the bar spans the full catalogue width */
   .catalog-toolbar { grid-template-columns: minmax(0, 340px) minmax(0, 260px); gap: 1rem 1.25rem; }
-  .catalog-toolbar-form select { font-size: .9rem; padding: .55rem .8rem; padding-right: var(--saee-select-arrow-sm); }
+  /* Width only: the select keeps the same metrics as everywhere else, so it does not
+     change size between a phone and a desktop. */
+  .catalog-toolbar-form select { font-size: .9rem; }
 }
 @media (max-width: 575.98px) {
   .catalog-toolbar { gap: .5rem; }
   .catalog-toolbar-label { font-size: .66rem; gap: .3rem; margin-bottom: .22rem; }
-  .catalog-toolbar-form select { font-size: .8rem; padding: .45rem .5rem; border-radius: 8px; padding-right: var(--saee-select-arrow-sm); }
+  .catalog-toolbar-form select { font-size: .8rem; border-radius: 8px; }
 }
 /* 4 products per row on desktop, 2 on phones (the column classes are stock Bootstrap;
    the grid wrapper only evens the row out when the last page has a single card) */
@@ -1663,14 +1720,18 @@ pre, code { word-break: break-word; }
 
 /* ---- Touch targets + iOS zoom prevention ---- */
 @media (max-width: 991.98px) {
-  .btn, .btn-sm, .form-control, .form-select, .form-check-input { min-height: 44px; }
+  /* Fields already carry their height and padding from the form variables, which are the
+     same at every width, so nothing here restates them. Only the font size changes, and
+     only because iOS zooms the page when a focused control is under 16px.
+     .form-check-input is deliberately absent: a min-height here used to override its square
+     height and stretch every checkbox and radio into a rectangle. */
+  .btn, .btn-sm { min-height: 44px; }
   .btn-sm { min-height: 40px; }
   .form-control, .form-select, textarea.form-control { font-size: 16px; }
   .header-icon-btn, .t-nav, .thumb-nav, .gallery-nav { min-width: 44px; min-height: 44px; }
   .sidebar-nav a { min-height: 44px; }
   .app-tabbar a, .mobile-bottom-nav a { min-height: 48px; }
   .filter-bar .btn, .table-tools .btn { min-height: 40px; }
-  input[type="checkbox"].form-check-input, input[type="radio"].form-check-input { width: 22px; height: 22px; }
   .dropdown-item { padding: .65rem 1rem; }
 }
 
@@ -1903,12 +1964,11 @@ body.app-body .sidebar-nav .nav-link { font-size: .9em; }
   body.app-body textarea,
   body.app-body .form-control,
   body.app-body .form-select { font-size: 16px; }
-  /* Comfortable finger targets, which is what makes it feel like an app. */
-  body.app-body .btn,
-  body.app-body .form-control,
-  body.app-body .form-select { min-height: var(--app-touch); }
-  body.app-body .btn-sm { min-height: 38px; }
-  body.app-body .form-check-input { width: 1.15em; height: 1.15em; }
+  /* Comfortable finger targets, which is what makes it feel like an app. Fields keep the
+     height the form variables already gave them - restating it here is what used to make a
+     panel input a different size from the same input on the public site. */
+  body.app-body .btn { min-height: var(--app-touch); }
+  body.app-body .btn-sm { min-height: var(--saee-field-height-sm); }
   body.app-body .page-link,
   body.app-body .nav-link { min-height: 40px; display: inline-flex; align-items: center; }
 }
