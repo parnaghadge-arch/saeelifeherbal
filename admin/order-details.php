@@ -55,6 +55,7 @@ if (function_exists('order_items_for')) {
     $items = order_items_for($id);
 } else {
     if (!function_exists('normalize_order_item')) {
+        // Compact copy of the normaliser in includes/functions.php - kept in sync with it.
         function normalize_order_item(array $row): array
         {
             $pick = static function (array $r, array $names) {
@@ -75,20 +76,97 @@ if (function_exists('order_items_for')) {
                 }
                 return null;
             };
-            $name = $pick($row, ['product_name', 'product_title', 'title', 'name']);
-            $row['product_name'] = (string) ($name ?? ($row['_fb_product_name'] ?? ''));
-            $price = $pick($row, ['unit_price', 'price']);
+
+            $skip = ['product_sku', 'sku', 'pack_size', 'product_image', 'product_slug', 'product_id', 'variant_id', 'order_id', 'commissionable_amount'];
+
+            $name = $pick($row, ['product_name', 'product_title', 'title', 'name', 'item_name']);
+            if ($name === null || $name === '') {
+                foreach ($row as $key => $value) {
+                    $k = strtolower((string) $key);
+                    if ($k === '' || $k[0] === '_' || in_array($k, $skip, true)) {
+                        continue;
+                    }
+                    if (!is_string($value) || trim($value) === '' || strlen($value) > 191 || is_numeric($value)) {
+                        continue;
+                    }
+                    if (preg_match('/name|title|item|product|desc/i', $k)) {
+                        $name = $value;
+                        break;
+                    }
+                }
+            }
+            if ($name === null || $name === '') {
+                $name = $row['_fb2_product_name'] ?? '';
+            }
+            if ($name === null || $name === '') {
+                $name = $row['_fb_product_name'] ?? '';
+            }
+            if ($name === null || $name === '') {
+                $pid = (int) ($pick($row, ['product_id']) ?? 0);
+                $name = $pid > 0 ? 'Product #' . $pid : 'Untitled item';
+            }
+            $row['product_name'] = (string) $name;
+
+            $row['product_sku'] = (string) ($pick($row, ['product_sku', 'sku']) ?? ($row['product_sku'] ?? ''));
+
+            $price = $pick($row, ['unit_price', 'price', 'mrp']);
+            if ($price === null) {
+                foreach ($row as $key => $value) {
+                    $k = strtolower((string) $key);
+                    if ($k === '' || $k[0] === '_' || !is_numeric($value)) {
+                        continue;
+                    }
+                    if (preg_match('/price|mrp|rate|cost/i', $k) && !preg_match('/tax|commission|shipping/i', $k)) {
+                        $price = $value;
+                        break;
+                    }
+                }
+            }
             $row['unit_price'] = (float) ($price ?? ($row['_fb_product_price'] ?? 0));
-            $row['quantity'] = (int) ($pick($row, ['quantity', 'qty']) ?? 1);
-            $line = $pick($row, ['line_total', 'total']);
+
+            $qty = $pick($row, ['quantity', 'qty', 'pcs']);
+            if ($qty === null) {
+                foreach ($row as $key => $value) {
+                    $k = strtolower((string) $key);
+                    if ($k === '' || $k[0] === '_' || !is_numeric($value)) {
+                        continue;
+                    }
+                    if (preg_match('/qty|quantity|pcs|count/i', $k) && !preg_match('/country|discount/i', $k)) {
+                        $qty = $value;
+                        break;
+                    }
+                }
+            }
+            $row['quantity'] = (int) ($qty ?? 1);
+
+            $line = $pick($row, ['line_total', 'total', 'net_amount']);
+            if ($line === null) {
+                foreach ($row as $key => $value) {
+                    $k = strtolower((string) $key);
+                    if ($k === '' || $k[0] === '_' || !is_numeric($value)) {
+                        continue;
+                    }
+                    if (preg_match('/total|amount/i', $k) && !preg_match('/tax|commission|grand|payable|paid/i', $k)) {
+                        $line = $value;
+                        break;
+                    }
+                }
+            }
             $row['line_total'] = $line !== null && $line !== ''
                 ? (float) $line
                 : round($row['unit_price'] * $row['quantity'], 2);
+
             return $row;
         }
     }
+    $ctName = $db->hasColumn('commission_transactions', 'product_name')
+        && $db->hasColumn('commission_transactions', 'order_item_id')
+        ? ", (SELECT ct.product_name FROM commission_transactions ct
+               WHERE ct.order_item_id = i.id AND ct.product_name IS NOT NULL AND ct.product_name <> ''
+               LIMIT 1) AS _fb2_product_name"
+        : '';
     $items = $db->select(
-        'SELECT i.*, p.name AS _fb_product_name, p.price AS _fb_product_price
+        'SELECT i.*, p.name AS _fb_product_name, p.price AS _fb_product_price' . $ctName . '
            FROM order_items i LEFT JOIN products p ON p.id = i.product_id
           WHERE i.order_id = :o ORDER BY i.id ASC',
         ['o' => $id]
@@ -99,6 +177,24 @@ if (function_exists('order_items_for')) {
     unset($itemRow);
 }
 $payments = $db->select('SELECT * FROM order_payments WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
+
+// Line-item diagnostics: open as order-details.php?id=N&debug=1 and share the panel when
+// products display wrongly - it shows the raw rows exactly as this database returns them.
+$debugItems = null;
+$debugProducts = [];
+if (Request::query('debug') !== null) {
+    $debugItems = $db->select('SELECT * FROM order_items WHERE order_id = :o ORDER BY id ASC', ['o' => $id]);
+    foreach ($debugItems as $debugRow) {
+        $debugPid = (int) ($debugRow['product_id'] ?? 0);
+        if ($debugPid > 0 && !array_key_exists($debugPid, $debugProducts)) {
+            try {
+                $debugProducts[$debugPid] = $db->first('SELECT * FROM products WHERE id = :id', ['id' => $debugPid]);
+            } catch (\Throwable $e) {
+                $debugProducts[$debugPid] = ['error' => $e->getMessage()];
+            }
+        }
+    }
+}
 $history = $db->select('SELECT * FROM order_status_history WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
 $commissions = $db->select('SELECT c.*, m.member_code, m.name FROM commission_transactions c LEFT JOIN members m ON m.id = c.member_id WHERE c.order_id = :o ORDER BY c.id ASC', ['o' => $id]);
 
@@ -117,6 +213,21 @@ require __DIR__ . '/includes/layout.php';
 ?>
 <div class="row g-3">
   <div class="col-lg-7">
+    <?php if ($debugItems !== null): ?>
+    <div class="panel p-3 p-md-4 mb-3 border border-warning">
+      <h2 class="h6 mb-2">Order line diagnostics (debug)</h2>
+      <p class="small text-muted mb-2">
+        The raw rows exactly as this database returned them, before any normalisation,
+        plus what the page resolved them to. Share this panel when reporting product display problems.
+      </p>
+      <pre class="small bg-light p-2" style="max-height:420px;overflow:auto"><?= e((string) json_encode([
+          'order_items_columns' => $debugItems !== [] ? array_keys($debugItems[0]) : [],
+          'raw_rows' => $debugItems,
+          'normalized_rows' => $items,
+          'product_lookup' => $debugProducts,
+      ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR)) ?></pre>
+    </div>
+    <?php endif; ?>
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Items</h2>
       <div class="table-responsive">
@@ -131,6 +242,12 @@ require __DIR__ . '/includes/layout.php';
               <td class="small text-end fw-semibold"><?= money((float) ($item['line_total'] ?? 0)) ?></td>
             </tr>
           <?php endforeach; ?>
+          <?php if (!$items): ?>
+            <tr><td colspan="4" class="small text-muted">
+              No line items were found for this order. If it should have products,
+              reopen it with &amp;debug=1 and share the diagnostics panel above.
+            </td></tr>
+          <?php endif; ?>
           </tbody>
           <tfoot class="small">
             <tr><td colspan="3" class="text-end">Subtotal</td><td class="text-end"><?= money((float) $order['subtotal']) ?></td></tr>

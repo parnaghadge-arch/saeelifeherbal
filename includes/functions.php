@@ -664,21 +664,31 @@ function order_status_label(?string $status): string
  *
  * A live database can lag behind the code: an order_items table created before these columns
  * were named this way (or imported with different casing) returns rows without product_name,
- * unit_price, quantity and line_total, and every template then warns on each line. Three
- * layers keep the pages rendering real data instead of warnings:
+ * unit_price, quantity and line_total, and every template then warns on each line. Layers
+ * keep the pages rendering real data instead of warnings:
  *
  *   1. missing columns are repaired once per request, the same self-heal PayoutService does;
- *   2. normalize_order_item() resolves each key case-insensitively and through legacy names;
- *   3. anything still missing falls back to the product catalogue (name and current price),
- *      and line_total is recomputed from unit_price x quantity.
+ *   2. normalize_order_item() resolves each key case-insensitively and through legacy names,
+ *      then scans for an unforeseen legacy column (item_name, mrp, pcs, ...);
+ *   3. product labels fall back to the name frozen on the commission ledger at sale time,
+ *      then to the live catalogue; prices to the catalogue; line_total is recomputed.
  *
  * @param string $extraSelect extra "p.column" expressions for the products join (e.g. 'p.hsn_code')
  * @return list<array> item rows, always with product_name, product_sku, unit_price, quantity, line_total
  */
 function order_items_for(int $orderId, string $extraSelect = ''): array
 {
+    // The commission ledger froze the product name at sale time: the best surviving label for
+    // old rows whose own name columns no longer carry one.
+    $ctName = db()->hasColumn('commission_transactions', 'product_name')
+        && db()->hasColumn('commission_transactions', 'order_item_id')
+        ? ", (SELECT ct.product_name FROM commission_transactions ct
+               WHERE ct.order_item_id = i.id AND ct.product_name IS NOT NULL AND ct.product_name <> ''
+               LIMIT 1) AS _fb2_product_name"
+        : '';
     $sql = 'SELECT i.*, p.name AS _fb_product_name, p.price AS _fb_product_price,
                    p.featured_image AS product_image, p.slug AS product_slug'
+        . $ctName
         . ($extraSelect !== '' ? ', ' . $extraSelect : '') . '
               FROM order_items i
               LEFT JOIN products p ON p.id = i.product_id
@@ -721,8 +731,11 @@ function order_items_for(int $orderId, string $extraSelect = ''): array
  * Guarantee the display keys on one order_items row.
  *
  * Resolution order per key: exact column name, then the same name in any casing (PHP keys
- * are case-sensitive, MySQL columns are not), then a legacy column name from older schemas,
- * then a sane fallback. Never throws on rows missing half their columns.
+ * are case-sensitive, MySQL columns are not), then known legacy column names, then a
+ * heuristic scan for an unforeseen column that clearly holds that value. Product labels then
+ * fall back to the commission ledger's frozen name and to the live catalogue; when nothing
+ * at all identifies the line, a placeholder marks it instead of rendering an invisible row.
+ * Never throws on rows missing half their columns.
  */
 function normalize_order_item(array $row): array
 {
@@ -745,20 +758,83 @@ function normalize_order_item(array $row): array
         return null;
     };
 
-    $name = $pick($row, ['product_name', 'product_title', 'title', 'name']);
+    // Keys that merely look like a label or a price but are not one.
+    $skip = ['product_sku', 'sku', 'pack_size', 'product_image', 'product_slug', 'product_id', 'variant_id', 'order_id', 'commissionable_amount'];
+
+    $name = $pick($row, ['product_name', 'product_title', 'title', 'name', 'item_name']);
     if ($name === null || $name === '') {
-        $name = $row['_fb_product_name'] ?? '';
+        // Heuristic: a legacy label column under an unforeseen name.
+        foreach ($row as $key => $value) {
+            $k = strtolower((string) $key);
+            if ($k === '' || $k[0] === '_' || in_array($k, $skip, true)) {
+                continue;
+            }
+            if (!is_string($value) || trim($value) === '' || strlen($value) > 191 || is_numeric($value)) {
+                continue;
+            }
+            if (preg_match('/name|title|item|product|desc/i', $k)) {
+                $name = $value;
+                break;
+            }
+        }
+    }
+    if ($name === null || $name === '') {
+        $name = $row['_fb2_product_name'] ?? ''; // frozen on the commission ledger at sale time
+    }
+    if ($name === null || $name === '') {
+        $name = $row['_fb_product_name'] ?? '';   // live catalogue
+    }
+    if ($name === null || $name === '') {
+        $pid = (int) ($pick($row, ['product_id']) ?? 0);
+        $name = $pid > 0 ? 'Product #' . $pid : 'Untitled item';
     }
     $row['product_name'] = (string) $name;
 
     $row['product_sku'] = (string) ($pick($row, ['product_sku', 'sku']) ?? ($row['product_sku'] ?? ''));
 
-    $price = $pick($row, ['unit_price', 'price']);
+    $price = $pick($row, ['unit_price', 'price', 'mrp']);
+    if ($price === null) {
+        foreach ($row as $key => $value) {
+            $k = strtolower((string) $key);
+            if ($k === '' || $k[0] === '_' || !is_numeric($value)) {
+                continue;
+            }
+            if (preg_match('/price|mrp|rate|cost/i', $k) && !preg_match('/tax|commission|shipping/i', $k)) {
+                $price = $value;
+                break;
+            }
+        }
+    }
     $row['unit_price'] = (float) ($price ?? ($row['_fb_product_price'] ?? 0));
 
-    $row['quantity'] = (int) ($pick($row, ['quantity', 'qty']) ?? 1);
+    $qty = $pick($row, ['quantity', 'qty', 'pcs']);
+    if ($qty === null) {
+        foreach ($row as $key => $value) {
+            $k = strtolower((string) $key);
+            if ($k === '' || $k[0] === '_' || !is_numeric($value)) {
+                continue;
+            }
+            if (preg_match('/qty|quantity|pcs|count/i', $k) && !preg_match('/country|discount/i', $k)) {
+                $qty = $value;
+                break;
+            }
+        }
+    }
+    $row['quantity'] = (int) ($qty ?? 1);
 
-    $line = $pick($row, ['line_total', 'total']);
+    $line = $pick($row, ['line_total', 'total', 'net_amount']);
+    if ($line === null) {
+        foreach ($row as $key => $value) {
+            $k = strtolower((string) $key);
+            if ($k === '' || $k[0] === '_' || !is_numeric($value)) {
+                continue;
+            }
+            if (preg_match('/total|amount/i', $k) && !preg_match('/tax|commission|grand|payable|paid/i', $k)) {
+                $line = $value;
+                break;
+            }
+        }
+    }
     $row['line_total'] = $line !== null && $line !== ''
         ? (float) $line
         : round($row['unit_price'] * $row['quantity'], 2);
