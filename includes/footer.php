@@ -51,16 +51,16 @@ $whatsapp = preg_replace('/\D/', '', (string) Settings::get('whatsapp_number', '
       <div class="col-6 col-lg-2">
         <h6>Quick Links</h6>
         <ul>
-          <?php foreach (array_slice($footerMenu, 0, 6) as $item): ?>
-            <li><a href="<?= e(menu_url($item['url'])) ?>"><?= e($item['label']) ?></a></li>
+          <?php foreach (array_slice($footerMenu, 0, 6) as $navItem): ?>
+            <li><a href="<?= e(menu_url($navItem['url'])) ?>"><?= e($navItem['label']) ?></a></li>
           <?php endforeach; ?>
         </ul>
       </div>
       <div class="col-6 col-lg-3">
         <h6>Company &amp; Policies</h6>
         <ul>
-          <?php foreach (array_slice($footerMenu, 6) as $item): ?>
-            <li><a href="<?= e(menu_url($item['url'])) ?>"><?= e($item['label']) ?></a></li>
+          <?php foreach (array_slice($footerMenu, 6) as $navItem): ?>
+            <li><a href="<?= e(menu_url($navItem['url'])) ?>"><?= e($navItem['label']) ?></a></li>
           <?php endforeach; ?>
         </ul>
       </div>

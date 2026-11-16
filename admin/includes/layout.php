@@ -90,11 +90,11 @@ $menu = [
       <span>Admin Panel<br><small style="opacity:.6;font-weight:400"><?= e($siteName) ?></small></span>
     </div>
     <nav class="sidebar-nav">
-      <?php foreach ($menu as $group => $items): ?>
+      <?php foreach ($menu as $group => $navItems): ?>
         <?php
         // Hide the heading when the role cannot see anything in the group, otherwise the
         // sidebar collects orphan labels with nothing under them.
-        $visible = array_values(array_filter($items, static fn ($i): bool => $can($i['perm'])));
+        $visible = array_values(array_filter($navItems, static fn ($i): bool => $can($i['perm'])));
         if ($visible === []) { continue; }
         ?>
         <?php
@@ -103,8 +103,8 @@ $menu = [
         // than a JS widget so the menu still opens and closes with scripting unavailable.
         $groupSlug = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower((string) $group)), '-');
         $groupOpen = false;
-        foreach ($visible as $item) {
-            if ($activeModule === $item['key']) { $groupOpen = true; break; }
+        foreach ($visible as $navItem) {
+            if ($activeModule === $navItem['key']) { $groupOpen = true; break; }
         }
         ?>
         <details class="nav-group" data-nav-group="<?= e($groupSlug) ?>"<?= $groupOpen ? ' open' : '' ?>>
@@ -113,9 +113,9 @@ $menu = [
             <i class="fa-solid fa-chevron-down nav-group-chevron" aria-hidden="true"></i>
           </summary>
           <div class="nav-group-items">
-            <?php foreach ($visible as $item): ?>
-              <a href="<?= e(\Saee\Lib\Url::admin($item['href'])) ?>" class="<?= $activeModule === $item['key'] ? 'active' : '' ?>">
-                <i class="fa-solid <?= e($item['icon']) ?>"></i><span><?= e($item['label']) ?></span>
+            <?php foreach ($visible as $navItem): ?>
+              <a href="<?= e(\Saee\Lib\Url::admin($navItem['href'])) ?>" class="<?= $activeModule === $navItem['key'] ? 'active' : '' ?>">
+                <i class="fa-solid <?= e($navItem['icon']) ?>"></i><span><?= e($navItem['label']) ?></span>
               </a>
             <?php endforeach; ?>
           </div>

@@ -52,7 +52,7 @@ if (is_post()) {
 // a compact inline normaliser takes over: this page must never fatal or warn even on a
 // half-updated deployment.
 if (function_exists('order_items_for')) {
-    $items = order_items_for($id);
+    $orderLineItems = order_items_for($id);
 } else {
     if (!function_exists('normalize_order_item')) {
         // Compact copy of the normaliser in includes/functions.php - kept in sync with it.
@@ -165,13 +165,13 @@ if (function_exists('order_items_for')) {
                WHERE ct.order_item_id = i.id AND ct.product_name IS NOT NULL AND ct.product_name <> ''
                LIMIT 1) AS _fb2_product_name"
         : '';
-    $items = $db->select(
+    $orderLineItems = $db->select(
         'SELECT i.*, p.name AS _fb_product_name, p.price AS _fb_product_price' . $ctName . '
            FROM order_items i LEFT JOIN products p ON p.id = i.product_id
           WHERE i.order_id = :o ORDER BY i.id ASC',
         ['o' => $id]
     );
-    foreach ($items as &$itemRow) {
+    foreach ($orderLineItems as &$itemRow) {
         $itemRow = normalize_order_item($itemRow);
     }
     unset($itemRow);
@@ -223,7 +223,7 @@ require __DIR__ . '/includes/layout.php';
       <pre class="small bg-light p-2" style="max-height:420px;overflow:auto"><?= e((string) json_encode([
           'order_items_columns' => $debugItems !== [] ? array_keys($debugItems[0]) : [],
           'raw_rows' => $debugItems,
-          'normalized_rows' => $items,
+          'normalized_rows' => $orderLineItems,
           'product_lookup' => $debugProducts,
       ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR)) ?></pre>
     </div>
@@ -234,7 +234,7 @@ require __DIR__ . '/includes/layout.php';
         <table class="table table-sm align-middle mb-0 data-table">
           <thead><tr><th>Product</th><th class="text-end">Price</th><th>Qty</th><th class="text-end">Total</th></tr></thead>
           <tbody>
-          <?php foreach ($items as $item): ?>
+          <?php foreach ($orderLineItems as $item): ?>
             <tr>
               <td class="small"><?= e((string) ($item['product_name'] ?? '')) ?><div class="text-muted"><?= e((string) ($item['product_sku'] ?? '')) ?> <?= e((string) ($item['pack_size'] ?? '')) ?></div></td>
               <td class="small text-end"><?= money((float) ($item['unit_price'] ?? 0)) ?></td>
@@ -242,7 +242,7 @@ require __DIR__ . '/includes/layout.php';
               <td class="small text-end fw-semibold"><?= money((float) ($item['line_total'] ?? 0)) ?></td>
             </tr>
           <?php endforeach; ?>
-          <?php if (!$items): ?>
+          <?php if (!$orderLineItems): ?>
             <tr><td colspan="4" class="small text-muted">
               No line items were found for this order. If it should have products,
               reopen it with &amp;debug=1 and share the diagnostics panel above.

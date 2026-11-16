@@ -86,7 +86,7 @@ if (is_post()) {
     Request::redirect('settings.php?group=' . $group);
 }
 
-$items = $db->select('SELECT * FROM settings WHERE setting_group = :g ORDER BY setting_key ASC', ['g' => $active]);
+$settingRows = $db->select('SELECT * FROM settings WHERE setting_group = :g ORDER BY setting_key ASC', ['g' => $active]);
 
 $pageTitle = 'Settings';
 $pageHeading = 'Website Settings';
@@ -107,7 +107,7 @@ require __DIR__ . '/includes/layout.php';
     <?= csrf_field() ?>
     <input type="hidden" name="group" value="<?= e($active) ?>">
     <div class="row g-3">
-      <?php foreach ($items as $item):
+      <?php foreach ($settingRows as $item):
           $key = (string) $item['setting_key'];
           $value = (string) ($item['setting_value'] ?? '');
           $type = (string) $item['setting_type'];
@@ -133,7 +133,7 @@ require __DIR__ . '/includes/layout.php';
           <?php endif; ?>
         </div>
       <?php endforeach; ?>
-      <?php if (!$items): ?><p class="small text-muted">No settings in this group.</p><?php endif; ?>
+      <?php if (!$settingRows): ?><p class="small text-muted">No settings in this group.</p><?php endif; ?>
     </div>
     <button class="btn btn-primary mt-4">Save <?= e($groups[$active]['label']) ?></button>
   </form>

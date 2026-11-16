@@ -150,16 +150,16 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
 
       <div class="collapse navbar-collapse order-lg-2 site-nav" id="mainNav">
         <ul class="navbar-nav">
-          <?php foreach ($menu as $item): ?>
-            <?php $hasChildren = !empty($item['children']); ?>
+          <?php foreach ($menu as $navItem): ?>
+            <?php $hasChildren = !empty($navItem['children']); ?>
             <li class="nav-item <?= $hasChildren ? 'dropdown' : '' ?>">
-              <a class="nav-link <?= $item['url'] !== '#' ? active_class($item['url'], 'active') : '' ?><?= $hasChildren ? ' dropdown-toggle' : '' ?>"
-                 href="<?= e(menu_url($item['url'])) ?>" <?= $hasChildren ? 'data-bs-toggle="dropdown"' : '' ?> target="<?= e($item['target'] ?? '_self') ?>" <?= $hasChildren ? 'role="button" aria-expanded="false"' : '' ?>>
-                <?= e($item['label']) ?>
+              <a class="nav-link <?= $navItem['url'] !== '#' ? active_class($navItem['url'], 'active') : '' ?><?= $hasChildren ? ' dropdown-toggle' : '' ?>"
+                 href="<?= e(menu_url($navItem['url'])) ?>" <?= $hasChildren ? 'data-bs-toggle="dropdown"' : '' ?> target="<?= e($navItem['target'] ?? '_self') ?>" <?= $hasChildren ? 'role="button" aria-expanded="false"' : '' ?>>
+                <?= e($navItem['label']) ?>
               </a>
               <?php if ($hasChildren): ?>
                 <ul class="dropdown-menu">
-                  <?php foreach ($item['children'] as $child): ?>
+                  <?php foreach ($navItem['children'] as $child): ?>
                     <li><a class="dropdown-item" href="<?= e(menu_url($child['url'])) ?>" target="<?= e($child['target'] ?? '_self') ?>"><?= e($child['label']) ?></a></li>
                   <?php endforeach; ?>
                 </ul>
@@ -180,30 +180,30 @@ $accent = (string) Settings::get('theme_accent', '#A5C94A');
   </div>
   <div class="offcanvas-body p-0">
     <ul class="list-unstyled mb-0 mnav-list">
-      <?php foreach ($menu as $item): ?>
-        <?php $hasChildren = !empty($item['children']); ?>
+      <?php foreach ($menu as $navItem): ?>
+        <?php $hasChildren = !empty($navItem['children']); ?>
         <li class="border-bottom">
           <?php if ($hasChildren): ?>
             <?php // A parent with a submenu only expands/collapses the list: it never navigates
                   // and never closes the drawer, so the submenu stays visible until it is tapped
                   // again. The parent page itself is reachable from the first submenu entry. ?>
             <button type="button" class="mnav-toggle d-flex justify-content-between align-items-center w-100 px-3 py-3 text-start border-0 bg-transparent text-dark fw-medium"
-                    data-bs-toggle="collapse" data-bs-target="#mnav<?= (int) $item['id'] ?>"
-                    aria-expanded="false" aria-controls="mnav<?= (int) $item['id'] ?>">
-              <span><?= e($item['label']) ?></span>
+                    data-bs-toggle="collapse" data-bs-target="#mnav<?= (int) $navItem['id'] ?>"
+                    aria-expanded="false" aria-controls="mnav<?= (int) $navItem['id'] ?>">
+              <span><?= e($navItem['label']) ?></span>
               <i class="fa-solid fa-chevron-down small text-muted" aria-hidden="true"></i>
             </button>
-            <div class="collapse mnav-sub" id="mnav<?= (int) $item['id'] ?>">
+            <div class="collapse mnav-sub" id="mnav<?= (int) $navItem['id'] ?>">
               <ul class="list-unstyled ps-3 pb-2 mb-0">
-                <?php foreach ($item['children'] as $child): ?>
+                <?php foreach ($navItem['children'] as $child): ?>
                   <li><a class="d-block py-2 text-secondary small" href="<?= e(menu_url($child['url'])) ?>"><?= e($child['label']) ?></a></li>
                 <?php endforeach; ?>
-                <li class="mt-1"><a class="d-block py-2 small fw-semibold text-primary" href="<?= e(menu_url($item['url'])) ?>">All <?= e($item['label']) ?></a></li>
+                <li class="mt-1"><a class="d-block py-2 small fw-semibold text-primary" href="<?= e(menu_url($navItem['url'])) ?>">All <?= e($navItem['label']) ?></a></li>
               </ul>
             </div>
           <?php else: ?>
-            <a class="d-flex justify-content-between align-items-center px-3 py-3 text-decoration-none text-dark fw-medium" href="<?= e(menu_url($item['url'])) ?>">
-              <span><?= e($item['label']) ?></span>
+            <a class="d-flex justify-content-between align-items-center px-3 py-3 text-decoration-none text-dark fw-medium" href="<?= e(menu_url($navItem['url'])) ?>">
+              <span><?= e($navItem['label']) ?></span>
             </a>
           <?php endif; ?>
         </li>

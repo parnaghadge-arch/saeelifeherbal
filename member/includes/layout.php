@@ -87,7 +87,7 @@ $bottomNav = [
       </div>
     </div>
     <nav class="sidebar-nav">
-      <?php foreach ($navGroups as $group => $items): ?>
+      <?php foreach ($navGroups as $group => $navItems): ?>
         <?php
         // Groups collapse, and only the one holding the current page starts open. A closed
         // group must not swallow an alert, so an unread count or a missing KYC inside it is
@@ -96,10 +96,10 @@ $bottomNav = [
         $groupOpen = false;
         $groupUnread = 0;
         $groupNeedsKyc = false;
-        foreach ($items as [$key, $label, $icon, $href]) {
-            if ($activeNav === $key) { $groupOpen = true; }
-            if ($key === 'notifications' && $unread > 0) { $groupUnread += (int) $unread; }
-            if ($key === 'kyc' && $kycStatus !== 'approved') { $groupNeedsKyc = true; }
+        foreach ($navItems as [$navKey, $navLabel, $navIcon, $navHref]) {
+            if ($activeNav === $navKey) { $groupOpen = true; }
+            if ($navKey === 'notifications' && $unread > 0) { $groupUnread += (int) $unread; }
+            if ($navKey === 'kyc' && $kycStatus !== 'approved') { $groupNeedsKyc = true; }
         }
         ?>
         <details class="nav-group" data-nav-group="<?= e($groupSlug) ?>"<?= $groupOpen ? ' open' : '' ?>>
@@ -112,11 +112,11 @@ $bottomNav = [
             </span>
           </summary>
           <div class="nav-group-items">
-            <?php foreach ($items as [$key, $label, $icon, $href]): ?>
-              <a href="<?= e(\Saee\Lib\Url::member($href)) ?>" class="<?= $activeNav === $key ? 'active' : '' ?>">
-                <i class="fa-solid <?= e($icon) ?>"></i><span><?= e($label) ?></span>
-                <?php if ($key === 'notifications' && $unread > 0): ?><span class="nav-badge"><?= (int) $unread ?></span><?php endif; ?>
-                <?php if ($key === 'kyc' && $kycStatus !== 'approved'): ?><span class="nav-badge" style="background:#FFB020">!</span><?php endif; ?>
+            <?php foreach ($navItems as [$navKey, $navLabel, $navIcon, $navHref]): ?>
+              <a href="<?= e(\Saee\Lib\Url::member($navHref)) ?>" class="<?= $activeNav === $navKey ? 'active' : '' ?>">
+                <i class="fa-solid <?= e($navIcon) ?>"></i><span><?= e($navLabel) ?></span>
+                <?php if ($navKey === 'notifications' && $unread > 0): ?><span class="nav-badge"><?= (int) $unread ?></span><?php endif; ?>
+                <?php if ($navKey === 'kyc' && $kycStatus !== 'approved'): ?><span class="nav-badge" style="background:#FFB020">!</span><?php endif; ?>
               </a>
             <?php endforeach; ?>
           </div>
