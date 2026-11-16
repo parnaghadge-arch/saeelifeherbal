@@ -144,7 +144,10 @@ require __DIR__ . '/includes/layout.php';
   <div class="feature-icon mx-auto mb-3"><i class="fa-solid fa-bag-shopping"></i></div>
   <h2 class="h6">No purchases yet</h2>
   <p class="small text-muted mb-3">Products you buy with your member ID, and orders you place for your team, will appear here with full details and invoices.</p>
-  <a class="btn btn-primary btn-sm" href="<?= e(Url::to('our-products')) ?>"><i class="fa-solid fa-seedling me-1"></i>Browse products</a>
+  <?php // Send the partner to the panel's own Buy Products tab, not the public shop: buying there
+        // uses their member ID, so the order lands in this history and earns commission. The
+        // storefront checkout would record them as an ordinary customer instead. ?>
+  <a class="btn btn-primary btn-sm" href="<?= e(Url::member('buy-products.php')) ?>"><i class="fa-solid fa-cart-plus me-1"></i>Buy products</a>
 </div>
 <?php else: ?>
 <div class="panel p-3 p-md-4">
