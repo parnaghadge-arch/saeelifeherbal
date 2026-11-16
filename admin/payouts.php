@@ -1,5 +1,9 @@
 <?php
-/** Payout processing: approve / reject / mark paid with UTR + proof. */
+/**
+ * Payout processing: approve / reject / mark paid with UTR + proof.
+ * Auto payouts appear here without any member request; downloading the report
+ * moves them to "in progress" (processing) and marking paid completes them.
+ */
 declare(strict_types=1);
 require __DIR__ . '/includes/_guard.php';
 admin_require('payouts.approve');
@@ -39,10 +43,17 @@ if (is_post()) {
     Request::redirect('payouts.php?' . http_build_query(Request::only(['status'])));
 }
 
+// Keep the register current: eligible earnings become pending auto payouts.
+try {
+    $service->syncAutoPayouts();
+} catch (\Throwable $e) {
+    error_log('payout auto sync failed: ' . $e->getMessage());
+}
+
 $status = (string) Request::query('status', 'pending');
 $where = '1=1';
 $params = [];
-if (in_array($status, ['pending', 'approved', 'rejected', 'paid', 'processing', 'failed'], true)) {
+if (in_array($status, ['pending', 'approved', 'processing', 'rejected', 'paid', 'cancelled'], true)) {
     $where = 'p.status = :s';
     $params['s'] = $status;
 }
@@ -63,14 +74,14 @@ $pageActions = AdminAuth::can('payouts.reports') ? '<a class="btn btn-sm btn-out
 require __DIR__ . '/includes/layout.php';
 ?>
 <div class="row g-3 mb-3">
-  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Pending</span><strong><?= number_format((int) ($stats['pending'] ?? 0)) ?></strong><small><?= money((float) ($stats['pending_amount'] ?? 0)) ?></small></div></div>
-  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Approved</span><strong><?= number_format((int) ($stats['approved'] ?? 0)) ?></strong><small>Awaiting payment</small></div></div>
-  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Paid total</span><strong><?= money((float) ($stats['paid_amount'] ?? 0)) ?></strong><small>Lifetime</small></div></div>
-  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Rejected</span><strong><?= number_format((int) ($stats['rejected'] ?? 0)) ?></strong></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Pending (in report)</span><strong><?= number_format((int) ($stats['pending'] ?? 0)) ?></strong><small><?= money((float) ($stats['pending_amount'] ?? 0)) ?></small></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>In progress</span><strong><?= number_format((int) ($stats['processing'] ?? 0)) ?></strong><small><?= money((float) ($stats['processing_amount'] ?? 0)) ?> · report downloaded</small></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Paid total</span><strong><?= money((float) ($stats['paid_amount'] ?? 0)) ?></strong><small>Lifetime · <?= (int) ($stats['auto_count'] ?? 0) ?> auto</small></div></div>
+  <div class="col-6 col-lg-3"><div class="mini-stat"><span>Rejected</span><strong><?= number_format((int) ($stats['rejected'] ?? 0)) ?></strong><small>Approved <?= number_format((int) ($stats['approved'] ?? 0)) ?></small></div></div>
 </div>
 
 <div class="filter-bar mb-3">
-  <?php foreach (['pending' => 'Pending', 'approved' => 'Approved', 'paid' => 'Paid', 'rejected' => 'Rejected', 'all' => 'All'] as $key => $label): ?>
+  <?php foreach (['pending' => 'Pending', 'processing' => 'In Progress', 'approved' => 'Approved', 'paid' => 'Paid', 'rejected' => 'Rejected', 'all' => 'All'] as $key => $label): ?>
     <a class="btn btn-sm <?= $status === $key ? 'btn-primary' : 'btn-outline-secondary' ?>" href="?status=<?= e($key) ?>"><?= e($label) ?></a>
   <?php endforeach; ?>
 </div>
@@ -79,11 +90,14 @@ require __DIR__ . '/includes/layout.php';
   <?php if (!$rows): ?><p class="small text-muted mb-0">No payout requests in this view.</p><?php endif; ?>
   <?php foreach ($rows as $row):
       $bank = $row['bank_snapshot'] ? json_decode((string) $row['bank_snapshot'], true) : null;
+      $isAuto = (string) ($row['source'] ?? 'manual') === 'auto';
       ?>
     <div class="border rounded p-3 mb-3">
       <div class="d-flex flex-wrap justify-content-between gap-2">
         <div>
-          <div class="small fw-semibold"><?= e((string) $row['request_code']) ?> · <?= e((string) $row['name']) ?> (<?= e((string) $row['member_code']) ?>)</div>
+          <div class="small fw-semibold"><?= e((string) $row['request_code']) ?> · <?= e((string) $row['name']) ?> (<?= e((string) $row['member_code']) ?>)
+            <span class="badge <?= $isAuto ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-light text-muted border' ?> ms-1"><?= $isAuto ? 'Auto' : 'Manual' ?></span>
+          </div>
           <div class="small text-muted">Requested <?= e(format_date((string) $row['created_at'], 'd M Y H:i')) ?> · <?= e((string) $row['mobile']) ?></div>
         </div>
         <div class="text-end">
@@ -102,6 +116,7 @@ require __DIR__ . '/includes/layout.php';
         </div>
       <?php endif; ?>
       <div class="mt-2"><?= status_badge((string) $row['status']) ?>
+        <?php if (!empty($row['report_downloaded_at'])): ?><span class="small text-muted ms-2">Report downloaded <?= e(format_date((string) $row['report_downloaded_at'], 'd M Y H:i')) ?></span><?php endif; ?>
         <?php if ($row['utr_number']): ?><span class="small text-muted ms-2">UTR <?= e((string) $row['utr_number']) ?></span><?php endif; ?>
         <?php if ($row['rejection_reason']): ?><span class="small text-danger ms-2"><?= e((string) $row['rejection_reason']) ?></span><?php endif; ?>
       </div>
@@ -122,8 +137,8 @@ require __DIR__ . '/includes/layout.php';
             <button class="btn btn-sm btn-outline-danger text-nowrap">Reject</button>
           </form>
         </div>
-      <?php elseif ($row['status'] === 'approved' && AdminAuth::can('payouts.pay')): ?>
-        <form method="post" enctype="multipart/form-data" class="row g-2 mt-2" data-confirm="Mark this payout as paid?">
+      <?php elseif (in_array((string) $row['status'], ['approved', 'processing'], true) && AdminAuth::can('payouts.pay')): ?>
+        <form method="post" enctype="multipart/form-data" class="row g-2 mt-2" data-confirm="Mark this payout as paid? The member will see Payment Completed with this UTR.">
           <?= csrf_field() ?>
           <input type="hidden" name="action" value="paid">
           <input type="hidden" name="request_id" value="<?= (int) $row['id'] ?>">

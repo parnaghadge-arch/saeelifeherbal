@@ -73,12 +73,22 @@ require INCLUDES_PATH . '/header.php';
           <?php endif; ?>
           <?php if ((int) $slide['show_buttons'] === 1): ?>
             <div class="d-flex flex-wrap gap-2 <?= $align === 'center' ? 'justify-content-center' : '' ?> <?= $textAnim ?>">
-              <?php if ($slide['button_text']): ?>
-                <a class="btn btn-primary btn-lg" href="<?= e(menu_url((string) $slide['button_url'])) ?>"><?= e($slide['button_text']) ?> <i class="fa-solid fa-arrow-right ms-1"></i></a>
-              <?php endif; ?>
-              <?php if ($slide['button2_text']): ?>
-                <a class="btn btn-ghost-light btn-lg" href="<?= e(menu_url((string) $slide['button2_url'])) ?>"><?= e($slide['button2_text']) ?></a>
-              <?php endif; ?>
+              <?php // The slider buttons are admin-authored data, so one of them can point at
+                    // the partner sign-up form (the demo content does). For a visitor who is
+                    // already signed in, that button becomes their dashboard instead of
+                    // inviting them to register for something they have joined. ?>
+              <?php
+              $slideSignedIn = \Saee\Lib\MemberAuth::check();
+              $slideButtons = array_values(array_filter([
+                  ['text' => (string) $slide['button_text'], 'url' => (string) $slide['button_url'], 'class' => 'btn btn-primary btn-lg', 'arrow' => true],
+                  ['text' => (string) $slide['button2_text'], 'url' => (string) $slide['button2_url'], 'class' => 'btn btn-ghost-light btn-lg', 'arrow' => false],
+              ], static fn (array $b): bool => $b['text'] !== ''));
+              ?>
+              <?php foreach ($slideButtons as $slideButton): ?>
+                <?php $slideToDashboard = $slideSignedIn && is_member_auth_url($slideButton['url']); ?>
+                <a class="<?= e($slideButton['class']) ?>"
+                   href="<?= e($slideToDashboard ? Url::member('dashboard') : menu_url($slideButton['url'])) ?>"><?= e($slideToDashboard ? 'My Dashboard' : $slideButton['text']) ?><?php if ($slideButton['arrow']): ?> <i class="fa-solid fa-arrow-right ms-1"></i><?php endif; ?></a>
+              <?php endforeach; ?>
             </div>
           <?php endif; ?>
         </div>
@@ -411,7 +421,13 @@ require INCLUDES_PATH . '/team-section.php';
           <p>Register as a farmer partner or shop crop care products with doorstep delivery.</p>
         </div>
         <div class="col-lg-4 text-lg-end">
-          <a href="<?= e(Url::member('register')) ?>" class="btn btn-accent btn-lg me-2 mb-2"><i class="fa-solid fa-user-plus me-2"></i>Register free</a>
+          <?php // The band sells the partner programme, so for someone already in it the
+                // register button is replaced by their own dashboard. ?>
+          <?php if (\Saee\Lib\MemberAuth::check()): ?>
+            <a href="<?= e(Url::member('dashboard')) ?>" class="btn btn-accent btn-lg me-2 mb-2"><i class="fa-solid fa-gauge-high me-2"></i>My dashboard</a>
+          <?php else: ?>
+            <a href="<?= e(Url::member('register')) ?>" class="btn btn-accent btn-lg me-2 mb-2"><i class="fa-solid fa-user-plus me-2"></i>Register free</a>
+          <?php endif; ?>
           <a href="<?= e(Url::to('our-products')) ?>" class="btn btn-ghost-light btn-lg mb-2">Shop products</a>
         </div>
       </div>

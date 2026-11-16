@@ -1,5 +1,9 @@
 <?php
-/** Payout request (blocked until KYC + verified bank per admin settings). */
+/**
+ * Early / manual payout (optional). Regular payouts are automatic — earnings at
+ * the minimum are added to the report without any request. This page is only
+ * for members who want a partial/early manual payout before the auto cycle.
+ */
 declare(strict_types=1);
 require __DIR__ . '/_guard.php';
 
@@ -38,16 +42,24 @@ if ($previewAmount > 0) {
     $calc = $payoutService->computeDeductions($previewAmount);
 }
 $pendingRequest = db()->first(
-    "SELECT * FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved') ORDER BY id DESC LIMIT 1",
+    "SELECT * FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved','processing') ORDER BY id DESC LIMIT 1",
     ['m' => $currentMemberId]
 );
 
-$pageTitle = 'Request Payout';
-$pageHeading = 'Request Payout';
-$pageSub = 'Withdraw your available commission to your verified bank account';
+$pageTitle = 'Early Payout';
+$pageHeading = 'Early Payout';
+$pageSub = 'Regular payouts are automatic — this is only for a partial / early manual payout';
 $activeNav = 'payout-request';
 require __DIR__ . '/includes/layout.php';
 ?>
+<div class="alert alert-success small d-flex align-items-start gap-2">
+  <i class="fa-solid fa-wand-magic-sparkles mt-1"></i>
+  <div>
+    <strong>You do not need to request a payout.</strong> Earnings at/above <?= money((float) $settings['min_withdrawal_amount']) ?> are added to the payout report automatically.
+    Use this form only if you want a <strong>partial or early</strong> manual payout. Track every payout in your
+    <a href="<?= e(Url::member('payouts.php')) ?>">Payout Statement</a>.
+  </div>
+</div>
 <div class="row g-3">
   <div class="col-lg-7">
     <div class="panel p-3 p-md-4">
@@ -61,14 +73,14 @@ require __DIR__ . '/includes/layout.php';
 
       <?php if ($pendingRequest): ?>
         <div class="alert alert-info small mb-3">
-          Your request <strong><?= e((string) $pendingRequest['request_code']) ?></strong> for <?= money((float) $pendingRequest['amount']) ?> is <?= e((string) $pendingRequest['status']) ?>.
-          You can submit a new request once it is settled.
+          Your payout <strong><?= e((string) $pendingRequest['request_code']) ?></strong> for <?= money((float) $pendingRequest['amount']) ?> is <?= (string) $pendingRequest['status'] === 'processing' ? 'In Progress' : e((string) $pendingRequest['status']) ?>.
+          You can submit a new manual request once it is settled. See <a href="<?= e(Url::member('payouts.php')) ?>">Payout Statement</a>.
         </div>
       <?php endif; ?>
 
       <?php if (!empty($eligibility['blockers'])): ?>
         <div class="alert alert-warning small">
-          <strong class="d-block mb-1">Before you can request a payout:</strong>
+          <strong class="d-block mb-1">Before payouts can be released:</strong>
           <ul class="mb-0 ps-3">
             <?php foreach ($eligibility['blockers'] as $blocker): ?><li><?= e($blocker) ?></li><?php endforeach; ?>
           </ul>
@@ -100,7 +112,8 @@ require __DIR__ . '/includes/layout.php';
           <div class="d-flex justify-content-between"><span>Net payable</span><strong class="text-success" data-calc="net"><?= money((float) ($calc['net'] ?? 0)) ?></strong></div>
           <div class="text-muted mt-2">Processed within <?= (int) $settings['processing_days'] ?> working day(s) to your primary bank account.</div>
         </div>
-        <button class="btn btn-primary w-100" type="submit" <?= !$eligibility['eligible'] ? 'disabled' : '' ?>>Submit request</button>
+        <button class="btn btn-primary w-100" type="submit" <?= !$eligibility['eligible'] ? 'disabled' : '' ?>>Submit early payout request</button>
+        <div class="form-text text-center mt-2">Regular payouts do not need this form — they are automatic.</div>
       </form>
     </div>
   </div>
@@ -124,11 +137,12 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4">
       <h2 class="h6 mb-3">Payout policy</h2>
       <ul class="small text-muted ps-3 mb-0">
-        <li>Minimum withdrawal <?= money((float) $settings['min_withdrawal_amount']) ?>.</li>
+        <li>Regular payouts are <strong>automatic</strong> — no request needed.</li>
+        <li>Minimum payout <?= money((float) $settings['min_withdrawal_amount']) ?>.</li>
         <li>Deductions: admin charges and TDS as applicable.</li>
         <li>Only approved, matured commission can be withdrawn.</li>
-        <li>Requests are reviewed by the accounts team and paid by NEFT/IMPS.</li>
-        <li>UTR / reference numbers are shown in your payout history.</li>
+        <li>Report download → <strong>In Progress</strong> → bank payment → <strong>Payment Completed</strong> with UTR.</li>
+        <li>UTR / reference numbers are shown in your payout statement.</li>
       </ul>
     </div>
   </div>

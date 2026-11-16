@@ -9,6 +9,7 @@ use Saee\Lib\Security;
 use Saee\Lib\Url;
 
 $page = get_page_by_slug('mlm-business-opportunity');
+$pageMember = \Saee\Lib\MemberAuth::user();
 $royalties = db()->select('SELECT * FROM royalty_rules WHERE status = 1 ORDER BY level_no ASC');
 $sampleProducts = db()->select("SELECT name, price, direct_commission_type, direct_commission_value, grand_direct_commission_type, grand_direct_commission_value FROM products WHERE mlm_enabled = 1 AND status = 'active' ORDER BY sort_order LIMIT 4");
 $pageTitle = 'Business Opportunity';
@@ -31,8 +32,14 @@ echo page_hero('Grow with Saee Life Herbal', 'A free, product-sale based unileve
             <li>Unlimited direct referrals</li>
             <li>Live wallet and commission ledger</li>
           </ul>
-          <a class="btn btn-primary w-100 mb-2" href="<?= e(Url::member('register')) ?>">Create partner account</a>
-          <a class="btn btn-outline-primary w-100" href="<?= e(Url::member('login')) ?>">I already have an account</a>
+          <?php // A partner reading their own programme's pitch should not be invited to
+                // register for it or sign in again - send them to the dashboard instead. ?>
+          <?php if ($pageMember): ?>
+            <a class="btn btn-primary w-100" href="<?= e(Url::member('dashboard')) ?>"><i class="fa-solid fa-gauge-high me-2"></i>Go to my dashboard</a>
+          <?php else: ?>
+            <a class="btn btn-primary w-100 mb-2" href="<?= e(Url::member('register')) ?>">Create partner account</a>
+            <a class="btn btn-outline-primary w-100" href="<?= e(Url::member('login')) ?>">I already have an account</a>
+          <?php endif; ?>
         </div>
         <div class="panel p-4">
           <h3 class="h6 mb-2"><i class="fa-solid fa-user-tie text-primary me-2"></i>Have a sponsor ID?</h3>

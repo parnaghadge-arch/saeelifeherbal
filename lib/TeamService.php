@@ -100,8 +100,12 @@ final class TeamService
             $sponsorId = $this->db->value('SELECT sponsor_id FROM members WHERE id = :id', ['id' => $memberId]);
             $guard = 0;
             while ($sponsorId && $guard++ < 25) {
-                $row = $this->db->first('SELECT id, sponsor_id, is_company FROM members WHERE id = :id', ['id' => $sponsorId]);
-                if (!$row || (int) $row['is_company'] === 1) {
+                $row = $this->db->first('SELECT id, sponsor_id FROM members WHERE id = :id', ['id' => $sponsorId]);
+                // The walk used to stop at a company account, which left the company's own
+                // direct/downline counts frozen. It earns commission like any other sponsor now,
+                // so its team numbers have to be maintained too. The loop still terminates on its
+                // own: the top company account has no sponsor.
+                if (!$row) {
                     break;
                 }
                 $d = $this->directStats((int) $row['id']);
@@ -135,7 +139,7 @@ final class TeamService
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $sql = "SELECT COALESCE(SUM(grand_total),0) AS amount, COUNT(*) AS orders
-                FROM orders WHERE payment_status = 'paid' AND status IN ('paid','processing','shipped','delivered')
+                FROM orders WHERE status IN ('processing','shipped','delivered')
                 AND member_id IN ($placeholders)";
         $params = $ids;
         if ($from) {
@@ -154,7 +158,7 @@ final class TeamService
     {
         $row = $this->db->first(
             "SELECT COALESCE(SUM(grand_total),0) AS amount, COUNT(*) AS orders FROM orders
-             WHERE member_id = :m AND payment_status = 'paid' AND status IN ('paid','processing','shipped','delivered')",
+             WHERE member_id = :m AND status IN ('processing','shipped','delivered')",
             ['m' => $memberId]
         ) ?? [];
         return ['amount' => (float) ($row['amount'] ?? 0), 'orders' => (int) ($row['orders'] ?? 0)];

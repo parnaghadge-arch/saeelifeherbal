@@ -1220,6 +1220,57 @@ final class Database
     }
 
     /**
+     * Column names of a table (empty array if the table does not exist or cannot be read).
+     * Used to keep code working on installs whose schema has not been upgraded yet:
+     * callers filter writes to existing columns instead of fataling with
+     * "Unknown column" (MySQL 1054).
+     *
+     * @return list<string>
+     */
+    public function columns(string $table): array
+    {
+        try {
+            $out = [];
+            if ($this->driver === 'mysql') {
+                foreach ($this->select('SHOW COLUMNS FROM ' . $this->quoteIdentifier($table)) as $row) {
+                    $out[] = (string) $row['Field'];
+                }
+            } else {
+                foreach ($this->select('PRAGMA table_info(' . $this->quoteIdentifier($table) . ')') as $row) {
+                    $out[] = (string) $row['name'];
+                }
+            }
+            return $out;
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /** Whether a table has a given column. */
+    public function hasColumn(string $table, string $column): bool
+    {
+        return in_array($column, $this->columns($table), true);
+    }
+
+    /**
+     * Keep only the keys of $data that are real columns of $table.
+     * Belt-and-braces for writes on not-yet-upgraded installs: if the schema repair
+     * could not add a column (permissions, locked table), the write still succeeds
+     * without the new field instead of throwing 1054.
+     *
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    public function filterColumns(string $table, array $data): array
+    {
+        $present = $this->columns($table);
+        if ($present === []) {
+            return $data;
+        }
+        return array_intersect_key($data, array_flip($present));
+    }
+
+    /**
      * SQLite compatible NOW() fragment.
      */
     public function now(string $format = 'Y-m-d H:i:s'): string

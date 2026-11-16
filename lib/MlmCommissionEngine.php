@@ -6,7 +6,7 @@
  *  - Commission is generated only for orders that are paid (or COD delivered, if enabled)
  *    and in a completed state (paid / delivered).
  *  - Direct sponsor (level 1) and grand direct sponsor (level 2) amounts come from the
- *    product's own commission configuration, snapshot into mlm_commission_rules versions.
+ *    product's own commission configuration - the values saved on the product form.
  *  - Calculations use integer paise - no floating point money math.
  *  - A unique idempotency key per (order item, beneficiary, level) prevents duplicate credits
  *    even if webhooks or admin actions fire repeatedly.
@@ -23,22 +23,14 @@ final class MlmCommissionEngine
     }
 
     /**
-     * Resolve the active commission rule for a product. Falls back to the product's own
-     * columns when no versioned rule exists.
+     * Commission configuration for a product.
+     *
+     * The product row is the only source: the values typed on the product form are what this
+     * engine pays, resolved when the order is processed. There is no separate rule register to
+     * keep in step and no effective-date window that can silently exclude a product.
      */
     public function ruleForProduct(int $productId): ?array
     {
-        $rule = $this->db->first(
-            "SELECT * FROM mlm_commission_rules
-             WHERE product_id = :p AND is_active = 1
-               AND effective_from <= :now
-               AND (effective_to IS NULL OR effective_to >= :now)
-             ORDER BY effective_from DESC, id DESC LIMIT 1",
-            ['p' => $productId, 'now' => date('Y-m-d H:i:s')]
-        );
-        if ($rule) {
-            return $rule;
-        }
         $product = $this->db->first('SELECT * FROM products WHERE id = :id', ['id' => $productId]);
         if (!$product || (int) $product['mlm_enabled'] !== 1) {
             return null;
@@ -53,51 +45,6 @@ final class MlmCommissionEngine
             'royalty_eligible' => $product['royalty_eligible'],
             'is_active' => 1,
         ];
-    }
-
-    /** Snapshot the product configuration into a new rule version (called when a product is saved). */
-    public function versionRuleForProduct(array $product, ?int $adminId = null): void
-    {
-        $existing = $this->db->first(
-            "SELECT * FROM mlm_commission_rules WHERE product_id = :p AND is_active = 1 AND effective_to IS NULL ORDER BY id DESC LIMIT 1",
-            ['p' => $product['id']]
-        );
-        $same = $existing
-            && (int) $product['mlm_enabled'] === 1
-            && $existing['direct_type'] === $product['direct_commission_type']
-            && self::sameMoney($existing['direct_value'], $product['direct_commission_value'])
-            && $existing['grand_direct_type'] === $product['grand_direct_commission_type']
-            && self::sameMoney($existing['grand_direct_value'], $product['grand_direct_commission_value'])
-            && $existing['commission_basis'] === $product['commission_basis']
-            && (string) $existing['royalty_eligible'] === (string) $product['royalty_eligible'];
-        if ($same) {
-            return;
-        }
-        $this->db->transaction(function (Database $db) use ($product, $adminId) {
-            $db->execute(
-                'UPDATE mlm_commission_rules SET is_active = 0, effective_to = :now, updated_at = :now WHERE product_id = :p AND is_active = 1 AND effective_to IS NULL',
-                ['now' => date('Y-m-d H:i:s'), 'p' => $product['id']]
-            );
-            if ((int) $product['mlm_enabled'] !== 1) {
-                return;
-            }
-            $db->insert('mlm_commission_rules', [
-                'product_id' => $product['id'],
-                'direct_type' => $product['direct_commission_type'],
-                'direct_value' => $product['direct_commission_value'],
-                'grand_direct_type' => $product['grand_direct_commission_type'],
-                'grand_direct_value' => $product['grand_direct_commission_value'],
-                'commission_basis' => $product['commission_basis'],
-                'royalty_eligible' => (int) $product['royalty_eligible'],
-                'is_active' => 1,
-                'effective_from' => date('Y-m-d H:i:s'),
-                'effective_to' => null,
-                'created_by' => $adminId,
-                'notes' => 'Auto snapshot on product save',
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-        });
     }
 
     /**
@@ -147,7 +94,13 @@ final class MlmCommissionEngine
     }
 
     /**
-     * Determine whether an order qualifies for commission generation.
+     * Whether an order can have commission RECORDED against it.
+     *
+     * Recording no longer waits for fulfilment. Commission is calculated as soon as the purchase
+     * exists, whatever the payment mode, so an order that nobody has approved yet is still
+     * eligible; whether the money is spendable is decided separately inside processOrder() from
+     * the payment status and the order status.
+     *
      * @return array{eligible:bool, reason:string}
      */
     public function orderEligibility(array $order): array
@@ -156,16 +109,11 @@ final class MlmCommissionEngine
         if ((int) ($settings['plan_enabled'] ?? 0) !== 1) {
             return ['eligible' => false, 'reason' => 'Compensation plan is disabled in settings.'];
         }
-        $status = (string) $order['status'];
-        $paid = (string) $order['payment_status'] === 'paid';
-        $codDelivered = $order['payment_method'] === 'cod' && $status === 'delivered' && (int) ($settings['commission_on_cod'] ?? 0) === 1;
-        if (!$paid && !$codDelivered) {
-            return ['eligible' => false, 'reason' => 'Order is not paid.'];
+        // A cancelled order pays nobody, and never will.
+        if (OrderService::normalizeStatus($order['status'] ?? null) === 'cancelled') {
+            return ['eligible' => false, 'reason' => 'Order is cancelled - no commission will be paid on it.'];
         }
-        if (!in_array($status, ['paid', 'processing', 'shipped', 'delivered'], true)) {
-            return ['eligible' => false, 'reason' => 'Order status is ' . $status . '.'];
-        }
-        if ($order['commission_status'] === 'credited') {
+        if ((string) ($order['commission_status'] ?? '') === 'credited') {
             return ['eligible' => false, 'reason' => 'Commission already credited.'];
         }
         return ['eligible' => true, 'reason' => 'Eligible'];
@@ -175,59 +123,209 @@ final class MlmCommissionEngine
      * Generate commission transactions for a single order.
      * Safe to call repeatedly - idempotent.
      *
-     * @return array{created:int, skipped:int, total:float, messages:array}
+     * @return array{created:int, skipped:int, released:int, total:float, messages:array}
      */
     public function processOrder(int $orderId, ?int $adminId = null): array
     {
-        $settings = MlmSettings::all();
-        $result = ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => []];
+        $result = ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => []];
 
         $order = $this->db->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
         if (!$order) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Order not found.']];
+            return ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => ['Order not found.']];
         }
 
         $eligibility = $this->orderEligibility($order);
         if (!$eligibility['eligible']) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => [$eligibility['reason']]];
+            return ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => [$eligibility['reason']]];
+        }
+        $settings = MlmSettings::all();
+
+        $plan = $this->commissionPlan($order);
+        if ($plan['aborted']) {
+            // Structural reason nobody can be paid (no member, no items, no upline). Left
+            // unstamped so the order stays eligible if its sponsor chain is fixed later.
+            return ['created' => 0, 'skipped' => 0, 'released' => 0, 'total' => 0.0, 'messages' => $plan['messages']];
+        }
+        $buyer = $plan['buyer'];
+        $result['skipped'] = $plan['skipped'];
+
+        $holdDays = (int) ($settings['commission_hold_days'] ?? 0);
+        $autoRelease = $holdDays <= 0 && (string) ($settings['auto_credit_status'] ?? 'available') === 'available';
+        $availableAt = $holdDays > 0 ? date('Y-m-d H:i:s', time() + $holdDays * 86400) : null;
+
+        // RECORDING and RELEASING are different things, and conflating them is what used to make
+        // a COD purchase show no commission at all. Commission is calculated and written the
+        // moment the purchase is recorded, whatever the payment mode, so it is visible
+        // immediately. It only becomes spendable once the money is real: either the payment has
+        // settled (wallet / UPI / bank transfer) or the order has been approved or delivered
+        // (cash collected at the door). Until then the rows sit as "pending".
+        $orderStatus = OrderService::normalizeStatus($order['status'] ?? null);
+        $releasable = (string) $order['payment_status'] === 'paid'
+            || in_array($orderStatus, ORDER_COMMISSION_STATUSES, true);
+        $initialStatus = $releasable ? 'approved' : 'pending';
+
+        foreach ($plan['entries'] as $entry) {
+            $beneficiaryId = (int) $entry['beneficiary_id'];
+            $type = (string) $entry['type'];
+            $level = (int) $entry['level'];
+            $amount = (float) $entry['amount'];
+
+            $idempotency = sha1(sprintf('commission|%d|%d|%d|%s', $orderId, (int) $entry['order_item_id'], $beneficiaryId, $type));
+            $existing = $this->db->first('SELECT id, status FROM commission_transactions WHERE idempotency_key = :k', ['k' => $idempotency]);
+            if ($existing) {
+                $result['skipped']++;
+                continue;
+            }
+
+            $txId = $this->db->insert('commission_transactions', [
+                'transaction_code' => Sequence::code('CTX', 'commission'),
+                'member_id' => $beneficiaryId,
+                'beneficiary_type' => $type,
+                'commission_type' => $type,
+                'order_id' => $orderId,
+                'order_item_id' => (int) $entry['order_item_id'],
+                'product_id' => (int) $entry['product_id'],
+                'product_name' => $entry['product_name'],
+                'buyer_member_id' => (int) $buyer['id'],
+                'buyer_name' => $buyer['name'] . ' (' . $buyer['member_code'] . ')',
+                'level' => $level,
+                'basis_amount' => $entry['basis'],
+                'commission_type_rate' => $entry['rate_type'],
+                'rate_value' => $entry['rate_value'],
+                'amount' => $amount,
+                'status' => $initialStatus,
+                'reversed_amount' => 0,
+                'idempotency_key' => $idempotency,
+                'payment_reference' => $order['invoice_number'],
+                'remarks' => sprintf('Level %d %s on order %s', $level, str_replace('_', ' ', $type), $order['order_number']),
+                'available_at' => $availableAt,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+            $released = false;
+            if ($releasable && $autoRelease) {
+                $released = (new WalletService($this->db))->releaseCommission($txId, 'auto credit');
+            }
+
+            $result['created']++;
+            $result['released'] = ($result['released'] ?? 0) + ($released ? 1 : 0);
+            $result['total'] = round($result['total'] + $amount, 2);
+            $result['messages'][] = $released
+                ? sprintf('%s %s credited to %s', ucwords(str_replace('_', ' ', $type)), money($amount), $entry['beneficiary_code'])
+                : sprintf('%s %s recorded for %s (pending)', ucwords(str_replace('_', ' ', $type)), money($amount), $entry['beneficiary_code']);
+
+            Notification::send(
+                'member',
+                $beneficiaryId,
+                $released ? 'commission_credited' : 'commission_recorded',
+                $released ? 'Commission Credited' : 'Commission Recorded',
+                $released
+                    ? ucwords(str_replace('_', ' ', $type)) . ' of ' . money($amount) . ' credited from order ' . $order['order_number'] . '.'
+                    : ucwords(str_replace('_', ' ', $type)) . ' of ' . money($amount) . ' recorded from order ' . $order['order_number'] . '. It becomes spendable once the order is approved or delivered.',
+                ['commission_type' => ucwords(str_replace('_', ' ', $type)), 'amount' => money($amount), 'order_number' => $order['order_number']],
+                ['link' => 'commissions', 'type' => $released ? 'success' : 'info', 'icon' => $released ? 'fa-wallet' : 'fa-clock']
+            );
         }
 
-        $buyerMemberId = $order['member_id'] !== null ? (int) $order['member_id'] : ($order['referral_member_id'] !== null ? (int) $order['referral_member_id'] : null);
+        // An order recorded earlier as pending settles when it is later approved or delivered.
+        // Those rows already exist, so the insert loop above skips them by idempotency key; deal
+        // with them here or they would sit pending forever. "pending" means the ORDER has not
+        // settled yet, so once it has, a row either becomes spendable or, when a hold period is
+        // in force, becomes "approved" and waits for available_at to mature.
+        if ($releasable) {
+            $result['released'] = $result['released'] ?? 0;
+            $settledRows = $this->db->select(
+                "SELECT id, status, available_at FROM commission_transactions
+                  WHERE order_id = :o AND status IN ('pending','approved')",
+                ['o' => $orderId]
+            );
+            foreach ($settledRows as $row) {
+                if ($autoRelease) {
+                    if ((new WalletService($this->db))->releaseCommission((int) $row['id'], 'order approved')) {
+                        $result['released']++;
+                    }
+                    continue;
+                }
+                if ((string) $row['status'] !== 'pending') {
+                    continue;
+                }
+                // Keep the maturity date the row was first recorded with, otherwise every pass
+                // would push the hold out again and the money would never mature.
+                $this->db->update('commission_transactions', [
+                    'status' => 'approved',
+                    'available_at' => $row['available_at'] ?: $availableAt,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ], 'id = :id', ['id' => (int) $row['id']]);
+            }
+        }
+
+        // Stamp the order from what its rows actually say, not from this run's counter. A release
+        // pass creates no rows (they already exist), so counting only $result['created'] would
+        // stamp a fully released order back to 'none'.
+        //   no live rows at all -> none; some still pending -> pending; all released -> credited.
+        $stamp = $this->db->first(
+            "SELECT SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                    COUNT(*) AS live
+               FROM commission_transactions
+              WHERE order_id = :o AND status NOT IN ('reversed','rejected')",
+            ['o' => $orderId]
+        );
+        $liveRows = (int) ($stamp['live'] ?? 0);
+        $pendingRows = (int) ($stamp['pending'] ?? 0);
+        $this->db->update('orders', [
+            'commission_processed_at' => date('Y-m-d H:i:s'),
+            'commission_status' => $liveRows === 0 ? 'none' : ($pendingRows > 0 ? 'pending' : 'credited'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], 'id = :id', ['id' => $orderId]);
+
+        Audit::log('commission_generated', 'mlm', sprintf('Order %s processed: %d entries totalling %s', $order['order_number'], $result['created'], money($result['total'])), 'order', $orderId);
+        return $result;
+    }
+
+    /**
+     * Work out who would be paid what for an order, WITHOUT writing anything.
+     *
+     * This is the single source of the commission maths. processOrder() credits exactly this
+     * plan and projectOrder() displays exactly this plan, so a "future commission" figure shown
+     * on screen is the figure that will actually be credited once the order is approved. If the
+     * two were computed separately they would eventually disagree, and the projection would be
+     * a number nobody ever receives.
+     *
+     * @return array{aborted:bool, buyer:?array, entries:list<array>, skipped:int, messages:list<string>}
+     */
+    public function commissionPlan(array $order): array
+    {
+        $out = ['aborted' => false, 'buyer' => null, 'entries' => [], 'skipped' => 0, 'messages' => []];
+        $orderId = (int) $order['id'];
+
+        $buyerMemberId = $order['member_id'] !== null ? (int) $order['member_id']
+            : ($order['referral_member_id'] !== null ? (int) $order['referral_member_id'] : null);
         if (!$buyerMemberId) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Order has no associated member, no upline to pay.']];
+            $out['aborted'] = true;
+            $out['messages'][] = 'Order has no associated member, no upline to pay.';
+            return $out;
         }
-
         $buyer = $this->db->first('SELECT id, name, member_code, sponsor_id FROM members WHERE id = :id', ['id' => $buyerMemberId]);
         if (!$buyer) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Buyer member record missing.']];
+            $out['aborted'] = true;
+            $out['messages'][] = 'Buyer member record missing.';
+            return $out;
         }
-        // Company sponsor never earns from its own downline purchases.
-        if ((int) $buyer['id'] === $this->companyMemberId()) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Company account orders do not generate commissions.']];
-        }
+        $out['buyer'] = $buyer;
 
         $items = $this->db->select('SELECT * FROM order_items WHERE order_id = :o', ['o' => $orderId]);
         if ($items === []) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Order has no items.']];
+            $out['aborted'] = true;
+            $out['messages'][] = 'Order has no items.';
+            return $out;
         }
-
-        $holdDays = (int) ($settings['commission_hold_days'] ?? 0);
-        // New commissions always start as "approved" (no wallet yet). They are released to the
-        // member wallet immediately when no hold period applies, otherwise after the hold matures.
-        $autoRelease = $holdDays <= 0 && (string) ($settings['auto_credit_status'] ?? 'available') === 'available';
-        if ((int) ($settings['commission_on_paid_only'] ?? 1) === 1 && $order['payment_status'] !== 'paid') {
-            $autoRelease = false;
-        }
-        $initialStatus = 'approved';
-        $availableAt = $holdDays > 0 ? date('Y-m-d H:i:s', time() + $holdDays * 86400) : null;
-
-        // Upline chain: level 1 = direct sponsor, level 2 = grand direct sponsor.
         $upline = $this->uplineChain($buyer, 2);
         if ($upline === []) {
-            return ['created' => 0, 'skipped' => 0, 'total' => 0.0, 'messages' => ['Buyer has no sponsor in the chain.']];
+            $out['aborted'] = true;
+            $out['messages'][] = 'Buyer has no sponsor in the chain.';
+            return $out;
         }
-
-        $companyId = $this->companyMemberId();
 
         foreach ($items as $item) {
             if (empty($item['product_id'])) {
@@ -235,7 +333,7 @@ final class MlmCommissionEngine
             }
             $rule = $this->ruleForProduct((int) $item['product_id']);
             if (!$rule) {
-                $result['skipped']++;
+                $out['skipped']++;
                 continue;
             }
             $basis = $this->basisForItem($item, (string) ($rule['commission_basis'] ?? 'selling_price'));
@@ -245,83 +343,212 @@ final class MlmCommissionEngine
                     continue;
                 }
                 $beneficiaryId = (int) $upline[$level - 1];
-                if ($beneficiaryId === (int) $buyer['id'] || $beneficiaryId === $companyId) {
-                    continue; // never pay the buyer or the company itself
+                if ($beneficiaryId === (int) $buyer['id']) {
+                    continue; // never pay the buyer for their own purchase
                 }
                 $beneficiary = $this->db->first('SELECT id, name, member_code, status FROM members WHERE id = :id', ['id' => $beneficiaryId]);
                 if (!$beneficiary || $beneficiary['status'] === 'suspended') {
-                    $result['skipped']++;
+                    $out['skipped']++;
                     continue;
                 }
                 $typeKey = $type . '_type';
                 $valueKey = $type . '_value';
                 $amount = self::compute($basis, (string) $rule[$typeKey], (float) $rule[$valueKey]);
                 if ($amount <= 0) {
-                    $result['skipped']++;
+                    $out['skipped']++;
                     continue;
                 }
-                $idempotency = sha1(sprintf('commission|%d|%d|%d|%s', $orderId, (int) $item['id'], $beneficiaryId, $type));
-
-                $existing = $this->db->first('SELECT id, status FROM commission_transactions WHERE idempotency_key = :k', ['k' => $idempotency]);
-                if ($existing) {
-                    $result['skipped']++;
-                    continue;
-                }
-
-                $txId = $this->db->insert('commission_transactions', [
-                    'transaction_code' => Sequence::code('CTX', 'commission'),
-                    'member_id' => $beneficiaryId,
-                    'beneficiary_type' => $type,
-                    'commission_type' => $type,
-                    'order_id' => $orderId,
+                $out['entries'][] = [
+                    'beneficiary_id' => $beneficiaryId,
+                    'beneficiary_code' => (string) $beneficiary['member_code'],
+                    'beneficiary_name' => (string) $beneficiary['name'],
+                    'level' => $level,
+                    'type' => $type,
                     'order_item_id' => (int) $item['id'],
                     'product_id' => (int) $item['product_id'],
-                    'product_name' => $item['product_name'],
-                    'buyer_member_id' => (int) $buyer['id'],
-                    'buyer_name' => $buyer['name'] . ' (' . $buyer['member_code'] . ')',
-                    'level' => $level,
-                    'basis_amount' => $basis,
-                    'commission_type_rate' => $rule[$typeKey],
-                    'rate_value' => $rule[$valueKey],
+                    'product_name' => (string) $item['product_name'],
+                    'basis' => $basis,
+                    'rate_type' => (string) $rule[$typeKey],
+                    'rate_value' => (float) $rule[$valueKey],
                     'amount' => $amount,
-                    'status' => $initialStatus,
-                    'reversed_amount' => 0,
-                    'idempotency_key' => $idempotency,
-                    'payment_reference' => $order['invoice_number'],
-                    'remarks' => sprintf('Level %d %s on order %s', $level, str_replace('_', ' ', $type), $order['order_number']),
-                    'available_at' => $availableAt,
-                    'created_at' => date('Y-m-d H:i:s'),
-                    'updated_at' => date('Y-m-d H:i:s'),
-                ]);
-
-                if ($autoRelease) {
-                    (new WalletService($this->db))->releaseCommission($txId, 'auto credit');
-                }
-
-                $result['created']++;
-                $result['total'] = round($result['total'] + $amount, 2);
-                $result['messages'][] = sprintf('%s %s credited to %s', ucwords(str_replace('_', ' ', $type)), money($amount), $beneficiary['member_code']);
-
-                Notification::send(
-                    'member',
-                    $beneficiaryId,
-                    'commission_credited',
-                    'Commission Credited',
-                    ucwords(str_replace('_', ' ', $type)) . ' of ' . money($amount) . ' credited from order ' . $order['order_number'] . '.',
-                    ['commission_type' => ucwords(str_replace('_', ' ', $type)), 'amount' => money($amount), 'order_number' => $order['order_number']],
-                    ['link' => 'commissions', 'type' => 'success', 'icon' => 'fa-wallet']
-                );
+                ];
             }
         }
+        return $out;
+    }
 
-        $this->db->update('orders', [
-            'commission_processed_at' => date('Y-m-d H:i:s'),
-            'commission_status' => $result['created'] > 0 ? 'credited' : 'none',
-            'updated_at' => date('Y-m-d H:i:s'),
-        ], 'id = :id', ['id' => $orderId]);
+    /**
+     * Future commission: what an order that is recorded but not yet approved will pay out.
+     *
+     * Nothing is written. The order stays untouched, no wallet moves and no reversal
+     * bookkeeping is created, because an order can still be cancelled before anyone looks at
+     * it. The figure is a projection of the same plan processOrder() will credit, labelled
+     * clearly as future so nobody mistakes it for money they can withdraw.
+     *
+     * @return array{future:bool, eligible:bool, reason:string, entries:list<array>,
+     *               total:float, by_member:array<int,array>, skipped:int}
+     */
+    public function projectOrder(int $orderId): array
+    {
+        // Built per return on purpose: PHP's array `+` keeps the LEFT operand's value for a
+        // duplicate key, so `$empty + ['reason' => ...]` silently throws the reason away.
+        $nothing = static function (string $reason): array {
+            return ['future' => false, 'eligible' => false, 'reason' => $reason, 'entries' => [],
+                    'total' => 0.0, 'by_member' => [], 'skipped' => 0];
+        };
 
-        Audit::log('commission_generated', 'mlm', sprintf('Order %s processed: %d entries totalling %s', $order['order_number'], $result['created'], money($result['total'])), 'order', $orderId);
-        return $result;
+        $order = $this->db->first('SELECT * FROM orders WHERE id = :id', ['id' => $orderId]);
+        if (!$order) {
+            return $nothing('Order not found.');
+        }
+
+        $settings = MlmSettings::all();
+        if ((int) ($settings['plan_enabled'] ?? 0) !== 1) {
+            return $nothing('Compensation plan is disabled in settings.');
+        }
+        $status = OrderService::normalizeStatus($order['status'] ?? null);
+        // A cancelled order will never pay out, so it must not advertise future commission.
+        if ($status === 'cancelled') {
+            return $nothing('Order cancelled - no commission will be paid on it.');
+        }
+        if ((string) $order['commission_status'] === 'credited') {
+            // Already paid out - that is real commission, not a projection.
+            return $nothing('Commission already credited.');
+        }
+
+        $plan = $this->commissionPlan($order);
+        if ($plan['aborted']) {
+            return $nothing($plan['messages'][0] ?? 'No commission applies to this order.');
+        }
+
+        $total = 0.0;
+        $byMember = [];
+        foreach ($plan['entries'] as $entry) {
+            $total = round($total + (float) $entry['amount'], 2);
+            $id = (int) $entry['beneficiary_id'];
+            if (!isset($byMember[$id])) {
+                $byMember[$id] = [
+                    'member_id' => $id,
+                    'member_code' => $entry['beneficiary_code'],
+                    'member_name' => $entry['beneficiary_name'],
+                    'amount' => 0.0,
+                    'entries' => [],
+                ];
+            }
+            $byMember[$id]['amount'] = round($byMember[$id]['amount'] + (float) $entry['amount'], 2);
+            $byMember[$id]['entries'][] = $entry;
+        }
+
+        // Commission is recorded at purchase time now, so an unsettled order usually already has
+        // pending rows. Say that plainly instead of implying nothing has been calculated yet.
+        $recordedPending = (int) $this->db->value(
+            "SELECT COUNT(*) FROM commission_transactions WHERE order_id = :o AND status = 'pending'",
+            ['o' => $orderId]
+        );
+        return [
+            // "future" means the money is not spendable yet. Once the order is approved or
+            // delivered the same amounts become real, withdrawable commission.
+            'future' => !in_array($status, ORDER_COMMISSION_STATUSES, true),
+            'eligible' => true,
+            'reason' => $recordedPending > 0
+                ? 'Recorded and pending. Becomes spendable when this order is approved or delivered.'
+                : (in_array($status, ORDER_COMMISSION_STATUSES, true)
+                    ? 'Awaiting commission processing.'
+                    : 'Pays out when this order is approved or delivered.'),
+            'entries' => $plan['entries'],
+            'total' => $total,
+            'by_member' => $byMember,
+            'skipped' => $plan['skipped'],
+        ];
+    }
+
+    /**
+     * Total future commission across every order that could still pay this member.
+     *
+     * Sums the same projection projectOrder() shows per order, so the profile total and the
+     * per-order figures always agree. Bounded to the most recent orders: a member with years of
+     * history should not make the commissions page run a projection per order ever recorded.
+     *
+     * @return array{total:float, orders:int, entries:list<array>}
+     */
+    public function futureCommissionForMember(int $memberId, int $limit = 100): array
+    {
+        $out = ['total' => 0.0, 'orders' => 0, 'entries' => []];
+        if ($memberId < 1) {
+            return $out;
+        }
+        // A member earns on their DOWNLINE's purchases, not their own, and only two levels
+        // deep. Selecting the member's own orders here would always total zero.
+        $downline = (new TeamService($this->db))->downlineIds($memberId, 2);
+        $buyerIds = array_values(array_unique(array_merge(
+            $downline['levels'][1] ?? [],
+            $downline['levels'][2] ?? []
+        )));
+        if ($buyerIds === []) {
+            return $out;
+        }
+        $placeholders = implode(',', array_fill(0, count($buyerIds), '?'));
+        // Only orders that are neither cancelled nor already credited can still pay out.
+        $orders = $this->db->select(
+            "SELECT * FROM orders
+              WHERE member_id IN ($placeholders)
+                AND COALESCE(commission_status, '') <> 'credited'
+              ORDER BY id DESC
+              LIMIT " . max(1, $limit),
+            $buyerIds
+        );
+        foreach ($orders as $order) {
+            $projection = $this->projectOrder((int) $order['id']);
+            $mine = $projection['by_member'][$memberId] ?? null;
+            if (!$mine || (float) $mine['amount'] <= 0) {
+                continue;
+            }
+            $out['total'] = round($out['total'] + (float) $mine['amount'], 2);
+            $out['orders']++;
+            foreach ($mine['entries'] as $entry) {
+                $out['entries'][] = $entry + [
+                    'order_id' => (int) $order['id'],
+                    'order_number' => (string) $order['order_number'],
+                    'future' => (bool) $projection['future'],
+                ];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Company-wide future commission across the orders still waiting to be approved.
+     *
+     * Bounded, and the bound is reported back so the admin screen can say so. Projecting every
+     * order ever recorded would be needlessly expensive for a headline number; the most recent
+     * un-approved orders are where the outstanding commission actually is.
+     *
+     * @return array{total:float, orders:int, capped:bool}
+     */
+    public function futureCommissionTotal(int $limit = 200): array
+    {
+        $limit = max(1, $limit);
+        $orders = $this->db->select(
+            "SELECT * FROM orders
+              WHERE COALESCE(commission_status, '') <> 'credited'
+              ORDER BY id DESC
+              LIMIT " . ($limit + 1)
+        );
+        $capped = count($orders) > $limit;
+        if ($capped) {
+            $orders = array_slice($orders, 0, $limit);
+        }
+        $total = 0.0;
+        $count = 0;
+        foreach ($orders as $order) {
+            $projection = $this->projectOrder((int) $order['id']);
+            if ((float) ($projection['total'] ?? 0) <= 0) {
+                continue;
+            }
+            $total = round($total + (float) $projection['total'], 2);
+            $count++;
+        }
+        return ['total' => $total, 'orders' => $count, 'capped' => $capped];
     }
 
     /**
@@ -406,8 +633,7 @@ final class MlmCommissionEngine
         $orders = $this->db->select(
             "SELECT id FROM orders
              WHERE commission_status <> 'credited'
-               AND status IN ('paid','processing','shipped','delivered')
-               AND payment_status = 'paid'
+               AND status IN ('processing','shipped','delivered')
              ORDER BY id ASC LIMIT " . (int) $limit
         );
         $count = 0;
@@ -420,12 +646,96 @@ final class MlmCommissionEngine
         return $count;
     }
 
+    /**
+     * Catch-up pass behind the admin "Run processing" button.
+     *
+     * Every order that never got a commission row is processed again, including orders still
+     * sitting at "new" — those are exactly the ones the old code skipped, which is why an opening
+     * purchase recorded by an administrator showed nothing for the sponsor. processOrder() is
+     * idempotent on its idempotency key, so running this repeatedly is safe and never double-pays.
+     *
+     * @return array{orders:int, recorded:int, released:int, total:float, skipped:int, notes:array<int,string>}
+     */
+    public function backfillOrders(int $limit = 500): array
+    {
+        $summary = ['orders' => 0, 'recorded' => 0, 'released' => 0, 'total' => 0.0, 'skipped' => 0, 'notes' => []];
+
+        $orders = $this->db->select(
+            "SELECT o.id, o.order_number FROM orders o
+              WHERE o.status <> 'cancelled'
+                AND NOT EXISTS (
+                        SELECT 1 FROM commission_transactions ct
+                         WHERE ct.order_id = o.id AND ct.status NOT IN ('reversed','rejected')
+                    )
+              ORDER BY o.id ASC
+              LIMIT " . max(1, $limit)
+        );
+
+        foreach ($orders as $order) {
+            $orderId = (int) $order['id'];
+            $res = $this->processOrder($orderId);
+            $summary['orders']++;
+            if ((int) ($res['created'] ?? 0) > 0) {
+                $summary['recorded']++;
+                $summary['released'] += (int) ($res['released'] ?? 0);
+                $summary['total'] = round($summary['total'] + (float) ($res['total'] ?? 0), 2);
+                $note = sprintf(
+                    '%s: %d entries totalling %s recorded%s',
+                    (string) $order['order_number'],
+                    (int) $res['created'],
+                    money((float) $res['total']),
+                    (int) ($res['released'] ?? 0) > 0 ? ' and credited' : ' (pending until the order is approved or delivered)'
+                );
+            } else {
+                $summary['skipped']++;
+                $note = sprintf(
+                    '%s: %s',
+                    (string) $order['order_number'],
+                    (string) ($res['messages'][0] ?? 'no commission payable')
+                );
+            }
+            if (count($summary['notes']) < 12) {
+                $summary['notes'][] = $note;
+            }
+        }
+
+        // Orders recorded earlier but never released are a separate case: they have rows, so the
+        // query above ignores them, yet a paid or approved order should not sit pending.
+        $stale = $this->db->select(
+            "SELECT DISTINCT o.id FROM orders o
+              WHERE o.status IN ('processing','shipped','delivered')
+                AND EXISTS (SELECT 1 FROM commission_transactions ct
+                             WHERE ct.order_id = o.id AND ct.status = 'pending')
+              ORDER BY o.id ASC
+              LIMIT " . max(1, $limit)
+        );
+        foreach ($stale as $row) {
+            $res = $this->processOrder((int) $row['id']);
+            if ((int) ($res['released'] ?? 0) > 0) {
+                $summary['released'] += (int) $res['released'];
+            }
+        }
+
+        if ($summary['recorded'] > 0 || $summary['released'] > 0) {
+            Audit::log(
+                'commission_backfill',
+                'mlm',
+                sprintf('Run processing: %d of %d orders recorded %s, %d entries credited', $summary['recorded'], $summary['orders'], money($summary['total']), $summary['released']),
+                null,
+                null
+            );
+        }
+        return $summary;
+    }
+
     /** Release commissions whose hold period has elapsed. */
     public function releaseMaturedCommissions(): int
     {
+        // 'pending' covers rows recorded before their order settled; 'approved' covers rows
+        // whose order has settled and are simply waiting out the hold period.
         $rows = $this->db->select(
             "SELECT id FROM commission_transactions
-             WHERE status = 'pending' AND available_at IS NOT NULL AND available_at <= :now",
+             WHERE status IN ('pending','approved') AND available_at IS NOT NULL AND available_at <= :now",
             ['now' => date('Y-m-d H:i:s')]
         );
         $wallet = new WalletService($this->db);
@@ -440,24 +750,24 @@ final class MlmCommissionEngine
 
     // ------------------------------------------------------------ internals
     /**
-     * Returns sponsor ids ordered by level starting at level 1. Stops at the company
-     * sponsor (which never earns) but keeps walking up to gather the configured levels.
+     * Returns sponsor ids ordered by level starting at level 1.
+     *
+     * The chain used to stop dead at the company account on the theory that the company never
+     * earns. That left every member sponsored directly by SAEE00003 with an empty upline, so
+     * their orders generated no commission at all — not for the company, and not for anyone
+     * above it. The company is now an ordinary link in the chain and is paid like any other
+     * sponsor; the walk still ends on its own because the top company account has no sponsor.
      */
     public function uplineChain(array $buyer, int $levels): array
     {
         $chain = [];
         $current = $buyer['sponsor_id'] !== null ? (int) $buyer['sponsor_id'] : null;
         $visited = [];
-        $companyId = $this->companyMemberId();
         for ($i = 0; $i < $levels; $i++) {
             if ($current === null || isset($visited[$current])) {
                 break;
             }
             $visited[$current] = true;
-            if ($current === $companyId) {
-                // Company is the sponsor: no commission for the company, chain ends.
-                break;
-            }
             $sponsor = $this->db->first('SELECT id, sponsor_id, status FROM members WHERE id = :id', ['id' => $current]);
             if (!$sponsor) {
                 break;
@@ -468,24 +778,25 @@ final class MlmCommissionEngine
         return $chain;
     }
 
+    /**
+     * The company account, used to stop the commission chain and to skip company orders.
+     *
+     * Resolved from the configured code rather than "the first is_company row": there are
+     * three company accounts and the configured one is the sponsor fallback.
+     */
     public function companyMemberId(): int
     {
-        $id = $this->db->value('SELECT id FROM members WHERE is_company = 1 LIMIT 1');
+        $code = MlmSettings::companySponsorCode();
+        $id = $this->db->value('SELECT id FROM members WHERE member_code = :c', ['c' => $code]);
         if ($id) {
             return (int) $id;
         }
-        $code = MlmSettings::companySponsorCode();
-        $id = $this->db->value('SELECT id FROM members WHERE member_code = :c', ['c' => $code]);
+        $id = $this->db->value('SELECT id FROM members WHERE is_company = 1 ORDER BY id DESC LIMIT 1');
         return $id ? (int) $id : 0;
     }
 
     public static function toPaise(float|int|string|null $amount): int
     {
         return (int) round(((float) $amount) * 100);
-    }
-
-    private static function sameMoney(mixed $a, mixed $b): bool
-    {
-        return self::toPaise((float) $a) === self::toPaise((float) $b);
     }
 }

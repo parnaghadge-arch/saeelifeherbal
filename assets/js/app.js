@@ -412,18 +412,80 @@
       }
     }
 
+    /* Autoplay ----------------------------------------------------------------
+       The main image advances on its own. Three separate things can hold it back,
+       and each exists for a reason:
+         - hovering or touching: nobody wants the picture to change while reading it
+         - a manual click or key press: the visitor just said what they want to see,
+           so give them a moment before the rotation carries on
+         - a hidden tab: advancing off-screen burns cycles for nothing
+       Anyone who wants it to stop entirely gets the pause button; honouring
+       prefers-reduced-motion means it never starts for them at all. */
+    var AUTOPLAY_MS = 4000;
+    var IDLE_AFTER_MANUAL_MS = 8000;
+    var autoTimer = null;
+    var idleUntil = 0;
+    var hovering = false;
+    var userPaused = false;
+    var reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    var canAutoPlay = thumbs.length > 1;
+
+    var playBtn = document.querySelector('[data-gallery-play]');
+
+    function paintPlayButton() {
+      if (!playBtn) { return; }
+      var running = canAutoPlay && !userPaused && !reducedMotion;
+      playBtn.setAttribute('aria-pressed', running ? 'true' : 'false');
+      playBtn.setAttribute('aria-label', running ? 'Pause automatic image rotation' : 'Start automatic image rotation');
+      var icon = playBtn.querySelector('i');
+      if (icon) {
+        icon.classList.toggle('fa-pause', running);
+        icon.classList.toggle('fa-play', !running);
+      }
+    }
+
+    function stopRotation() {
+      window.clearInterval(autoTimer);
+      autoTimer = null;
+    }
+
+    function startRotation() {
+      stopRotation();
+      if (!canAutoPlay || userPaused || reducedMotion) { paintPlayButton(); return; }
+      autoTimer = window.setInterval(function () {
+        if (document.hidden || hovering || Date.now() < idleUntil) { return; }
+        show(current + 1);
+      }, AUTOPLAY_MS);
+      paintPlayButton();
+    }
+
+    // Called after any manual navigation so the rotation gives the visitor a breather.
+    function nudgeAuto() {
+      idleUntil = Date.now() + IDLE_AFTER_MANUAL_MS;
+    }
+
+    if (playBtn) {
+      playBtn.addEventListener('click', function () {
+        userPaused = !userPaused;
+        if (userPaused) { stopRotation(); } else { idleUntil = 0; startRotation(); }
+        paintPlayButton();
+      });
+    }
+
     thumbs.forEach(function (thumb, i) {
-      thumb.addEventListener('click', function () { show(i); });
+      thumb.addEventListener('click', function () { show(i); nudgeAuto(); });
     });
 
     var prevImg = document.querySelector('[data-gallery-prev]');
     var nextImg = document.querySelector('[data-gallery-next]');
-    if (prevImg) { prevImg.addEventListener('click', function () { show(current - 1); }); }
-    if (nextImg) { nextImg.addEventListener('click', function () { show(current + 1); }); }
+    if (prevImg) { prevImg.addEventListener('click', function () { show(current - 1); nudgeAuto(); }); }
+    if (nextImg) { nextImg.addEventListener('click', function () { show(current + 1); nudgeAuto(); }); }
     if (stage) {
+      stage.addEventListener('mouseenter', function () { hovering = true; });
+      stage.addEventListener('mouseleave', function () { hovering = false; });
       stage.addEventListener('keydown', function (e) {
-        if (e.key === 'ArrowRight') { show(current + 1); }
-        if (e.key === 'ArrowLeft') { show(current - 1); }
+        if (e.key === 'ArrowRight') { show(current + 1); nudgeAuto(); }
+        if (e.key === 'ArrowLeft') { show(current - 1); nudgeAuto(); }
       });
       // finger swipe over the main image on touch devices
       var sx = null, sy = null;
@@ -432,7 +494,7 @@
         if (sx === null) { return; }
         var dx = e.changedTouches[0].clientX - sx;
         var dy = e.changedTouches[0].clientY - sy;
-        if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) { show(dx < 0 ? current + 1 : current - 1); }
+        if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) { show(dx < 0 ? current + 1 : current - 1); nudgeAuto(); }
         sx = sy = null;
       }, { passive: true });
     }
@@ -445,7 +507,7 @@
       function step() { return Math.max(80, Math.round(strip.clientWidth * 0.7)); }
       function page(dir) {
         strip.scrollBy({ left: dir * step(), behavior: 'smooth' });
-        pauseAuto();
+        pauseDrift();
       }
       var prevBtn = document.querySelector('[data-thumb-prev]');
       var nextBtn = document.querySelector('[data-thumb-next]');
@@ -472,7 +534,7 @@
         if ((strip.scrollLeft <= 0 && delta < 0) || (strip.scrollLeft >= max && delta > 0)) { return; }
         e.preventDefault();
         strip.scrollLeft += delta;
-        pauseAuto();
+        pauseDrift();
       }, { passive: false });
 
       // mouse drag (pointer events cover pen + touch as well)
@@ -481,7 +543,7 @@
         if (e.pointerType === 'touch') { return; } // native touch scrolling is better
         dragging = true; moved = 0; startX = e.clientX; startScroll = strip.scrollLeft;
         strip.classList.add('is-dragging');
-        pauseAuto();
+        pauseDrift();
       });
       strip.addEventListener('pointermove', function (e) {
         if (!dragging) { return; }
@@ -502,25 +564,31 @@
       strip.addEventListener('pointerup', endDrag);
       strip.addEventListener('pointerleave', endDrag);
       strip.addEventListener('pointercancel', endDrag);
-      strip.addEventListener('mouseenter', pauseAuto);
-      strip.addEventListener('touchstart', pauseAuto, { passive: true });
+      strip.addEventListener('mouseenter', pauseDrift);
+      strip.addEventListener('touchstart', pauseDrift, { passive: true });
 
-      var autoTimer = null, autoDir = 1, pausedUntil = 0;
-      function pauseAuto() { pausedUntil = Date.now() + 4500; }
-      function startAuto() {
-        window.clearInterval(autoTimer);
-        autoTimer = window.setInterval(function () {
-          if (document.hidden || Date.now() < pausedUntil) { return; }
+      var driftTimer = null, driftDir = 1, driftPausedUntil = 0;
+      function pauseDrift() { driftPausedUntil = Date.now() + 4500; }
+      function startDrift() {
+        window.clearInterval(driftTimer);
+        driftTimer = window.setInterval(function () {
+          if (document.hidden || Date.now() < driftPausedUntil) { return; }
+          // While the main image is rotating it already scrolls the active thumbnail into
+          // view, so an independent drift just fights it and the strip jitters. The drift is
+          // for the moments the rotation is stopped, when the visitor is browsing by hand.
+          if (autoTimer) { return; }
           var max = strip.scrollWidth - strip.clientWidth;
           if (max <= 0) { return; }
-          if (strip.scrollLeft >= max - 2) { autoDir = -1; }
-          if (strip.scrollLeft <= 2) { autoDir = 1; }
-          strip.scrollLeft += autoDir * 1; // 1px per tick = a slow, non-distracting drift
+          if (strip.scrollLeft >= max - 2) { driftDir = -1; }
+          if (strip.scrollLeft <= 2) { driftDir = 1; }
+          strip.scrollLeft += driftDir * 1; // 1px per tick = a slow, non-distracting drift
         }, 40);
       }
-      startAuto();
+      startDrift();
       syncArrows();
     }
+
+    startRotation();
   }
 
   /* ------------------------------------------------------ qty + price calc */
@@ -573,6 +641,37 @@
   }
 
   /* -------------------------------------------------- mobile app shell */
+  /* -------------------------------------------------- collapsible sidebar groups */
+  function initNavGroups() {
+    var groups = document.querySelectorAll('.nav-group[data-nav-group]');
+    if (!groups.length) { return; }
+
+    // Kept per panel: the admin and member menus have different groups, and sharing one key
+    // would let a choice made in one fold the other away.
+    var storeKey = 'saee.navGroups.' + (document.body.classList.contains('admin-body') ? 'admin' : 'member');
+    var saved = {};
+    try { saved = JSON.parse(window.localStorage.getItem(storeKey) || '{}') || {}; } catch (err) { saved = {}; }
+
+    groups.forEach(function (group) {
+      var id = group.getAttribute('data-nav-group');
+      var holdsActive = !!group.querySelector('a.active');
+
+      // The server already opened the group holding the current page. A remembered choice wins
+      // over that default so the menu stays as the user left it - except for the group they are
+      // actually on, which is always opened so nobody loses track of where they are.
+      if (holdsActive) {
+        group.open = true;
+      } else if (Object.prototype.hasOwnProperty.call(saved, id)) {
+        group.open = !!saved[id];
+      }
+
+      group.addEventListener('toggle', function () {
+        saved[id] = group.open;
+        try { window.localStorage.setItem(storeKey, JSON.stringify(saved)); } catch (err) { /* private mode */ }
+      });
+    });
+  }
+
   function initMobileShell() {
     var tabbar = document.querySelector('.app-tabbar');
     if (!tabbar) { return; }
@@ -804,6 +903,18 @@
   /* ---------------------------------------------------------------- PWA */  /* ---------------------------------------------------------------- PWA */
   function initPWA() {
     if (!('serviceWorker' in navigator)) { return; }
+    // Explicit opt-out (the admin panel sets it): those pages are never cached, so a
+    // worker there buys nothing and only risks taking control of an authenticated area.
+    if (SAEE.pwa === false) { return; }
+    // Without an injected base the install path is unknown. Guessing would build a
+    // root-absolute /service-worker.js, which 404s on any sub-directory install —
+    // so say why offline support is off instead of firing a request that cannot work.
+    if (typeof SAEE.base !== 'string') {
+      if (window.console && console.warn) {
+        console.warn('Offline support disabled: window.SAEE.base was not set by this page.');
+      }
+      return;
+    }
     window.addEventListener('load', function () {
       navigator.serviceWorker.register(SAEE.path('service-worker.js'), { scope: SAEE.path('') }).then(function (reg) {
         reg.addEventListener('updatefound', function () {
@@ -863,6 +974,7 @@
     initQtyInputs();
     initCopy();
     initBackToTop();
+    initNavGroups();
     initMobileShell();
     initTestimonialCarousel();
     initCategoryCarousel();

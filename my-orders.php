@@ -52,7 +52,7 @@ if ($orderId) {
           <div class="panel-body">
             <ul class="timeline">
               <?php foreach ($history as $h): ?>
-                <li><strong><?= e(ORDER_STATUSES[$h['status']] ?? ucfirst((string) $h['status'])) ?></strong>
+                <li><strong><?= e(order_status_label((string) $h['status'])) ?></strong>
                   <div class="text-muted small"><?= e($h['note'] ?? '') ?></div>
                   <span class="t-time"><?= format_datetime($h['created_at']) ?></span></li>
               <?php endforeach; ?>

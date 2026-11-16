@@ -1,15 +1,25 @@
 <?php
-/** Wallet summary + immutable ledger. */
+/** Wallet summary + immutable ledger. Payouts are automatic — see Payout Statement. */
 declare(strict_types=1);
 require __DIR__ . '/_guard.php';
 
 use Saee\Lib\Pager;
+use Saee\Lib\PayoutService;
 use Saee\Lib\Request;
 use Saee\Lib\Url;
 use Saee\Lib\WalletService;
 
 $walletService = new WalletService(db());
 $wallet = $walletService->account($currentMemberId);
+try {
+    (new PayoutService(db()))->syncAutoPayoutForMember($currentMemberId);
+} catch (\Throwable $e) {
+    error_log('member auto payout sync failed: ' . $e->getMessage());
+}
+$openPayout = db()->first(
+    "SELECT * FROM payout_requests WHERE member_id = :m AND status IN ('pending','approved','processing') ORDER BY id DESC LIMIT 1",
+    ['m' => $currentMemberId]
+);
 $type = (string) Request::query('type', '');
 $from = (string) Request::query('from', '');
 $to = (string) Request::query('to', '');
@@ -62,7 +72,18 @@ require __DIR__ . '/includes/layout.php';
         <div><span>Royalty</span><strong><?= money((float) $wallet['royalty_balance']) ?></strong></div>
         <div><span>Incentive</span><strong><?= money((float) $wallet['incentive_balance']) ?></strong></div>
       </div>
-      <a class="btn btn-light btn-sm mt-3" href="<?= e(Url::member('payout-request.php')) ?>"><i class="fa-solid fa-money-bill-transfer me-1"></i>Request payout</a>
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        <a class="btn btn-light btn-sm" href="<?= e(Url::member('payouts.php')) ?>"><i class="fa-solid fa-money-bill-transfer me-1"></i>Payout statement</a>
+        <a class="btn btn-outline-light btn-sm" href="<?= e(Url::member('statements.php')) ?>"><i class="fa-solid fa-file-arrow-down me-1"></i>Download statement</a>
+      </div>
+      <?php if ($openPayout): ?>
+        <div class="small mt-2" style="opacity:.9">
+          <i class="fa-solid fa-hourglass-half me-1"></i>
+          Payout <?= e((string) $openPayout['request_code']) ?> · <?= money((float) $openPayout['net_amount']) ?> net · <?= (string) $openPayout['status'] === 'processing' ? 'In Progress' : ucfirst((string) $openPayout['status']) ?>
+        </div>
+      <?php else: ?>
+        <div class="small mt-2" style="opacity:.9"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>Payouts are automatic — no request needed.</div>
+      <?php endif; ?>
     </div>
   </div>
 </div>

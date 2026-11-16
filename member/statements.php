@@ -1,8 +1,13 @@
 <?php
-/** Statements: on-screen summary + CSV/Excel/PDF export of commissions and payouts. */
+/**
+ * Statements: on-screen summary + CSV/Excel/PDF export of commissions and payouts.
+ * The payout section is the member's payout statement — every previous payment
+ * (auto + manual) with gross, deductions, net, status and UTR.
+ */
 declare(strict_types=1);
 require __DIR__ . '/_guard.php';
 
+use Saee\Lib\PayoutService;
 use Saee\Lib\ReportService;
 use Saee\Lib\Request;
 use Saee\Lib\Response;
@@ -12,25 +17,38 @@ $from = (string) Request::query('from', date('Y-m-01'));
 $to = (string) Request::query('to', date('Y-m-d'));
 $format = (string) Request::query('format', '');
 $service = new ReportService(db());
+// Repair auto-payout columns on not-yet-upgraded installs before querying them.
+PayoutService::ensureSchema(db());
 
 $commissionRows = db()->select(
     'SELECT created_at, transaction_code, commission_type, product_name, buyer_name, basis_amount, rate_value, commission_type_rate, amount, status
      FROM commission_transactions WHERE member_id = :m AND created_at BETWEEN :f AND :t ORDER BY id DESC',
     ['m' => $currentMemberId, 'f' => $from . ' 00:00:00', 't' => $to . ' 23:59:59']
 );
+// SELECT * (not an explicit column list): the source column only exists after the
+// schema repair, and an explicit list would fatal with 1054 on old installs.
+// Readers below already use ($r['source'] ?? 'manual').
 $payoutRows = db()->select(
-    'SELECT created_at, request_code, amount, deduction_amount, net_amount, status, utr_number FROM payout_requests
+    'SELECT * FROM payout_requests
      WHERE member_id = :m AND created_at BETWEEN :f AND :t ORDER BY id DESC',
     ['m' => $currentMemberId, 'f' => $from . ' 00:00:00', 't' => $to . ' 23:59:59']
 );
+$payoutLifetime = db()->first(
+    "SELECT COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END),0) AS paid_net,
+            COALESCE(SUM(CASE WHEN status IN ('pending','approved','processing') THEN net_amount ELSE 0 END),0) AS open_net,
+            COUNT(*) AS total_count
+     FROM payout_requests WHERE member_id = :m",
+    ['m' => $currentMemberId]
+) ?? [];
 
 if ($format !== '') {
     $type = (string) Request::query('type', 'commissions');
     $rows = [];
     if ($type === 'payouts') {
-        $head = ['Date', 'Request', 'Amount', 'Deduction', 'Net', 'Status', 'UTR'];
+        $head = ['Date', 'Request', 'Source', 'Gross', 'Deduction', 'TDS', 'Fee', 'Net', 'Status', 'UTR', 'Paid date'];
         foreach ($payoutRows as $r) {
-            $rows[] = [format_date((string) $r['created_at'], 'd-m-Y'), $r['request_code'], $r['amount'], $r['deduction_amount'], $r['net_amount'], ucfirst((string) $r['status']), (string) ($r['utr_number'] ?? '')];
+            $statusLabel = (string) $r['status'] === 'processing' ? 'In Progress' : ucfirst((string) $r['status']);
+            $rows[] = [format_date((string) $r['created_at'], 'd-m-Y'), $r['request_code'], ucfirst((string) ($r['source'] ?? 'manual')), $r['amount'], $r['deduction_amount'], $r['tds_amount'] ?? 0, $r['admin_charges'] ?? 0, $r['net_amount'], $statusLabel, (string) ($r['utr_number'] ?? ''), !empty($r['paid_at']) ? format_date((string) $r['paid_at'], 'd-m-Y') : ''];
         }
         $title = 'Payout statement';
     } else {
@@ -67,7 +85,7 @@ $payoutTotal = array_sum(array_map(static fn ($r) => (float) $r['net_amount'], $
 
 $pageTitle = 'Download Statements';
 $pageHeading = 'Statements';
-$pageSub = 'Commission and payout statements for any period';
+$pageSub = 'Commission statement and full payout statement for any period';
 $activeNav = 'statements';
 require __DIR__ . '/includes/layout.php';
 ?>
@@ -86,10 +104,10 @@ require __DIR__ . '/includes/layout.php';
   </form>
 </div>
 
-<div class="row g-3">
+<div class="row g-3 mb-3">
   <div class="col-lg-7">
     <div class="panel p-3 p-md-4 h-100">
-      <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
         <h2 class="h6 mb-0">Commissions</h2>
         <div class="table-tools">
           <?php foreach (['csv' => 'CSV', 'excel' => 'Excel', 'pdf' => 'PDF'] as $key => $label): ?>
@@ -103,7 +121,7 @@ require __DIR__ . '/includes/layout.php';
   </div>
   <div class="col-lg-5">
     <div class="panel p-3 p-md-4 h-100">
-      <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
         <h2 class="h6 mb-0">Payouts</h2>
         <div class="table-tools">
           <?php foreach (['csv' => 'CSV', 'excel' => 'Excel', 'pdf' => 'PDF'] as $key => $label): ?>
@@ -115,5 +133,36 @@ require __DIR__ . '/includes/layout.php';
       <p class="small text-muted mb-0"><?= count($payoutRows) ?> records in this period.</p>
     </div>
   </div>
+</div>
+
+<div class="panel p-3 p-md-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h2 class="h6 mb-0">Payout statement — all previous payments</h2>
+      <div class="small text-muted">Lifetime paid <?= money((float) ($payoutLifetime['paid_net'] ?? 0)) ?> · In progress / pending <?= money((float) ($payoutLifetime['open_net'] ?? 0)) ?> · <?= (int) ($payoutLifetime['total_count'] ?? 0) ?> payout(s) total</div>
+    </div>
+    <a class="btn btn-sm btn-primary" href="<?= e(Url::member('payouts.php')) ?>"><i class="fa-solid fa-money-bill-transfer me-1"></i>Open payout statement</a>
+  </div>
+  <?php if (!$payoutRows): ?>
+    <p class="small text-muted mb-0">No payouts in this period. Payouts are automatic — they appear here once your earnings reach the minimum.</p>
+  <?php else: ?>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 data-table">
+      <thead><tr><th>Date</th><th>Request</th><th class="text-end">Gross</th><th class="text-end">Net</th><th>Status</th><th>UTR</th></tr></thead>
+      <tbody>
+      <?php foreach ($payoutRows as $r): ?>
+        <tr>
+          <td data-label="Date" class="small"><?= e(format_date((string) $r['created_at'], 'd M Y')) ?></td>
+          <td data-label="Request" class="small fw-semibold"><?= e((string) $r['request_code']) ?><div class="text-muted fw-normal"><?= (string) (($r['source'] ?? 'manual') === 'auto' ? 'Auto' : 'Manual') ?></div></td>
+          <td data-label="Gross" class="text-end small"><?= money((float) $r['amount']) ?></td>
+          <td data-label="Net" class="text-end fw-semibold small"><?= money((float) $r['net_amount']) ?></td>
+          <td data-label="Status"><?= status_badge((string) $r['status']) ?></td>
+          <td data-label="UTR" class="small"><?= e((string) ($r['utr_number'] ?? '—')) ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <?php endif; ?>
 </div>
 <?php require __DIR__ . '/includes/layout-end.php'; ?>

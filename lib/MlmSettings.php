@@ -66,7 +66,7 @@ final class MlmSettings
             'royalty_auto_process' => 1,
             'royalty_requires_approval' => 1,
             'member_id_prefix' => 'SLH',
-            'member_id_padding' => 5,
+            'member_id_padding' => 6,
             'registration_enabled' => 1,
             'max_direct_referrals' => 0,
         ];

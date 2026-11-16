@@ -30,13 +30,20 @@ final class MemberService
         );
     }
 
+    /**
+     * The account every un-sponsored registration is attached to.
+     *
+     * The configured code wins. There are three company accounts (SAEE00001 -> 00002 ->
+     * 00003) and the business wants new partners at the BOTTOM of that chain, so picking
+     * "the first is_company row" would silently attach everyone to the root instead.
+     */
     public function companySponsor(): ?array
     {
-        $row = $this->db->first('SELECT * FROM members WHERE is_company = 1 LIMIT 1');
+        $row = $this->db->first('SELECT * FROM members WHERE member_code = :c', ['c' => MlmSettings::companySponsorCode()]);
         if ($row) {
             return $row;
         }
-        return $this->db->first('SELECT * FROM members WHERE member_code = :c', ['c' => MlmSettings::companySponsorCode()]);
+        return $this->db->first('SELECT * FROM members WHERE is_company = 1 ORDER BY id DESC LIMIT 1');
     }
 
     /** Public sponsor lookup for the registration form (real-time AJAX validation). */
@@ -121,9 +128,15 @@ final class MemberService
             }
         }
 
+        // The password is not chosen by the registrant: it is generated as the member ID
+        // itself, so a partner has exactly one credential to remember. The plain value only
+        // ever exists in this response, which is why the welcome card is shown once.
+        $plainPassword = '';
+
         try {
-            $memberId = $this->db->transaction(function (Database $db) use ($input, $mobile, $email, $sponsor, $meta) {
+            $memberId = $this->db->transaction(function (Database $db) use ($input, $mobile, $email, $sponsor, $meta, &$plainPassword) {
                 $code = Sequence::memberCode();
+                $plainPassword = $code;
                 $referralCode = self::generateReferralCode($code);
                 $now = date('Y-m-d H:i:s');
 
@@ -134,8 +147,11 @@ final class MemberService
                     'name' => trim((string) $input['name']),
                     'email' => $email !== '' ? $email : null,
                     'mobile' => $mobile,
-                    'password_hash' => Security::hashPassword((string) $input['password']),
-                    'role' => in_array($input['role'] ?? 'farmer', ['farmer', 'distributor', 'retailer'], true) ? $input['role'] : 'farmer',
+                    'password_hash' => Security::hashPassword($plainPassword),
+                    // Read the value once: the old form guarded the check with ?? but then
+                    // read $input['role'] raw in the true branch, so a caller that omitted
+                    // 'role' died on the NOT NULL constraint instead of defaulting.
+                    'role' => in_array($role = (string) ($input['role'] ?? 'farmer'), ['farmer', 'distributor', 'retailer'], true) ? $role : 'farmer',
                     'status' => 'active',
                     'is_company' => 0,
                     'referral_code' => $referralCode,
@@ -233,7 +249,7 @@ final class MemberService
             // registration page, the admin create form and the API all show the same thing.
             'welcome' => $this->welcomeDetails(
                 $member,
-                (string) ($input['password'] ?? ''),
+                $plainPassword,
                 $sponsor,
                 $sponsor === null
             ),

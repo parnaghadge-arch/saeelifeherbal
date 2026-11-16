@@ -6,7 +6,9 @@ declare(strict_types=1);
 
 use Saee\Lib\Url;
 
-$img = $product['featured_image'] ?? '';
+// Featured image, falling back to the first gallery upload so a product is never shown
+// without a picture just because the admin filled in the gallery instead.
+$img = product_thumb($product);
 $discount = product_discount($product);
 $inWishlist = in_array((int) $product['id'], (new \Saee\Lib\Cart(db()))->wishlistIds(), true);
 $productUrl = product_url((string) $product['slug']);

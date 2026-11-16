@@ -1,11 +1,15 @@
 <?php
 /**
- * Create a member, optionally with an opening product purchase, optionally with no sponsor.
+ * Create a member, optionally with an opening product purchase.
  *
- * Two things this screen does that the public registration form must never do:
- *   1. leave the sponsor blank, which starts a brand-new tree (the member becomes a root);
- *   2. record an opening purchase in the new member's name, so commissions, the wallet and
- *      royalty are calculated by the same engine as any other order.
+ * Sponsor is optional: leaving it blank attaches the member to the configured company sponsor
+ * (SAEE00003 by default) rather than starting a separate tree, which is the same rule the public
+ * registration form follows. Nobody ends up parentless, so commission always has an upline to
+ * walk.
+ *
+ * The one thing this screen does that public registration must never do is record an opening
+ * purchase in the new member's name, so commissions, the wallet and royalty are calculated by the
+ * same engine as any other order.
  */
 declare(strict_types=1);
 
@@ -25,12 +29,17 @@ $db = db();
 $service = new MemberService($db);
 $purchaseService = new MemberPurchaseService($db);
 
+// Resolved before the POST handler: the audit line names the fallback sponsor when the admin
+// leaves the field blank, so it has to exist on the very first request.
+$companySponsor = $service->companySponsor();
+$fallbackSponsorCode = (string) ($companySponsor['member_code'] ?? 'SAEE00003');
+
 $errors = [];
 $old = [
     'name' => '', 'mobile' => '', 'email' => '', 'role' => 'distributor',
     'sponsor_code' => '', 'state' => '', 'district' => '', 'taluka' => '',
     'village' => '', 'pincode' => '', 'address' => '', 'admin_note' => '',
-    'payment_mode' => '', 'no_sponsor' => '',
+    'payment_mode' => '',
 ];
 $welcome = [];
 $orderResult = null;
@@ -40,9 +49,7 @@ if (is_post()) {
     Security::verifyCsrf();
     $old = array_map(static fn ($v): string => is_string($v) ? trim($v) : '', array_merge($old, (array) $_POST));
     $postedQty = is_array($_POST['qty'] ?? null) ? $_POST['qty'] : [];
-    $noSponsor = !empty($_POST['no_sponsor']);
-    $sponsorCode = $noSponsor ? '' : trim((string) Request::input('sponsor_code', ''));
-    $password = (string) Request::raw('password');
+    $sponsorCode = trim((string) Request::input('sponsor_code', ''));
 
     // ---- validation ----------------------------------------------------------------
     if (mb_strlen($old['name']) < 3) {
@@ -56,16 +63,11 @@ if (is_post()) {
     if ($old['email'] !== '' && !filter_var($old['email'], FILTER_VALIDATE_EMAIL)) {
         $errors['email'] = ['Enter a valid email address, or leave it blank.'];
     }
-    if (strlen($password) < 8) {
-        $errors['password'] = ['Set a password of at least 8 characters.'];
-    }
     if (!in_array($old['role'], ['farmer', 'distributor', 'retailer'], true)) {
         $old['role'] = 'distributor';
     }
-    if (!$noSponsor && $sponsorCode === '') {
-        $errors['sponsor_code'] = ['Enter a sponsor ID, or tick "no sponsor" to start a new tree.'];
-    }
-    if (!$noSponsor && $sponsorCode !== '' && $service->resolveSponsor($sponsorCode) === null) {
+    // A blank sponsor is not an error: MemberService falls back to the company sponsor.
+    if ($sponsorCode !== '' && $service->resolveSponsor($sponsorCode) === null) {
         $errors['sponsor_code'] = ['No member exists with that ID, referral code, mobile or email.'];
     }
 
@@ -77,8 +79,10 @@ if (is_post()) {
         }
     }
     $wantsPurchase = $lines !== [];
-    if ($wantsPurchase && !array_key_exists($old['payment_mode'], MemberPurchaseService::PAYMENT_MODES)) {
-        $errors['payment_mode'] = ['Choose how the opening purchase was paid for.'];
+    if ($wantsPurchase && !array_key_exists($old['payment_mode'], $modeLabels)) {
+        $errors['payment_mode'] = $old['payment_mode'] === ''
+            ? ['Choose how the opening purchase was paid for.']
+            : ['That mode of payment is not enabled. Choose another, or turn it on under Payment Methods.'];
     }
 
     if ($errors === []) {
@@ -87,10 +91,8 @@ if (is_post()) {
                 'name' => $old['name'],
                 'mobile' => $mobile,
                 'email' => $old['email'],
-                'password' => $password,
                 'role' => $old['role'],
                 'sponsor_code' => $sponsorCode,
-                'allow_root' => $noSponsor,
                 'address' => $old['address'],
                 'state' => $old['state'],
                 'district' => $old['district'],
@@ -123,7 +125,7 @@ if (is_post()) {
                 'member_create',
                 'members',
                 'Created member ' . $member['member_code']
-                    . ($noSponsor ? ' with no sponsor (new tree root)' : ' under ' . $sponsorCode)
+                    . ' under ' . ($sponsorCode !== '' ? $sponsorCode : $fallbackSponsorCode)
                     . ($orderResult ? ' with an opening purchase' : ''),
                 'members',
                 (int) $member['id']
@@ -148,8 +150,9 @@ $products = $db->select(
     "SELECT id, name, sku, price, stock_quantity FROM products
       WHERE status = 'active' ORDER BY name ASC LIMIT 300"
 );
-$companySponsor = $service->companySponsor();
-$modeLabels = MemberPurchaseService::PAYMENT_MODES;
+// Only the methods switched on under Payment Methods, so the opening purchase cannot be
+// recorded against a method the business has turned off.
+$modeLabels = $purchaseService->availableModes();
 
 $pageTitle = 'Add Member';
 $pageHeading = 'Add Member';
@@ -169,9 +172,7 @@ require __DIR__ . '/includes/layout.php';
         <h2 class="h6 mb-1">Member created &mdash; <?= e((string) ($welcome['member_code'] ?? '')) ?></h2>
         <p class="small text-muted mb-0">
           <?= e((string) ($welcome['name'] ?? '')) ?>
-          <?php if (!empty($welcome['root_of_own_tree'])): ?>
-            &middot; <span class="text-success-emphasis">starts a new tree (no sponsor)</span>
-          <?php elseif (($welcome['sponsor_code'] ?? '') !== ''): ?>
+          <?php if (($welcome['sponsor_code'] ?? '') !== ''): ?>
             &middot; sponsor <?= e((string) $welcome['sponsor_name']) ?> (<?= e((string) $welcome['sponsor_code']) ?>)
           <?php endif; ?>
           <?php if ($orderResult): ?>
@@ -223,22 +224,21 @@ require __DIR__ . '/includes/layout.php';
         </select>
       </div>
       <div class="col-md-6">
-        <label class="form-label" for="password">Password to give the member <span class="required-mark">*</span></label>
-        <input id="password" name="password" class="form-control<?= isset($errors['password']) ? ' is-invalid' : '' ?>" value="<?= e((string) Request::raw('password')) ?>" autocomplete="new-password" required>
-        <div class="form-text">At least 8 characters. It is shown once, on the details card.</div>
-        <?php if (isset($errors['password'])): ?><div class="invalid-feedback d-block"><?= e($errors['password'][0]) ?></div><?php endif; ?>
+        <label class="form-label">Password</label>
+        <div class="form-control bg-light border-0 small text-muted">
+          Generated automatically — it is the same as the Member ID.
+        </div>
+        <div class="form-text">Shown once, on the details card after saving.</div>
       </div>
       <div class="col-md-6">
-        <label class="form-label" for="sponsor_code">Sponsor ID <span class="required-mark sponsor-required">*</span></label>
-        <input id="sponsor_code" name="sponsor_code" class="form-control<?= isset($errors['sponsor_code']) ? ' is-invalid' : '' ?>" value="<?= e($old['sponsor_code']) ?>" placeholder="e.g. <?= e((string) ($companySponsor['member_code'] ?? 'SAEE00001')) ?>">
-        <div class="form-text">Member ID, referral code, mobile or email of the upline.</div>
-        <?php if (isset($errors['sponsor_code'])): ?><div class="invalid-feedback d-block"><?= e($errors['sponsor_code'][0]) ?></div><?php endif; ?>
-        <div class="form-check mt-2">
-          <input class="form-check-input" type="checkbox" name="no_sponsor" id="no_sponsor" value="1" <?= $old['no_sponsor'] !== '' ? 'checked' : '' ?>>
-          <label class="form-check-label small" for="no_sponsor">
-            <strong>No sponsor</strong> &mdash; start a new tree with this member at the top
-          </label>
+        <label class="form-label" for="sponsor_code">Sponsor ID <span class="text-muted fw-normal">(optional)</span></label>
+        <input id="sponsor_code" name="sponsor_code" class="form-control<?= isset($errors['sponsor_code']) ? ' is-invalid' : '' ?>" value="<?= e($old['sponsor_code']) ?>" placeholder="e.g. <?= e((string) ($companySponsor['member_code'] ?? 'SAEE00003')) ?>">
+        <div class="form-text">
+          Member ID, referral code, mobile or email of the upline.
+          <strong>Leave it blank and the member is placed under <?= e((string) ($companySponsor['member_code'] ?? 'SAEE00003')) ?></strong>
+          &mdash; the company sponsor &mdash; so commission still has an upline to pay.
         </div>
+        <?php if (isset($errors['sponsor_code'])): ?><div class="invalid-feedback d-block"><?= e($errors['sponsor_code'][0]) ?></div><?php endif; ?>
       </div>
     </div>
 
@@ -346,19 +346,6 @@ require __DIR__ . '/includes/layout.php';
   rows.forEach(function (input) { input.addEventListener('input', recalc); });
   recalc();
 
-  var noSponsor = document.getElementById('no_sponsor');
-  var sponsor = document.getElementById('sponsor_code');
-  if (noSponsor && sponsor) {
-    var sync = function () {
-      sponsor.disabled = noSponsor.checked;
-      if (noSponsor.checked) { sponsor.value = ''; }
-      document.querySelectorAll('.sponsor-required').forEach(function (el) {
-        el.style.visibility = noSponsor.checked ? 'hidden' : 'visible';
-      });
-    };
-    noSponsor.addEventListener('change', sync);
-    sync();
-  }
 })();
 </script>
 

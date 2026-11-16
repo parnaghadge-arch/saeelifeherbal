@@ -115,9 +115,49 @@ function get_product_by_slug(string $slug): ?array
     );
 }
 
+/**
+ * Gallery images for a product.
+ *
+ * Ordered exactly as the admin product form lists them (primary first, then sort order), so
+ * the strip a partner arranges in the panel is the strip a visitor sees. This deliberately
+ * excludes products.featured_image: that lives on the product row and is prepended by the
+ * caller, because it is a separate upload the gallery table knows nothing about.
+ */
 function get_product_images(int $productId): array
 {
-    return db()->select('SELECT * FROM product_images WHERE product_id = :p ORDER BY sort_order ASC, id ASC', ['p' => $productId]);
+    return db()->select(
+        'SELECT * FROM product_images WHERE product_id = :p ORDER BY is_primary DESC, sort_order ASC, id ASC',
+        ['p' => $productId]
+    );
+}
+
+/**
+ * The thumbnail for a product card: the featured image, or the first gallery image when the
+ * admin only filled in the gallery.
+ *
+ * Without the fallback a product with gallery uploads but no featured image rendered an empty
+ * src on every listing. Results are cached per product id, so a grid of cards costs one query
+ * per product at most - and none at all in the common case where the featured image is set.
+ */
+function product_thumb(array $product): string
+{
+    static $cache = [];
+
+    $featured = trim((string) ($product['featured_image'] ?? ''));
+    if ($featured !== '') {
+        return $featured;
+    }
+    $id = (int) ($product['id'] ?? 0);
+    if ($id <= 0) {
+        return '';
+    }
+    if (!array_key_exists($id, $cache)) {
+        $cache[$id] = (string) (db()->value(
+            'SELECT image_path FROM product_images WHERE product_id = :p ORDER BY is_primary DESC, sort_order ASC, id ASC LIMIT 1',
+            ['p' => $id]
+        ) ?? '');
+    }
+    return $cache[$id];
 }
 
 function get_product_videos(int $productId): array
@@ -241,7 +281,7 @@ function get_testimonials(int $limit = 6): array
 }
 
 /**
- * Allowed values for the products.commission_basis / mlm_commission_rules.commission_basis
+ * Allowed values for the products.commission_basis
  * enum, with the label shown in the admin panel.
  *
  * The database enum is the source of truth: sending anything outside this list raises
@@ -358,6 +398,37 @@ function menu_url(string $url): string
         return Url::to('');
     }
     return Url::to($url);
+}
+
+/**
+ * True when a link sends the visitor to the partner sign-in or registration form.
+ *
+ * The site offers partner login and registration from several places, and two of those are
+ * admin-authored data rather than template markup - the footer menu (navigation_menus) and the
+ * homepage slider buttons (website_slides). Once a member is signed in those links are noise,
+ * and the registration ones are worse than noise: they invite the visitor to do something they
+ * have already done. This is the single place that decides what counts, so the footer, the
+ * slider and the header cannot drift apart.
+ *
+ * Both the clean route ("member/login") and the raw script name ("member/login.php") are
+ * listed, plus the page slugs that alias to them, because admins type either form.
+ */
+function is_member_auth_url(string $url): bool
+{
+    $target = strtolower(ltrim(trim($url), '/'));
+    return in_array($target, [
+        'member/login', 'member/login.php', 'partner-login',
+        'member/register', 'member/register.php', 'partner-registration', 'farmer-registration',
+    ], true);
+}
+
+/** True when a link points at partner registration specifically, as opposed to sign-in. */
+function is_member_register_url(string $url): bool
+{
+    $target = strtolower(ltrim(trim($url), '/'));
+    return in_array($target, [
+        'member/register', 'member/register.php', 'partner-registration', 'farmer-registration',
+    ], true);
 }
 
 function get_page_by_slug(string $slug): ?array
@@ -553,6 +624,36 @@ function invalid_class(array $errors, string $field): string
 /** Human readable payment method. */
 function payment_label(?string $method): string
 {
-    $labels = PAYMENT_METHODS + ['wallet' => 'Wallet Balance'];
+    $labels = PAYMENT_METHODS + PAYMENT_METHODS_LEGACY + ['wallet' => 'Wallet Balance'];
     return $labels[$method ?? ''] ?? ucfirst(str_replace('_', ' ', (string) $method));
+}
+
+/**
+ * Label for an order status, or for a row of order_status_history.
+ *
+ * The history column is free text on purpose: it records fulfilment statuses *and* payment
+ * events, so not every word in it is an order status. Retired status words are translated too,
+ * which keeps timelines written before the list was shortened readable.
+ */
+function order_status_label(?string $status): string
+{
+    $status = (string) $status;
+    // Payment events share the timeline but are not fulfilment statuses.
+    $events = [
+        'paid' => 'Payment confirmed',
+        'unpaid' => 'Awaiting payment',
+        'failed' => 'Payment failed',
+        'refunded' => 'Refunded',
+    ];
+    if (isset($events[$status])) {
+        return $events[$status];
+    }
+    if (isset(ORDER_STATUSES[$status])) {
+        return ORDER_STATUSES[$status];
+    }
+    $mapped = ORDER_STATUS_LEGACY[$status] ?? null;
+    if ($mapped !== null) {
+        return ORDER_STATUSES[$mapped];
+    }
+    return ucwords(str_replace('_', ' ', $status));
 }

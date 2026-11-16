@@ -24,9 +24,30 @@ if (!$product) {
 
 db()->execute('UPDATE products SET views = views + 1 WHERE id = :id', ['id' => $product['id']]);
 
-$images = get_product_images((int) $product['id']);
-if ($images === [] && $product['featured_image']) {
-    $images = [['image_path' => $product['featured_image'], 'alt_text' => $product['name']]];
+// Every image the admin uploaded belongs in the gallery, and the featured one leads so it is
+// what a visitor sees the moment the page loads.
+//
+// products.featured_image and product_images are two separate stores that nothing keeps in
+// sync, so this used to fall back to the featured image only when the gallery was empty - a
+// product with both showed the gallery alone and the featured image never appeared at all.
+$featuredPath = trim((string) ($product['featured_image'] ?? ''));
+// Compare on a normalised path: the same file can be stored with or without a leading slash,
+// and listing it twice would put an identical thumbnail in the strip.
+$normalisePath = static fn (string $p): string => strtolower(ltrim(trim($p), '/'));
+$images = [];
+$seenPaths = [];
+if ($featuredPath !== '') {
+    $images[] = ['image_path' => $featuredPath, 'alt_text' => (string) $product['name'], 'is_featured' => 1];
+    $seenPaths[$normalisePath($featuredPath)] = true;
+}
+foreach (get_product_images((int) $product['id']) as $galleryImage) {
+    $path = trim((string) ($galleryImage['image_path'] ?? ''));
+    if ($path === '' || isset($seenPaths[$normalisePath($path)])) {
+        continue;
+    }
+    $seenPaths[$normalisePath($path)] = true;
+    $galleryImage['is_featured'] = 0;
+    $images[] = $galleryImage;
 }
 $videos = get_product_videos((int) $product['id']);
 $related = get_related_products((int) $product['id'], $product['category_id'] ? (int) $product['category_id'] : null, 4);
@@ -54,7 +75,8 @@ require INCLUDES_PATH . '/header.php';
         <p class="product-idband-meta">
           <?php if ($product['category_name']): ?><span><i class="fa-solid fa-layer-group"></i><?= e($product['category_name']) ?></span><?php endif; ?>
           <?php if (!empty($product['sku'])): ?><span><i class="fa-solid fa-barcode"></i>SKU <?= e((string) $product['sku']) ?></span><?php endif; ?>
-          <span><i class="fa-solid <?= $stock > 0 ? 'fa-circle-check' : 'fa-circle-xmark' ?>"></i><?= $stock > 0 ? 'In stock (' . $stock . ' units)' : 'Out of stock' ?></span>
+          <?php // Availability only - the count itself stays in the back office. ?>
+          <span><i class="fa-solid <?= $stock > 0 ? 'fa-circle-check' : 'fa-circle-xmark' ?>"></i><?= $stock > 0 ? 'In stock' : 'Out of stock' ?></span>
         </p>
       </div>
       <?php if ($discount > 0): ?><span class="product-idband-off"><?= $discount ?>% OFF</span><?php endif; ?>
@@ -65,7 +87,10 @@ require INCLUDES_PATH . '/header.php';
   <div class="container">
     <div class="row g-4 g-lg-5">
       <div class="col-lg-6">
-        <div class="gallery-main" data-gallery-stage>
+        <?php // tabindex makes the arrow-key handler reachable: a bare <div> cannot take focus,
+              // so without it the keyboard only worked while a control inside had focus. ?>
+        <div class="gallery-main" data-gallery-stage tabindex="0" role="group"
+             aria-roledescription="carousel" aria-label="<?= e($product['name']) ?> images">
           <img data-gallery-main src="<?= e(Url::media($images[0]['image_path'] ?? '')) ?>"
                alt="<?= e($product['name']) ?>" fetchpriority="high">
           <?php if (count($images) > 1): ?>
@@ -76,6 +101,12 @@ require INCLUDES_PATH . '/header.php';
               <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
             </button>
             <span class="gallery-counter" data-gallery-counter>1 / <?= count($images) ?></span>
+            <?php // The images rotate on their own, so there has to be a way to stop them.
+                  // Starts as pause because autoplay is on by default. ?>
+            <button type="button" class="gallery-play" data-gallery-play aria-pressed="true"
+                    aria-label="Pause automatic image rotation">
+              <i class="fa-solid fa-pause" aria-hidden="true"></i>
+            </button>
           <?php endif; ?>
         </div>
         <?php if (count($images) > 1): ?>
@@ -130,7 +161,7 @@ require INCLUDES_PATH . '/header.php';
           </div>
 
         <div class="trust-strip">
-          <span><i class="fa-solid fa-box"></i><?= $stock > 0 ? 'In stock (' . $stock . ' units)' : 'Currently out of stock' ?></span>
+          <span><i class="fa-solid fa-box"></i><?= $stock > 0 ? 'In stock' : 'Currently out of stock' ?></span>
           <?php if ($product['packaging_sizes']): ?><span><i class="fa-solid fa-flask"></i><?= e($product['packaging_sizes']) ?></span><?php endif; ?>
           <span><i class="fa-solid fa-truck-fast"></i>Dispatch in 1-2 days</span>
         </div>

@@ -17,6 +17,28 @@ $db = db();
 $walletService = new WalletService($db);
 $memberId = Request::int('member');
 
+if (is_post() && (string) Request::input('action', '') === 'mark_paid' && AdminAuth::can('payouts.approve')) {
+    // The cash-over-the-counter case: an accountant counts out everything the member can
+    // withdraw and records it in one action. Each ledger entry is marked paid and the wallet is
+    // debited, so what remains is genuinely still owed.
+    Security::verifyCsrf();
+    $targetId = Request::int('member_id');
+    $res = $walletService->markMemberCommissionPaid(
+        $targetId,
+        (string) Request::input('pay_mode', 'cash'),
+        trim((string) Request::input('pay_reference', '')),
+        (string) ($adminUser['name'] ?? 'admin')
+    );
+    $text = (string) $res['message'];
+    if (!empty($res['ok'])) {
+        $text .= (float) $res['remaining'] > 0
+            ? ' Remaining balance: ' . money((float) $res['remaining']) . '.'
+            : ' Balance is now zero.';
+    }
+    Session::{$res['ok'] ? 'success' : 'error'}($text);
+    Request::redirect('wallets.php?member=' . $targetId);
+}
+
 if (is_post() && AdminAuth::can('wallets.adjust')) {
     Security::verifyCsrf();
     $targetId = Request::int('member_id');
@@ -165,6 +187,48 @@ require __DIR__ . '/includes/layout.php';
           <div class="d-flex justify-content-between py-1"><span class="text-muted">Royalty</span><strong><?= money((float) $account['royalty_balance']) ?></strong></div>
           <div class="d-flex justify-content-between py-1"><span class="text-muted">Incentive</span><strong><?= money((float) $account['incentive_balance']) ?></strong></div>
         </div>
+
+        <?php
+        // What can actually be handed over right now: entries already credited to the wallet.
+        // Pending and approved entries are not spendable yet, so they are not payable either.
+        $payable = $db->first(
+            "SELECT COUNT(*) AS entries, COALESCE(SUM(amount),0) AS total
+               FROM commission_transactions
+              WHERE member_id = :m AND status = 'available' AND reversed_amount = 0",
+            ['m' => $memberId]
+        ) ?? ['entries' => 0, 'total' => 0];
+        $payableCount = (int) $payable['entries'];
+        ?>
+        <?php if (AdminAuth::can('payouts.approve') && $payableCount > 0): ?>
+          <hr class="my-3">
+          <form method="post"
+                data-confirm="Mark <?= e(money((float) $payable['total'])) ?> across <?= (int) $payableCount ?> commission entr<?= $payableCount === 1 ? 'y' : 'ies' ?> as paid to this member? Their wallet balance will be debited.">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="mark_paid">
+            <input type="hidden" name="member_id" value="<?= (int) $memberId ?>">
+            <label class="form-label small mb-1">Pay out available commission</label>
+            <div class="small text-muted mb-2">
+              <?= (int) $payableCount ?> entr<?= $payableCount === 1 ? 'y' : 'ies' ?> · <?= money((float) $payable['total']) ?> ready to hand over
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <select class="form-select form-select-sm" name="pay_mode" aria-label="Payment mode">
+                  <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="upi">UPI</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <input class="form-control form-control-sm" name="pay_reference" placeholder="Ref / receipt no.">
+              </div>
+              <div class="col-12">
+                <button class="btn btn-sm btn-success w-100">
+                  <i class="fa-solid fa-money-bill-wave me-1" aria-hidden="true"></i>Mark all as paid
+                </button>
+              </div>
+            </div>
+          </form>
+        <?php endif; ?>
       </div>
     </div>
   </div>

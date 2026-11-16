@@ -428,8 +428,8 @@ final class Schema
                     'meta_keywords' => 'string:255|null',
                     'views' => 'int|notnull|default:0',
                     'sort_order' => 'int|notnull|default:0',
-                    // Product level MLM configuration (single source used by the engine,
-                    // versioned copies are written to mlm_commission_rules on save).
+                    // Product level MLM configuration: the single source of commission truth.
+                    // MlmCommissionEngine reads these columns when it processes an order.
                     'mlm_enabled' => 'bool',
                     'direct_commission_type' => "enum:fixed,percent|notnull|default:'fixed'",
                     'direct_commission_value' => 'money|notnull|default:0',
@@ -552,6 +552,11 @@ final class Schema
                     'customer_id' => 'fk:customers:setnull|null|index',
                     'member_id' => 'fk:members:setnull|null|index',
                     'referral_member_id' => 'fk:members:setnull|null|index',
+                    // Who actually placed the order, as distinct from member_id (the beneficiary
+                    // the commission engine walks up from). A sponsor buying for a downline
+                    // member is the operator here; without this the operator has no way to see
+                    // the orders they placed for their team, only free text in `notes`.
+                    'created_by_member_id' => 'fk:members:setnull|null|index',
                     'customer_name' => 'string:150|notnull',
                     'customer_email' => 'string:191|null',
                     'customer_mobile' => 'string:15|notnull',
@@ -564,7 +569,7 @@ final class Schema
                     'grand_total' => 'money|notnull|default:0',
                     'payment_method' => "string:30|notnull|default:'cod'|index",
                     'payment_status' => "enum:unpaid,pending,paid,failed,refunded|notnull|default:'unpaid'|index",
-                    'status' => "enum:pending,payment_pending,paid,processing,shipped,delivered,cancelled,refunded|notnull|default:'pending'|index",
+                    'status' => "enum:new,processing,shipped,delivered,cancelled|notnull|default:'new'|index",
                     'notes' => 'text|null',
                     'admin_notes' => 'text|null',
                     'coupon_code' => 'string:40|null',
@@ -779,24 +784,6 @@ final class Schema
                 ],
                 'timestamps' => ['created_at', 'updated_at'],
             ],
-            'mlm_commission_rules' => [
-                'columns' => [
-                    'id' => 'pk',
-                    'product_id' => 'fk:products:cascade|notnull|index',
-                    'direct_type' => "enum:fixed,percent|notnull|default:'fixed'",
-                    'direct_value' => 'money|notnull|default:0',
-                    'grand_direct_type' => "enum:fixed,percent|notnull|default:'fixed'",
-                    'grand_direct_value' => 'money|notnull|default:0',
-                    'commission_basis' => "enum:selling_price,mrp,net_amount|notnull|default:'selling_price'",
-                    'royalty_eligible' => 'bool|default:1',
-                    'is_active' => 'bool|default:1|index',
-                    'effective_from' => 'datetime|notnull',
-                    'effective_to' => 'datetime|null',
-                    'created_by' => 'fk:admin_users:setnull|null',
-                    'notes' => 'text|null',
-                ],
-                'timestamps' => ['created_at', 'updated_at'],
-            ],
             'commission_transactions' => [
                 'columns' => [
                     'id' => 'pk',
@@ -923,7 +910,9 @@ final class Schema
                     'net_amount' => 'money|notnull|default:0',
                     'tds_amount' => 'money|notnull|default:0',
                     'admin_charges' => 'money|notnull|default:0',
-                    'status' => "enum:pending,approved,rejected,paid,cancelled|notnull|default:'pending'|index",
+                    'status' => "enum:pending,approved,processing,rejected,paid,cancelled|notnull|default:'pending'|index",
+                    'source' => "enum:manual,auto|notnull|default:'manual'|index",
+                    'cycle_key' => 'string:20|null|index',
                     'bank_account_id' => 'fk:member_bank_accounts:setnull|null',
                     'bank_snapshot' => 'json|null',
                     'kyc_snapshot' => 'json|null',
@@ -940,6 +929,9 @@ final class Schema
                     'rejected_at' => 'datetime|null',
                     'paid_by' => 'fk:admin_users:setnull|null',
                     'paid_at' => 'datetime|null',
+                    'report_downloaded_at' => 'datetime|null',
+                    'report_downloaded_by' => 'fk:admin_users:setnull|null',
+                    'report_format' => 'string:20|null',
                 ],
                 'timestamps' => ['created_at', 'updated_at'],
             ],
@@ -971,6 +963,7 @@ final class Schema
                     'require_kyc' => 'bool|default:1',
                     'require_verified_bank' => 'bool|default:1',
                     'auto_approve' => 'bool|default:0',
+                    'auto_payout_enabled' => 'bool|default:1',
                     'payouts_enabled' => 'bool|default:1',
                 ],
                 'timestamps' => ['created_at', 'updated_at'],
@@ -978,7 +971,7 @@ final class Schema
             'mlm_settings' => [
                 'columns' => [
                     'id' => 'pk',
-                    'company_sponsor_code' => 'string:20|notnull|default:\'SAEE00001\'',
+                    'company_sponsor_code' => 'string:20|notnull|default:\'SAEE00003\'',
                     'plan_enabled' => 'bool|default:0',
                     'commission_hold_days' => 'int|notnull|default:0',
                     'direct_levels' => 'int|notnull|default:1',
@@ -989,7 +982,7 @@ final class Schema
                     'royalty_auto_process' => 'bool|default:1',
                     'royalty_requires_approval' => 'bool|default:1',
                     'member_id_prefix' => 'string:10|notnull|default:\'SLH\'',
-                    'member_id_padding' => 'int|notnull|default:5',
+                    'member_id_padding' => 'int|notnull|default:6',
                     'registration_enabled' => 'bool|default:1',
                     'max_direct_referrals' => 'int|notnull|default:0',
                     'compliance_notice' => 'text|null',
@@ -1256,8 +1249,11 @@ final class Schema
                     $alterSpec
                 ));
                 $added[] = $table . '.' . $name;
-            } catch (Throwable) {
-                // Never let a repair statement break the upgrade run.
+            } catch (Throwable $e) {
+                // Never let a repair statement break the upgrade run, but do not
+                // swallow it silently either: a failed ADD COLUMN is exactly what
+                // later surfaces as "Unknown column" (1054) in the payout pages.
+                error_log('ensureColumns failed for ' . $table . '.' . $name . ': ' . $e->getMessage());
             }
         }
         return $added;
@@ -1324,6 +1320,165 @@ final class Schema
             $sql .= ' DEFAULT 0';
         }
         return $sql;
+    }
+
+    /**
+     * Move orders written before the status list was shortened onto the current values, and
+     * re-declare the column so the database enforces the new set.
+     *
+     * The order matters and is different per driver:
+     *   MySQL  - widen the ENUM to old+new, rewrite the rows, then narrow it. Rewriting first
+     *            would truncate, narrowing first would reject the rows being rewritten.
+     *   SQLite - the allowed values live in a CHECK baked into the table, so the table has to
+     *            be rebuilt with the values mapped during the copy.
+     *
+     * @return list<string> what happened, for the upgrade report
+     */
+    /**
+     * Repair the MLM settings split.
+     *
+     * The MLM settings form used to write mlm_plan_enabled, mlm_commission_hold_days and
+     * mlm_credit_status into the `settings` key/value store, while MlmCommissionEngine reads
+     * plan_enabled, commission_hold_days and auto_credit_status from the mlm_settings TABLE.
+     * The switch therefore looked saved and changed nothing, and because the factory default was
+     * "plan off" a production install calculated no commission at all with no working way to turn
+     * it on.
+     *
+     * Two cases, deliberately told apart:
+     *   - the admin did save the form, so `settings` holds their intent -> copy it across;
+     *   - the form was never saved, so a 0 is the broken factory default, not a decision -> turn
+     *     the plan on. An explicit "off" saved by an admin is respected and left alone.
+     *
+     * @return list<string> human-readable report lines
+     */
+    public static function migrateMlmSettings(Database $db): array
+    {
+        $report = [];
+        try {
+            $tables = [];
+            foreach ($db->select($db->driver() === 'mysql' ? 'SHOW TABLES' : "SELECT name FROM sqlite_master WHERE type = 'table'") as $row) {
+                $tables[] = (string) (array_values($row)[0] ?? '');
+            }
+        } catch (\Throwable) {
+            return $report;
+        }
+        if (!in_array('mlm_settings', $tables, true) || !in_array('settings', $tables, true)) {
+            return $report;
+        }
+
+        $stored = static function (Database $db, string $key): ?string {
+            $row = $db->first('SELECT setting_value FROM settings WHERE setting_key = :k', ['k' => $key]);
+            return $row === null ? null : (string) ($row['setting_value'] ?? '');
+        };
+
+        $patch = [];
+        $wantedPlan = $stored($db, 'mlm_plan_enabled');
+        if ($wantedPlan !== null) {
+            // The admin used the form: their answer wins, whichever way it went.
+            $patch['plan_enabled'] = $wantedPlan === '1' ? 1 : 0;
+            $report[] = 'MLM plan enabled set to ' . ($wantedPlan === '1' ? 'ON' : 'OFF') . ' from the saved settings form.';
+        } elseif ((int) ($db->value('SELECT plan_enabled FROM mlm_settings WHERE id = 1') ?: 0) === 0) {
+            $patch['plan_enabled'] = 1;
+            $report[] = 'MLM plan enabled turned ON: it was still at the broken factory default and no admin choice was recorded.';
+        }
+
+        $hold = $stored($db, 'mlm_commission_hold_days');
+        if ($hold !== null && $hold !== '') {
+            $patch['commission_hold_days'] = max(0, (int) $hold);
+        }
+        $credit = $stored($db, 'mlm_credit_status');
+        if ($credit !== null && $credit !== '') {
+            $patch['auto_credit_status'] = $credit === 'manual' ? 'pending' : 'available';
+        }
+
+        if ($patch !== []) {
+            $patch['updated_at'] = date('Y-m-d H:i:s');
+            $db->update('mlm_settings', $patch, 'id = 1');
+            MlmSettings::flush();
+        }
+        return $report;
+    }
+
+    public static function migrateOrderStatuses(Database $db): array
+    {
+        $report = [];
+        $definition = self::tables()['orders'] ?? null;
+        if ($definition === null) {
+            return $report;
+        }
+        $existing = [];
+        try {
+            foreach ($db->select($db->driver() === 'mysql' ? 'SHOW TABLES' : "SELECT name FROM sqlite_master WHERE type = 'table'") as $row) {
+                $existing[] = (string) (array_values($row)[0] ?? '');
+            }
+        } catch (\Throwable) {
+            return $report;
+        }
+        if (!in_array('orders', $existing, true)) {
+            return $report;
+        }
+
+        $legacy = ORDER_STATUS_LEGACY;
+        $final = array_keys(ORDER_STATUSES);
+        $union = array_values(array_unique(array_merge(array_keys($legacy), $final)));
+        $enumList = static fn (array $values): string => implode(',', array_map(static fn ($v) => "'" . $v . "'", $values));
+
+        if ($db->driver() === 'mysql') {
+            try {
+                $db->statement('ALTER TABLE orders MODIFY status ENUM(' . $enumList($union) . ") NOT NULL DEFAULT '" . ORDER_STATUS_DEFAULT . "'");
+                $moved = 0;
+                foreach ($legacy as $old => $new) {
+                    $moved += $db->execute('UPDATE orders SET status = :new WHERE status = :old', ['new' => $new, 'old' => $old]);
+                }
+                $db->statement('ALTER TABLE orders MODIFY status ENUM(' . $enumList($final) . ") NOT NULL DEFAULT '" . ORDER_STATUS_DEFAULT . "'");
+                $report[] = 'Order statuses migrated to the shortened list' . ($moved > 0 ? ' (' . $moved . ' row(s) rewritten)' : '');
+            } catch (\Throwable $e) {
+                $report[] = 'Order status migration skipped: ' . $e->getMessage();
+            }
+            return $report;
+        }
+
+        // SQLite: rebuild. Child tables reference "orders" by name, so renaming the new table
+        // back into place leaves every foreign key pointing at the right thing.
+        try {
+            $columns = $db->columns('orders');
+            $columns = array_values(array_filter($columns, static fn (string $c): bool => array_key_exists($c, $definition['columns'] ?? [])));
+            if ($columns === []) {
+                return $report;
+            }
+            $case = "CASE status";
+            foreach ($legacy as $old => $new) {
+                $case .= " WHEN '" . $old . "' THEN '" . $new . "'";
+            }
+            $case .= " ELSE status END";
+            $select = [];
+            $moved = 0;
+            foreach ($columns as $col) {
+                $select[] = $col === 'status' ? $case . ' AS status' : $db->quoteIdentifier($col);
+                if ($col === 'status') {
+                    $moved += (int) $db->value('SELECT COUNT(*) FROM orders WHERE status IN (' . $enumList(array_keys($legacy)) . ')');
+                }
+            }
+            $db->statement('PRAGMA foreign_keys = OFF');
+            $db->statement(self::createTableSql('sqlite', 'orders_migration_tmp', $definition));
+            $db->statement('INSERT INTO orders_migration_tmp (' . implode(', ', array_map([$db, 'quoteIdentifier'], $columns)) . ') SELECT ' . implode(', ', $select) . ' FROM orders');
+            $db->statement('DROP TABLE orders');
+            $db->statement('ALTER TABLE orders_migration_tmp RENAME TO orders');
+            $db->statement('PRAGMA foreign_keys = ON');
+            foreach (self::postCreateIndexes('sqlite') as $sql) {
+                if (str_contains($sql, 'orders')) {
+                    try {
+                        $db->statement($sql);
+                    } catch (\Throwable) {
+                        // Index already present under its own name; harmless.
+                    }
+                }
+            }
+            $report[] = 'Order statuses migrated to the shortened list' . ($moved > 0 ? ' (' . $moved . ' row(s) rewritten)' : '');
+        } catch (\Throwable $e) {
+            $report[] = 'Order status migration skipped: ' . $e->getMessage();
+        }
+        return $report;
     }
 
     public static function dropAll(Database $db): void

@@ -52,6 +52,12 @@ $payments = $db->select('SELECT * FROM order_payments WHERE order_id = :o ORDER 
 $history = $db->select('SELECT * FROM order_status_history WHERE order_id = :o ORDER BY id DESC', ['o' => $id]);
 $commissions = $db->select('SELECT c.*, m.member_code, m.name FROM commission_transactions c LEFT JOIN members m ON m.id = c.member_id WHERE c.order_id = :o ORDER BY c.id ASC', ['o' => $id]);
 
+// Future commission: what this order will pay once it is approved or delivered. It comes from
+// MlmCommissionEngine::projectOrder(), which runs the very same plan processOrder() credits, so
+// the figure shown here is the figure that will actually land - not a separate estimate that
+// could drift from the real calculation.
+$futureCommission = (new \Saee\Lib\MlmCommissionEngine($db))->projectOrder($id);
+
 $pageTitle = 'Order ' . $order['order_number'];
 $pageHeading = 'Order ' . $order['order_number'];
 $pageSub = format_date((string) $order['created_at'], 'd M Y H:i') . ' · ' . money((float) $order['grand_total']);
@@ -90,7 +96,37 @@ require __DIR__ . '/includes/layout.php';
     <div class="panel p-3 p-md-4 mb-3">
       <h2 class="h6 mb-3">Commission on this order</h2>
       <?php if (!$commissions): ?>
-        <p class="small text-muted mb-0">No commission generated yet (order must be paid).</p>
+        <?php if (!empty($futureCommission['future']) && ($futureCommission['total'] ?? 0) > 0): ?>
+          <div class="alert alert-info small py-2 mb-2">
+            <i class="fa-solid fa-clock me-1"></i>
+            <strong>Future commission &mdash; <?= money((float) $futureCommission['total']) ?></strong><br>
+            <?= e((string) $futureCommission['reason']) ?> Nothing is credited until then.
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle data-table">
+              <thead><tr><th>Will be paid to</th><th>Type</th><th class="text-end">Amount</th><th>Status</th></tr></thead>
+              <tbody>
+              <?php foreach ($futureCommission['entries'] as $fcRow): ?>
+                <tr class="table-light">
+                  <td class="small"><?= e((string) $fcRow['beneficiary_name']) ?><div class="text-muted"><?= e((string) $fcRow['beneficiary_code']) ?></div></td>
+                  <td class="small"><?= e(ucwords(str_replace('_', ' ', (string) $fcRow['type']))) ?></td>
+                  <td class="small text-end"><?= money((float) $fcRow['amount']) ?></td>
+                  <td><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Future</span></td>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php else: ?>
+          <p class="small text-muted mb-0">
+            No commission applies to this order. Commission is calculated from each product's own
+            MLM commission settings as soon as the purchase is recorded, so an empty table here
+            means these products carry no MLM commission, or the buyer has no sponsor above them.
+            <?php if (!empty($futureCommission['reason'])): ?>
+              <br><span class="fst-italic"><?= e((string) $futureCommission['reason']) ?></span>
+            <?php endif; ?>
+          </p>
+        <?php endif; ?>
       <?php else: ?>
         <div class="table-responsive">
           <table class="table table-sm mb-3 align-middle data-table">
@@ -124,7 +160,7 @@ require __DIR__ . '/includes/layout.php';
         <?php foreach ($history as $h): ?>
           <div class="list-item">
             <div class="list-icon"><i class="fa-solid fa-clock-rotate-left"></i></div>
-            <div class="flex-grow-1"><div class="small fw-semibold"><?= e(ucwords(str_replace('_', ' ', (string) $h['status']))) ?></div><div class="small text-muted"><?= e((string) ($h['note'] ?? '')) ?></div></div>
+            <div class="flex-grow-1"><div class="small fw-semibold"><?= e(order_status_label((string) $h['status'])) ?></div><div class="small text-muted"><?= e((string) ($h['note'] ?? '')) ?></div></div>
             <div class="small text-muted"><?= e(format_date((string) $h['created_at'], 'd M Y H:i')) ?></div>
           </div>
         <?php endforeach; ?>
@@ -151,21 +187,53 @@ require __DIR__ . '/includes/layout.php';
     <?php if (AdminAuth::can('orders.update')): ?>
       <div class="panel p-3 p-md-4 mb-3">
         <h2 class="h6 mb-3">Update status</h2>
+        <?php
+          $currentStatus = \Saee\Lib\OrderService::normalizeStatus($order['status']);
+          // Offer only the moves OrderService will actually accept. The dropdown used to list every
+          // status, so picking "Delivered" on a new order was refused by the transition table and
+          // the order quietly stayed new. Cancel is left out of the dropdown; it has its own button.
+          $allowedMoves = \Saee\Lib\OrderService::ALLOWED_TRANSITIONS[$currentStatus] ?? [];
+          $statusChoices = array_values(array_filter(
+              $allowedMoves,
+              static fn (string $candidate): bool => $candidate !== 'cancelled'
+          ));
+        ?>
+        <?php if ($statusChoices === []): ?>
+          <p class="small text-muted mb-0">
+            This order is <strong><?= e(ORDER_STATUSES[$currentStatus] ?? $currentStatus) ?></strong>,
+            which is final — it can no longer be moved.
+          </p>
+        <?php else: ?>
         <form method="post">
           <?= csrf_field() ?>
           <input type="hidden" name="action" value="status">
           <div class="mb-2">
             <select class="form-select form-select-sm" name="status">
-              <?php foreach (ORDER_STATUSES as $key => $label): ?>
-                <option value="<?= e($key) ?>" <?= $order['status'] === $key ? 'selected' : '' ?>><?= e($label) ?></option>
+              <?php foreach ($statusChoices as $key): ?>
+                <option value="<?= e($key) ?>"><?= e(ORDER_STATUSES[$key]) ?></option>
               <?php endforeach; ?>
             </select>
+          </div>
+          <div class="form-text mb-2">
+            <?php if (in_array('delivered', $statusChoices, true)): ?>
+              Marking the order delivered also records its payment as paid.
+            <?php endif; ?>
           </div>
           <div class="mb-2"><input class="form-control form-control-sm" name="note" placeholder="Note (optional)"></div>
           <button class="btn btn-sm btn-primary w-100">Update status</button>
         </form>
+        <?php endif; ?>
+        <?php if (in_array('cancelled', $allowedMoves, true)): ?>
+          <form method="post" class="mt-2" data-confirm="Cancel this order? Any commission already generated is reversed.">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="status">
+            <input type="hidden" name="status" value="cancelled">
+            <input type="hidden" name="note" value="Cancelled by admin">
+            <button class="btn btn-sm btn-outline-danger w-100">Cancel order</button>
+          </form>
+        <?php endif; ?>
         <?php if ($order['payment_status'] !== 'paid'): ?>
-          <form method="post" class="mt-2" data-confirm="Mark this order as paid? Commission will be generated.">
+          <form method="post" class="mt-2" data-confirm="Record that payment for this order has been received?">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="mark-paid">
             <button class="btn btn-sm btn-outline-success w-100">Mark as paid</button>

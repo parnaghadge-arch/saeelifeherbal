@@ -21,7 +21,7 @@ if ($search !== '') {
     $params['q'] = '%' . $search . '%';
 }
 if (array_key_exists($status, ORDER_STATUSES)) { $where[] = 'o.status = :st'; $params['st'] = $status; }
-if (in_array($payment, ['paid', 'pending', 'failed', 'refunded', 'cod'], true)) { $where[] = 'o.payment_status = :ps'; $params['ps'] = $payment; }
+if (array_key_exists($payment, ORDER_PAYMENT_STATUSES)) { $where[] = 'o.payment_status = :ps'; $params['ps'] = $payment; }
 if ($from !== '' && strtotime($from)) { $where[] = 'o.created_at >= :from'; $params['from'] = date('Y-m-d 00:00:00', strtotime($from)); }
 if ($to !== '' && strtotime($to)) { $where[] = 'o.created_at <= :to'; $params['to'] = date('Y-m-d 23:59:59', strtotime($to)); }
 $whereSql = implode(' AND ', $where);
@@ -60,7 +60,7 @@ require __DIR__ . '/includes/layout.php';
     </div>
     <div class="col-6 col-md-2"><label class="form-label small text-muted mb-1">Payment</label>
       <select class="form-select form-select-sm" name="payment"><option value="">All</option>
-        <?php foreach (['paid', 'pending', 'failed', 'refunded', 'cod'] as $s): ?><option value="<?= e($s) ?>" <?= $payment === $s ? 'selected' : '' ?>><?= e(ucfirst($s)) ?></option><?php endforeach; ?>
+        <?php foreach (ORDER_PAYMENT_STATUSES as $s => $sLabel): ?><option value="<?= e($s) ?>" <?= $payment === $s ? 'selected' : '' ?>><?= e($sLabel) ?></option><?php endforeach; ?>
       </select>
     </div>
     <div class="col-6 col-md-2"><label class="form-label small text-muted mb-1">From</label><input type="date" class="form-control form-control-sm" name="from" value="<?= e($from) ?>"></div>

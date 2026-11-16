@@ -6,6 +6,7 @@ admin_require('members.view');
 
 use Saee\Lib\AdminAuth;
 use Saee\Lib\MemberService;
+use Saee\Lib\Pager;
 use Saee\Lib\PayoutService;
 use Saee\Lib\Request;
 use Saee\Lib\Security;
@@ -68,7 +69,17 @@ $banks = AdminAuth::can('bank.view') ? $db->select('SELECT * FROM member_bank_ac
 $referrals = $db->select('SELECT member_code, name, status, joined_at FROM members WHERE sponsor_id = :s ORDER BY id DESC LIMIT 10', ['s' => $id]);
 $commissions = $db->select('SELECT * FROM commission_transactions WHERE member_id = :m ORDER BY id DESC LIMIT 10', ['m' => $id]);
 $payouts = $db->select('SELECT * FROM payout_requests WHERE member_id = :m ORDER BY id DESC LIMIT 10', ['m' => $id]);
-$orders = $db->select("SELECT * FROM orders WHERE member_id = :m OR referral_member_id = :m ORDER BY id DESC LIMIT 10", ['m' => $id]);
+// Every order tied to this member (placed by them or referred by them), newest first.
+// Paged rather than capped: a capped list reads as "this member has no other orders".
+$orderTotal = (int) $db->value('SELECT COUNT(*) FROM orders WHERE member_id = :m OR referral_member_id = :m', ['m' => $id]);
+$orderPager = new Pager($orderTotal, 15);
+$orders = $db->select(
+    'SELECT o.*, (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id) AS item_count,
+            (SELECT COALESCE(SUM(i.quantity),0) FROM order_items i WHERE i.order_id = o.id) AS total_qty
+     FROM orders o WHERE o.member_id = :m OR o.referral_member_id = :m
+     ORDER BY o.id DESC' . $orderPager->limitSql(),
+    ['m' => $id]
+);
 $sponsor = $member['sponsor_id'] ? $db->first('SELECT id, member_code, name FROM members WHERE id = :id', ['id' => (int) $member['sponsor_id']]) : null;
 
 $pageTitle = $member['name'];
@@ -226,24 +237,53 @@ require __DIR__ . '/includes/layout.php';
     <?php endif; ?>
 
     <div class="panel p-3 p-md-4 mt-3">
-      <h2 class="h6 mb-3">Orders</h2>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+          <h2 class="h6 mb-0">Orders</h2>
+          <div class="small text-muted"><?= (int) $orderTotal ?> order(s) placed or referred by this member</div>
+        </div>
+      </div>
       <div class="table-responsive">
         <table class="table table-sm mb-0 align-middle data-table">
-          <thead><tr><th>Order</th><th>Date</th><th class="text-end">Total</th><th>Payment</th><th>Status</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Date</th>
+              <th class="text-end">Items</th>
+              <th class="text-end">Total</th>
+              <th>Payment</th>
+              <th>Status</th>
+              <th class="text-end no-sort">Invoice</th>
+            </tr>
+          </thead>
           <tbody>
           <?php foreach ($orders as $o): ?>
             <tr>
               <td class="small"><a href="order-details.php?id=<?= (int) $o['id'] ?>"><?= e((string) $o['order_number']) ?></a></td>
-              <td class="small"><?= e(format_date((string) $o['created_at'], 'd M Y')) ?></td>
-              <td class="small text-end"><?= money((float) $o['grand_total']) ?></td>
+              <td class="small text-nowrap"><?= e(format_date((string) $o['created_at'], 'd M Y')) ?></td>
+              <td class="small text-end"><?= (int) $o['item_count'] ?> (<?= (int) $o['total_qty'] ?>)</td>
+              <td class="small text-end fw-semibold text-nowrap"><?= money((float) $o['grand_total']) ?></td>
               <td><?= status_badge((string) $o['payment_status']) ?></td>
               <td><?= status_badge((string) $o['status']) ?></td>
+              <td class="text-end text-nowrap">
+                <button type="button" class="btn btn-sm btn-outline-primary"
+                        data-invoice-id="<?= (int) $o['id'] ?>"
+                        data-invoice-label="<?= e((string) ($o['invoice_number'] ?: $o['order_number'])) ?> · <?= e((string) $o['order_number']) ?>">
+                  <i class="fa-solid fa-file-invoice me-1" aria-hidden="true"></i>Invoice
+                </button>
+              </td>
             </tr>
           <?php endforeach; ?>
-          <?php if (!$orders): ?><tr><td colspan="5" class="small text-muted">No orders.</td></tr><?php endif; ?>
+          <?php if (!$orders): ?><tr><td colspan="7" class="small text-muted">No orders.</td></tr><?php endif; ?>
           </tbody>
         </table>
       </div>
+      <?php if ($orderPager->pages > 1): ?>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 server-pager">
+          <div class="small text-muted"><?= $orderPager->infoText() ?></div>
+          <?= $orderPager->links() ?>
+        </div>
+      <?php endif; ?>
     </div>
   </div>
 </div>

@@ -12,9 +12,11 @@ use Saee\Lib\Url;
 $categorySlug = trim((string) Request::query('category', ''));
 $sort = (string) Request::query('sort', 'newest');
 
-// Four products per page: a 4-up row on desktop, 2-up on phones, so a page is exactly one
-// or two tidy rows instead of a long scroll.
-$perPage = 4;
+// 24 products per page: six 4-up rows on desktop, twelve rows of two on phones. A small
+// catalogue fits on a single page, so no pagination is drawn at all for it - the previous
+// limit of 4 split even five products across two pages, which read as a fault rather than
+// a feature. Pagination still appears once the catalogue outgrows one page.
+$perPage = 24;
 
 $options = ['category' => $categorySlug, 'sort' => $sort];
 $total = count_products($options);
@@ -111,7 +113,9 @@ echo page_hero($activeCategory ? $activeCategory['name'] : 'Our Products', $acti
           <div class="col-6 col-lg-3 reveal"><?php include INCLUDES_PATH . '/product-card.php'; ?></div>
         <?php endforeach; ?>
       </div>
-      <div class="d-flex justify-content-center mt-4"><?= $pager->links(['category' => $categorySlug, 'sort' => $sort]) ?></div>
+      <?php if ($pager->pages > 1): ?>
+        <div class="d-flex justify-content-center mt-4"><?= $pager->links(['category' => $categorySlug, 'sort' => $sort]) ?></div>
+      <?php endif; ?>
     <?php endif; ?>
 
     <?php // Agronomy help sits after the products, not above them. ?>

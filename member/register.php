@@ -52,8 +52,6 @@ if (is_post()) {
     $v->label('name', 'Full name')->required('name')->min('name', 3)->max('name', 120);
     $v->label('mobile', 'Mobile number')->required('mobile')->phone('mobile', true);
     $v->label('email', 'Email')->email('email');
-    $v->label('password', 'Password')->required('password')->password('password');
-    $v->label('password_confirm', 'Confirm password')->required('password_confirm')->matches('password_confirm', 'password');
     $v->label('state', 'State')->required('state');
     $v->label('district', 'District')->required('district');
     $v->label('taluka', 'Taluka')->required('taluka');
@@ -68,7 +66,6 @@ if (is_post()) {
             'name' => $v->value('name'),
             'mobile' => $v->value('mobile'),
             'email' => $v->value('email'),
-            'password' => (string) Request::raw('password'),
             'role' => (string) Request::input('role', 'farmer'),
             'sponsor_code' => (string) Request::input('sponsor_code', ''),
             'address' => $v->value('address'),
@@ -85,8 +82,9 @@ if (is_post()) {
             // Sign the member in, then keep them on this page for one render so the credentials
             // card can be shown. The password is not recoverable afterwards, so redirecting
             // straight to the dashboard would lose it for good. The card offers a continue link.
-            MemberAuth::attempt((string) $v->value('mobile'), (string) Request::raw('password'));
             $welcome = (array) ($result['welcome'] ?? []);
+            // The password is generated as the member ID, so sign in with that pair.
+            MemberAuth::attempt((string) ($welcome['username'] ?? $v->value('mobile')), (string) ($welcome['password'] ?? ''));
             $welcomeContext = 'self';
             $registeredCode = (string) ($result['member']['member_code'] ?? '');
             Session::success('Welcome aboard! Your member ID is ' . $registeredCode . '.');
@@ -225,19 +223,14 @@ echo page_hero('Register as a Partner', 'Free registration. No joining fee. No r
               </div>
             </div>
 
-            <h2 class="h6 text-uppercase text-muted mt-4 mb-3" style="letter-spacing:.1em">4 · Security</h2>
-            <div class="row g-3">
-              <div class="col-md-6">
-                <label class="form-label" for="password">Password <span class="required-mark">*</span></label>
-                <input id="password" name="password" type="password" class="form-control<?= invalid_class($errors, 'password') ?>" required autocomplete="new-password">
-                <div class="form-text">Minimum <?= PASSWORD_MIN_LENGTH ?> characters with a letter and a number.</div>
-                <?= field_error($errors, 'password') ?>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label" for="password_confirm">Confirm password <span class="required-mark">*</span></label>
-                <input id="password_confirm" name="password_confirm" type="password" class="form-control<?= invalid_class($errors, 'password_confirm') ?>" required autocomplete="new-password">
-                <?= field_error($errors, 'password_confirm') ?>
-              </div>
+            <h2 class="h6 text-uppercase text-muted mt-4 mb-3" style="letter-spacing:.1em">4 · Your login</h2>
+            <div class="alert alert-success small mb-0">
+              <i class="fa-solid fa-key me-1"></i>
+              <strong>You do not need to choose a password.</strong>
+              Your password is generated automatically and is exactly the same as your
+              Member ID — for example <code>SLH000001</code>. You will see both on the next
+              screen, so please save them. You can change the password later from
+              <em>My Account &rsaquo; Password</em>.
             </div>
 
             <div class="form-check mt-4">

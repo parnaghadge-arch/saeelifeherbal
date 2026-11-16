@@ -2,10 +2,11 @@
   </div>
 </div>
 
-<nav class="mobile-bottom-nav">
+<nav class="mobile-bottom-nav" aria-label="Member quick navigation">
   <?php foreach ($bottomNav as [$key, $label, $icon, $href]): ?>
-    <a href="<?= e(\Saee\Lib\Url::member($href)) ?>" class="<?= $activeNav === $key ? 'active' : '' ?>">
-      <i class="fa-solid <?= e($icon) ?>"></i><span><?= e($label) ?></span>
+    <?php $isActive = $activeNav === $key || ($key === 'payouts' && $activeNav === 'payout-request'); ?>
+    <a href="<?= e(\Saee\Lib\Url::member($href)) ?>" class="<?= $isActive ? 'active' : '' ?>">
+      <i class="fa-solid <?= e($icon) ?>" aria-hidden="true"></i><span><?= e($label) ?></span>
     </a>
   <?php endforeach; ?>
 </nav>
@@ -25,6 +26,8 @@ document.getElementById('sidebarBackdrop')?.addEventListener('click', function (
   this.classList.remove('show');
 });
 </script>
+<?php require dirname(__DIR__, 2) . '/includes/invoice-modal.php'; ?>
+<?php require dirname(__DIR__, 2) . '/includes/confirm-modal.php'; ?>
 <script src="<?= e(\Saee\Lib\Url::asset('vendor/bootstrap/bootstrap.bundle.min.js')) ?>" defer></script>
 <script src="<?= e(\Saee\Lib\Url::asset('js/app.js')) ?>" defer></script>
 <?php if (!empty($extraScripts)) { echo $extraScripts; } ?>
