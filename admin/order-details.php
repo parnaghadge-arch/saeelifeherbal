@@ -345,7 +345,34 @@ require __DIR__ . '/includes/layout.php';
         <div class="text-muted"><?= e((string) ($order['customer_email'] ?? '')) ?></div>
         <hr>
         <div class="text-muted mb-1">Shipping address</div>
-        <?= nl2br(e((string) $order['shipping_address'])) ?>
+        <?php
+        // Orders store shipping_address as the checkout form encoded in JSON. Show a proper
+        // address block instead of the raw blob; a legacy plain-text row passes through as-is.
+        $ship = json_decode((string) $order['shipping_address'], true);
+        if (!is_array($ship)) {
+            $shipText = trim((string) $order['shipping_address']);
+            echo ($shipText !== '' && strcasecmp($shipText, 'null') !== 0)
+                ? nl2br(e($shipText))
+                : '<span class="text-muted">No delivery address recorded.</span>';
+        } else {
+            $shipCityState = implode(', ', array_filter([
+                trim((string) ($ship['city'] ?? '')),
+                trim((string) ($ship['state'] ?? '')),
+            ]));
+            $shipPin = trim((string) ($ship['pincode'] ?? ''));
+            $shipPhone = trim((string) ($ship['phone'] ?? $ship['mobile'] ?? ''));
+            $shipLines = array_values(array_filter([
+                trim((string) ($ship['full_name'] ?? '')),
+                trim((string) ($ship['address_line1'] ?? '')),
+                trim((string) ($ship['address_line2'] ?? '')),
+                $shipCityState . ($shipPin !== '' ? ($shipCityState !== '' ? ' - ' : '') . $shipPin : ''),
+                $shipPhone !== '' ? 'Mobile: ' . $shipPhone : '',
+            ], static fn (string $line): bool => $line !== ''));
+            echo $shipLines !== []
+                ? nl2br(e(implode("\n", $shipLines)))
+                : '<span class="text-muted">No delivery address recorded.</span>';
+        }
+        ?>
       </div>
       <div class="mt-3 d-flex gap-2"><?= status_badge((string) $order['status']) ?> <?= status_badge((string) $order['payment_status']) ?></div>
       <div class="small text-muted mt-2">Payment: <?= e(payment_label((string) $order['payment_method'])) ?></div>
