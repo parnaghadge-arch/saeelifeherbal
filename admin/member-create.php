@@ -151,10 +151,10 @@ if (is_post()) {
     }
 }
 
-$products = $db->select(
-    "SELECT id, name, sku, price, stock_quantity FROM products
-      WHERE status = 'active' ORDER BY name ASC LIMIT 300"
-);
+// Same catalogue rows as the Record Purchase desk, so the shared picker can show prices,
+// stock, GST and category exactly the same way on both screens.
+$products = $purchaseService->products();
+$productTotal = $purchaseService->activeProductCount();
 
 $pageTitle = 'Add Member';
 $pageHeading = 'Add Member';
@@ -257,98 +257,85 @@ require __DIR__ . '/includes/layout.php';
     <h2 class="h6 text-uppercase text-muted mt-4 mb-3" style="letter-spacing:.08em">3 · Opening purchase (optional)</h2>
     <p class="small text-muted">
       Add products to buy in this member's name. Commissions, wallet and royalty are calculated by
-      the same rules as any other order. Leave every quantity empty to create the member only.
+      the same rules as any other order. Leave the basket empty to create the member only.
     </p>
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0">
-        <thead>
-          <tr><th>Product</th><th class="text-end">Price</th><th class="text-end">Stock</th><th style="width:110px">Qty</th><th class="text-end">Line total</th></tr>
-        </thead>
-        <tbody>
-        <?php foreach ($products as $product): ?>
-          <?php $pid = (int) $product['id']; ?>
-          <tr>
-            <td class="small">
-              <div class="fw-semibold"><?= e((string) $product['name']) ?></div>
-              <div class="text-muted"><?= e((string) ($product['sku'] ?? '')) ?></div>
-            </td>
-            <td class="text-end small"><?= money((float) $product['price']) ?></td>
-            <td class="text-end small <?= (int) $product['stock_quantity'] <= 0 ? 'text-danger' : 'text-muted' ?>"><?= (int) $product['stock_quantity'] ?></td>
-            <td>
-              <input type="number" min="0" step="1" class="form-control form-control-sm purchase-qty"
-                     name="qty[<?= $pid ?>]" value="<?= e((string) ($postedQty[$pid] ?? '')) ?>"
-                     data-price="<?= e((string) (float) $product['price']) ?>" inputmode="numeric">
-            </td>
-            <td class="text-end small line-total">&mdash;</td>
-          </tr>
-        <?php endforeach; ?>
-        <?php if (!$products): ?>
-          <tr><td colspan="5" class="small text-muted">No active products yet.</td></tr>
-        <?php endif; ?>
-        </tbody>
-        <tfoot>
-          <tr>
-            <th colspan="4" class="text-end small">Basket subtotal (excl. tax &amp; shipping)</th>
-            <th class="text-end" id="basketTotal">&mdash;</th>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-    <div class="row g-3 mt-1">
-      <div class="col-md-6">
-        <label class="form-label" for="payment_mode">Mode of payment <span class="required-mark payment-required">*</span></label>
-        <select id="payment_mode" name="payment_mode" class="form-select<?= isset($errors['payment_mode']) ? ' is-invalid' : '' ?>">
-          <option value="">Choose&hellip;</option>
+    <?php
+      // Steps 1 and 2 (browse, then the chosen items) come from the shared picker - the same
+      // "add products" experience as the Record Purchase desk. It fills the same qty[<id>]
+      // inputs, so the backend contract is unchanged.
+      $ppProducts = $products;
+      $ppSearch = '';
+      $ppTotalAll = $productTotal;
+      require INCLUDES_PATH . '/purchase-picker.php';
+    ?>
+
+    <div class="row g-3">
+      <div class="col-12 col-lg-6">
+        <div class="panel p-3 p-md-4 h-100">
+          <h2 class="h6 mb-3"><span class="pp-step">3</span> Mode of payment</h2>
+          <?php if ($modeLabels === []): ?>
+            <p class="small text-muted mb-0">No mode of payment is enabled. Turn one on under Payment Methods first.</p>
+          <?php endif; ?>
           <?php foreach ($modeLabels as $value => $label): ?>
-            <option value="<?= e($value) ?>" <?= $old['payment_mode'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+            <?php $walletUnavailable = $value === 'wallet'; ?>
+            <div class="form-check mb-2 <?= $walletUnavailable ? 'opacity-50' : '' ?>">
+              <input class="form-check-input" type="radio" name="payment_mode" id="pm_<?= e($value) ?>" value="<?= e($value) ?>"
+                     <?= $walletUnavailable ? 'disabled' : '' ?> <?= ($old['payment_mode'] === $value && !$walletUnavailable) ? 'checked' : '' ?>>
+              <label class="form-check-label small" for="pm_<?= e($value) ?>"><?= e($label) ?>
+                <?php if ($walletUnavailable): ?><span class="text-muted">(a new member has no wallet balance)</span><?php endif; ?>
+              </label>
+            </div>
           <?php endforeach; ?>
-        </select>
-        <?php if (isset($errors['payment_mode'])): ?><div class="invalid-feedback d-block"><?= e($errors['payment_mode'][0]) ?></div><?php endif; ?>
-        <div class="form-text">Required when a product quantity is entered.</div>
+          <?php if (isset($errors['payment_mode'])): ?><div class="invalid-feedback d-block"><?= e($errors['payment_mode'][0]) ?></div><?php endif; ?>
+          <p class="small text-muted mb-0">Required only when products are added. Wallet, UPI and bank transfer are recorded as paid <em>and approved</em> straight away, so commission runs. Cash on delivery waits until the order is approved or delivered.</p>
+        </div>
       </div>
-      <div class="col-md-6">
-        <label class="form-label" for="admin_note">Internal note (optional)</label>
-        <input id="admin_note" name="admin_note" class="form-control" value="<?= e($old['admin_note']) ?>">
+      <div class="col-12 col-lg-6">
+        <div class="panel p-3 p-md-4 h-100">
+          <h2 class="h6 mb-3"><span class="pp-step">4</span> Internal note</h2>
+          <label class="form-label small mb-1" for="admin_note">Note (optional)</label>
+          <input id="admin_note" name="admin_note" class="form-control" value="<?= e($old['admin_note']) ?>">
+          <p class="small text-muted mt-2 mb-0">Kept on the member record for admins only.</p>
+        </div>
       </div>
     </div>
 
-    <div class="d-flex flex-wrap gap-2 mt-4">
-      <button class="btn btn-primary" type="submit"><i class="fa-solid fa-user-plus me-1"></i>Create member</button>
-      <a class="btn btn-outline-secondary" href="members.php">Cancel</a>
+    <?php // Totals bar with the same live figures as Record Purchase. Unlike that desk, the
+      // submit button stays enabled with an empty basket: the opening purchase is optional.
+    ?>
+    <div class="panel p-3 p-md-4 mb-3 pp-totalbar">
+      <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+        <div class="small pp-totals">
+          <div>Subtotal <strong data-summary="subtotal"><?= money(0) ?></strong></div>
+          <div>Tax <strong data-summary="tax"><?= money(0) ?></strong></div>
+          <div>Shipping <strong data-summary="shipping"><?= money(0) ?></strong></div>
+          <div class="fs-6">Total <strong data-summary="total"><?= money(0) ?></strong></div>
+        </div>
+        <div class="text-end">
+          <div class="small text-muted mb-1">With an empty basket the member is created without an opening purchase</div>
+          <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-outline-secondary" href="members.php">Cancel</a>
+            <button type="submit" class="btn btn-primary btn-lg px-4"><i class="fa-solid fa-user-plus me-1"></i>Create member</button>
+          </div>
+        </div>
+      </div>
     </div>
   </form>
 </div>
 
 <script>
-(function () {
-  var rows = Array.prototype.slice.call(document.querySelectorAll('.purchase-qty'));
-  var totalEl = document.getElementById('basketTotal');
-
-  function recalc() {
-    var subtotal = 0;
-    rows.forEach(function (input) {
-      var qty = parseInt(input.value, 10) || 0;
-      var price = parseFloat(input.getAttribute('data-price')) || 0;
-      var cell = input.closest('tr').querySelector('.line-total');
-      if (qty > 0) {
-        subtotal += qty * price;
-        if (cell) { cell.textContent = '₹' + (qty * price).toFixed(2); }
-      } else if (cell) {
-        cell.innerHTML = '&mdash;';
-      }
-    });
-    if (totalEl) { totalEl.textContent = subtotal > 0 ? '₹' + subtotal.toFixed(2) : '—'; }
-    // Mode of payment is only mandatory when something is being bought.
-    var required = subtotal > 0;
-    document.querySelectorAll('.payment-required').forEach(function (el) {
-      el.style.visibility = required ? 'visible' : 'hidden';
+// Restore the basket after a validation-error re-render, and stop Enter inside the picker's
+// filter box from submitting the form (the create button is always enabled, unlike the Record
+// Purchase desk whose submit stays disabled until items are chosen).
+window.ppInitialLines = <?= json_encode((object) array_map('intval', array_filter($postedQty, static fn ($q): bool => (int) $q > 0))) ?>;
+document.addEventListener('DOMContentLoaded', function () {
+  var filter = document.getElementById('ppFilter');
+  if (filter) {
+    filter.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); }
     });
   }
-
-  rows.forEach(function (input) { input.addEventListener('input', recalc); });
-  recalc();
-
-})();
+});
 </script>
 
 <?php if ($welcome !== []): ?>

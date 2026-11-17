@@ -161,6 +161,17 @@ document.addEventListener('DOMContentLoaded', function () {
   };
 
   var lines = {};      // productId -> qty
+  // Optional pre-fill: a desk that re-renders the form after a validation error (member-create)
+  // restores the basket the admin had already built via window.ppInitialLines. Clamped the same
+  // way setQty() clamps. Absent (or empty) on the other desks, which start with an empty basket.
+  if (window.ppInitialLines && typeof window.ppInitialLines === 'object') {
+    Object.keys(window.ppInitialLines).forEach(function (id) {
+      var qty = parseInt(window.ppInitialLines[id], 10) || 0;
+      if (qty > 0 && byId[id]) {
+        lines[id] = Math.min(qty, byId[id].stock > 0 ? byId[id].stock : 999);
+      }
+    });
+  }
   var activeCat = '';
 
   function money(n) {

@@ -667,6 +667,16 @@
 
       group.addEventListener('toggle', function () {
         saved[id] = group.open;
+        // Accordion: opening one group closes every other open group, so the sidebar never
+        // shows two open groups at once. Closing a group leaves the rest as they are. The
+        // closing groups fire their own toggle handlers, which persist their state too.
+        if (group.open) {
+          groups.forEach(function (other) {
+            if (other !== group && other.open) {
+              other.open = false;
+            }
+          });
+        }
         try { window.localStorage.setItem(storeKey, JSON.stringify(saved)); } catch (err) { /* private mode */ }
       });
     });

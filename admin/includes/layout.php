@@ -21,9 +21,10 @@ $menu = [
         ['label' => 'Reports', 'icon' => 'fa-chart-line', 'href' => 'reports.php', 'key' => 'reports', 'perm' => 'reports.view'],
     ],
     'People' => [
+        // Customers are the same accounts as Members (customers.member_id links them), so the
+        // sidebar offers one entry point - Members - instead of two overlapping menus.
         ['label' => 'Members', 'icon' => 'fa-user-group', 'href' => 'members.php', 'key' => 'members', 'perm' => 'members.view'],
         ['label' => 'KYC Verification', 'icon' => 'fa-id-card', 'href' => 'kyc.php', 'key' => 'kyc', 'perm' => 'kyc.view'],
-        ['label' => 'Customers', 'icon' => 'fa-users', 'href' => 'customers.php', 'key' => 'customers', 'perm' => 'members.view'],
         ['label' => 'Genealogy Tree', 'icon' => 'fa-network-wired', 'href' => 'genealogy.php', 'key' => 'genealogy', 'perm' => 'mlm.tree'],
     ],
     'Sales' => [
