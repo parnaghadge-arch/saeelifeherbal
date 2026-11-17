@@ -199,7 +199,11 @@ require __DIR__ . '/includes/layout.php';
         ) ?? ['entries' => 0, 'total' => 0];
         $payableCount = (int) $payable['entries'];
         ?>
-        <?php if (AdminAuth::can('payouts.approve') && $payableCount > 0): ?>
+        <?php $purchaseBlocked = \Saee\Lib\MemberService::purchaseBlocker($db, $memberId); ?>
+        <?php if ($purchaseBlocked !== null && AdminAuth::can('payouts.approve')): ?>
+          <div class="small text-danger mt-2"><i class="fa-solid fa-lock me-1"></i><?= e($purchaseBlocked) ?></div>
+        <?php endif; ?>
+        <?php if (AdminAuth::can('payouts.approve') && $payableCount > 0 && $purchaseBlocked === null): ?>
           <hr class="my-3">
           <form method="post"
                 data-confirm="Mark <?= e(money((float) $payable['total'])) ?> across <?= (int) $payableCount ?> commission entr<?= $payableCount === 1 ? 'y' : 'ies' ?> as paid to this member? Their wallet balance will be debited.">

@@ -115,7 +115,9 @@ $summary = $db->first(
 $futureTotal = (new MlmCommissionEngine($db))->futureCommissionTotal();
 $pager = new Pager($total, 25);
 $rows = $db->select(
-    "SELECT c.*, m.name AS member_name, m.member_code FROM commission_transactions c
+    "SELECT c.*, m.name AS member_name, m.member_code,
+            EXISTS(SELECT 1 FROM orders o WHERE o.member_id = m.id AND o.status <> 'cancelled') AS has_purchase
+       FROM commission_transactions c
      LEFT JOIN members m ON m.id = c.member_id WHERE $whereSql ORDER BY c.id DESC" . $pager->limitSql(),
     $params
 );
@@ -189,7 +191,12 @@ require __DIR__ . '/includes/layout.php';
           <td data-label="Amount" class="text-end small fw-semibold"><?= money((float) $row['amount']) ?><?php if ((float) $row['reversed_amount'] > 0): ?><div class="text-danger">−<?= money((float) $row['reversed_amount']) ?></div><?php endif; ?></td>
           <td data-label="Status"><?= status_badge((string) $row['status']) ?></td>
           <td class="text-end">
-            <?php if (AdminAuth::can('payouts.approve') && (string) $row['status'] === 'available'): ?>
+            <?php if (AdminAuth::can('payouts.approve') && (string) $row['status'] === 'available' && empty($row['has_purchase'])): ?>
+              <div class="small text-danger text-end mb-1" title="Downline commission is calculated, but the member has not purchased a product yet — payment stays blocked until their first purchase.">
+                <i class="fa-solid fa-lock me-1"></i>No purchase yet — cannot be paid
+              </div>
+            <?php endif; ?>
+            <?php if (AdminAuth::can('payouts.approve') && (string) $row['status'] === 'available' && !empty($row['has_purchase'])): ?>
               <form method="post" class="d-flex gap-1 justify-content-end mb-1"
                     data-confirm="Mark <?= e(money((float) $row['amount'])) ?> as paid to <?= e((string) ($row['member_code'] ?? 'this member')) ?>? This debits their wallet balance.">
                 <?= csrf_field() ?>

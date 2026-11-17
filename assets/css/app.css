@@ -1341,6 +1341,50 @@ a:hover { color: var(--saee-dark); }
 .tree-meta { font-size: .72rem; color: var(--saee-muted); }
 .tree-toggle { margin-left: auto; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--saee-border); background: #fff; line-height: 1; font-weight: 700; color: var(--saee-dark); }
 .tree-empty { font-size: .75rem; color: var(--saee-muted); padding: .2rem 0 .2rem 1rem; }
+
+/* MLM genealogy tree (shared by admin + member) — users icon + member ID nodes,
+   green = active (has purchased), red = inactive (registered, no purchase yet). */
+.mlm-legend { align-items: center; }
+.mlm-legend-dot { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .62rem; border: 2px solid; }
+.mlm-legend-dot.is-active { background: #dcfce7; border-color: #16a34a; color: #15803d; }
+.mlm-legend-dot.is-inactive { background: #fee2e2; border-color: #dc2626; color: #b91c1c; }
+.mlm-tree, .mlm-kids { list-style: none; margin: 0; padding: 0; }
+.mlm-tree { display: flex; justify-content: center; min-width: max-content; }
+.mlm-node { position: relative; display: flex; flex-direction: column; align-items: center; }
+.mlm-tree > .mlm-node { padding-top: 0; }
+/* classic border-based connectors: each node draws its half of the horizontal bar
+   plus the vertical drop from the bar down to the icon */
+.mlm-kids > .mlm-node { padding-top: 1.55rem; }
+.mlm-kids > .mlm-node::before,
+.mlm-kids > .mlm-node::after { content: ''; position: absolute; top: 0; width: 50%; height: 1.55rem; }
+.mlm-kids > .mlm-node::before { right: 50%; border-top: 2px solid #cfe3d4; }
+.mlm-kids > .mlm-node::after { left: 50%; border-top: 2px solid #cfe3d4; border-left: 2px solid #cfe3d4; }
+.mlm-kids > .mlm-node:first-child::before,
+.mlm-kids > .mlm-node:last-child::after { border: 0; }
+.mlm-kids > .mlm-node:last-child::before { border-right: 2px solid #cfe3d4; }
+.mlm-kids > .mlm-node:only-child::before { border: 0; border-right: 2px solid #cfe3d4; }
+.mlm-kids { display: flex; gap: 1.15rem; justify-content: center; }
+.mlm-unit { display: flex; flex-direction: column; align-items: center; gap: .3rem; min-width: 84px; }
+.mlm-dot { width: 52px; height: 52px; border-radius: 50%; border: 3px solid; display: flex; align-items: center; justify-content: center; font-size: 1.12rem; cursor: pointer; transition: var(--saee-transition, all .18s ease); padding: 0; }
+.mlm-dot.is-active { background: #dcfce7; border-color: #16a34a; color: #15803d; }
+.mlm-dot.is-inactive { background: #fee2e2; border-color: #dc2626; color: #b91c1c; }
+.mlm-dot:hover { transform: scale(1.08); box-shadow: 0 6px 16px rgba(16, 40, 24, .16); }
+.mlm-id { font-family: var(--saee-font-heading, inherit); font-weight: 700; font-size: .74rem; color: var(--saee-dark, #102818); letter-spacing: .02em; }
+.mlm-expand { border: 1px solid var(--saee-border, #e6ede7); background: #fff; color: var(--saee-primary, #14532d); font-size: .68rem; font-weight: 700; border-radius: 999px; padding: .1rem .55rem; line-height: 1.5; }
+.mlm-expand:hover { background: var(--saee-light, #e8f5e9); }
+.mlm-empty { font-size: .72rem; color: var(--saee-muted, #6b7280); padding: .45rem .6rem; background: #fff; border: 1px dashed var(--saee-border, #e6ede7); border-radius: 10px; }
+/* the "window besides icon" with MLM details */
+.mlm-pop { position: absolute; z-index: 3000; width: 300px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid var(--saee-border, #e6ede7); border-radius: 14px; box-shadow: 0 18px 44px rgba(16, 40, 24, .22); overflow: hidden; }
+.mlm-pop-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .65rem .85rem; background: var(--saee-light, #e8f5e9); border-bottom: 1px solid var(--saee-border, #e6ede7); }
+.mlm-pop-title { font-size: .88rem; color: var(--saee-dark, #102818); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mlm-pop-close { border: none; background: transparent; font-size: 1.15rem; line-height: 1; color: var(--saee-muted, #6b7280); padding: 0 .25rem; }
+.mlm-pop-body { padding: .75rem .85rem .85rem; }
+.mlm-pop-row { display: flex; justify-content: space-between; gap: .75rem; font-size: .78rem; padding: .18rem 0; }
+.mlm-pop-row strong { font-weight: 600; text-align: right; }
+.mlm-pill { display: inline-block; font-size: .72rem; font-weight: 700; border-radius: 999px; padding: .18rem .65rem; margin-bottom: .55rem; }
+.mlm-pill.is-active { background: #dcfce7; color: #15803d; }
+.mlm-pill.is-inactive { background: #fee2e2; color: #b91c1c; }
+.mlm-pop-note { margin-top: .55rem; font-size: .72rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: .5rem .65rem; }
 .search-results { position: absolute; z-index: 20; left: 0; right: 0; background: #fff; border: 1px solid var(--saee-border); border-radius: 12px; box-shadow: 0 10px 24px rgba(16,40,24,.12); max-height: 260px; overflow-y: auto; margin-top: .25rem; }
 .search-result { display: flex; justify-content: space-between; gap: .5rem; padding: .5rem .7rem; text-decoration: none; color: inherit; font-size: .85rem; }
 .search-result:hover { background: var(--saee-light); }

@@ -13,6 +13,43 @@ final class MemberService
     }
 
     /**
+     * Whether the member has bought at least one product: any order in their own
+     * name that was not cancelled. This is the genealogy tree's green/red state -
+     * a member who only registered is red ("inactive") until the first purchase.
+     */
+    public static function hasPurchase(Database $db, int $memberId): bool
+    {
+        return (bool) $db->value(
+            "SELECT 1 FROM orders WHERE member_id = :m AND status <> 'cancelled' LIMIT 1",
+            ['m' => $memberId]
+        );
+    }
+
+    /**
+     * Payout gate for members who have not purchased yet. Their downline commission
+     * is still calculated and credited normally - it simply cannot be paid out (by
+     * the admin or anyone else) until the first purchase turns the member green.
+     * Returns null once the member is active.
+     */
+    public static function purchaseBlocker(Database $db, int $memberId): ?string
+    {
+        return self::hasPurchase($db, $memberId)
+            ? null
+            : 'No product purchase yet — payout unlocks after the first purchase (commission keeps being calculated meanwhile).';
+    }
+
+    /** Purchase counters for the genealogy detail window. */
+    public static function purchaseSummary(Database $db, int $memberId): array
+    {
+        $row = $db->first(
+            "SELECT COUNT(*) AS purchases, COALESCE(SUM(grand_total), 0) AS spent
+               FROM orders WHERE member_id = :m AND status <> 'cancelled'",
+            ['m' => $memberId]
+        ) ?? [];
+        return ['purchases' => (int) ($row['purchases'] ?? 0), 'spent' => (float) ($row['spent'] ?? 0)];
+    }
+
+    /**
      * Resolve a sponsor by member code, mobile, email or referral code.
      * Returns null when not found so callers can fall back to the company sponsor.
      */

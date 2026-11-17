@@ -60,7 +60,9 @@ if (in_array($status, ['pending', 'approved', 'processing', 'rejected', 'paid', 
 $total = (int) $db->value("SELECT COUNT(*) FROM payout_requests p WHERE $where", $params);
 $pager = new Pager($total, 20);
 $rows = $db->select(
-    "SELECT p.*, m.name, m.member_code, m.mobile FROM payout_requests p JOIN members m ON m.id = p.member_id
+    "SELECT p.*, m.name, m.member_code, m.mobile,
+            EXISTS(SELECT 1 FROM orders o WHERE o.member_id = m.id AND o.status <> 'cancelled') AS has_purchase
+       FROM payout_requests p JOIN members m ON m.id = p.member_id
      WHERE $where ORDER BY p.id DESC" . $pager->limitSql(),
     $params
 );
@@ -116,12 +118,17 @@ require __DIR__ . '/includes/layout.php';
         </div>
       <?php endif; ?>
       <div class="mt-2"><?= status_badge((string) $row['status']) ?>
+        <?php if (empty($row['has_purchase'])): ?>
+          <span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-1"
+                title="Downline commission is calculated, but the member has not purchased a product yet — payment stays blocked until their first purchase.">No purchase yet — payment blocked</span>
+        <?php endif; ?>
         <?php if (!empty($row['report_downloaded_at'])): ?><span class="small text-muted ms-2">Report downloaded <?= e(format_date((string) $row['report_downloaded_at'], 'd M Y H:i')) ?></span><?php endif; ?>
         <?php if ($row['utr_number']): ?><span class="small text-muted ms-2">UTR <?= e((string) $row['utr_number']) ?></span><?php endif; ?>
         <?php if ($row['rejection_reason']): ?><span class="small text-danger ms-2"><?= e((string) $row['rejection_reason']) ?></span><?php endif; ?>
       </div>
       <?php if ($row['status'] === 'pending'): ?>
         <div class="d-flex flex-column flex-sm-row gap-2 mt-2">
+          <?php if (!empty($row['has_purchase'])): ?>
           <form method="post" class="d-flex gap-2 flex-grow-1">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="approve">
@@ -129,6 +136,12 @@ require __DIR__ . '/includes/layout.php';
             <input class="form-control form-control-sm" name="note" placeholder="Approval note">
             <button class="btn btn-sm btn-success text-nowrap">Approve</button>
           </form>
+          <?php else: ?>
+            <div class="flex-grow-1 d-flex align-items-center">
+              <button class="btn btn-sm btn-success text-nowrap" disabled title="Payment unlocks after the member's first product purchase.">Approve</button>
+              <span class="small text-danger ms-2">Commission is calculated but cannot be paid until this member purchases a product.</span>
+            </div>
+          <?php endif; ?>
           <form method="post" class="d-flex gap-2" data-confirm="Reject this payout request?">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="reject">
@@ -138,6 +151,12 @@ require __DIR__ . '/includes/layout.php';
           </form>
         </div>
       <?php elseif (in_array((string) $row['status'], ['approved', 'processing'], true) && AdminAuth::can('payouts.pay')): ?>
+        <?php if (empty($row['has_purchase'])): ?>
+          <div class="mt-2">
+            <button class="btn btn-sm btn-primary" disabled title="Payment unlocks after the member's first product purchase.">Mark paid</button>
+            <span class="small text-danger ms-2">Commission is calculated but cannot be paid until this member purchases a product.</span>
+          </div>
+        <?php else: ?>
         <form method="post" enctype="multipart/form-data" class="row g-2 mt-2" data-confirm="Mark this payout as paid? The member will see Payment Completed with this UTR.">
           <?= csrf_field() ?>
           <input type="hidden" name="action" value="paid">
@@ -154,6 +173,7 @@ require __DIR__ . '/includes/layout.php';
           <div class="col-md-3"><input type="file" name="proof" class="form-control form-control-sm" accept="image/*,application/pdf"></div>
           <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Mark paid</button></div>
         </form>
+        <?php endif; ?>
       <?php endif; ?>
     </div>
   <?php endforeach; ?>

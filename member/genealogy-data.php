@@ -1,5 +1,14 @@
 <?php
-/** AJAX endpoint: genealogy children + member search (scoped to the logged in member). */
+/**
+ * AJAX endpoint for the shared MLM genealogy tree widget (scoped to the logged in member).
+ *
+ * Modes:
+ *   ?parent=<id>  one level of children (TeamService::treeChildren — raw values, the
+ *                 widget fills DOM text nodes)
+ *   ?detail=<id>  MLM details window payload (TeamService::mlmDetail — raw values)
+ *   ?search=      legacy search dropdown (pre-escaped HTML strings, kept for the
+ *                 search box on the genealogy page)
+ */
 declare(strict_types=1);
 
 require __DIR__ . '/_guard.php';
@@ -16,32 +25,28 @@ $search = trim((string) Request::query('search', ''));
 if ($search !== '') {
     $members = [];
     foreach ($team->searchMembers($search, 20) as $row) {
-        if (!in_array((int) $row['id'], $allowed, true)) { continue; }
+        if (!in_array((int) $row['id'], $allowed, true)) {
+            continue;
+        }
         $members[] = [
             'id' => (int) $row['id'],
-            'name' => (string) $row['name'],
-            'member_code' => (string) $row['member_code'],
+            'name' => e((string) $row['name']),
+            'member_code' => e((string) $row['member_code']),
         ];
     }
     Response::success('ok', ['members' => $members]);
+}
+
+$detailId = Request::int('detail');
+if ($detailId > 0) {
+    if (!in_array($detailId, $allowed, true)) {
+        Response::error('Not permitted.', [], 403);
+    }
+    Response::success('ok', ['detail' => $team->mlmDetail($detailId)]);
 }
 
 $parent = Request::int('parent', $currentMemberId);
 if (!in_array($parent, $allowed, true)) {
     Response::error('Not permitted.', [], 403);
 }
-$rows = $team->children($parent, '', 100, 0);
-$members = [];
-foreach ($rows as $row) {
-    $hasChildren = (int) $row['direct_referral_count'] > 0;
-    $members[] = [
-        'id' => (int) $row['id'],
-        'name' => e((string) $row['name']),
-        'member_code' => e((string) $row['member_code']),
-        'initials' => e(initials((string) $row['name'])),
-        'directs' => (int) $row['direct_referral_count'],
-        'status_label' => e(ucfirst((string) $row['status'])),
-        'has_children' => $hasChildren,
-    ];
-}
-Response::success('ok', ['members' => $members]);
+Response::success('ok', ['members' => $team->treeChildren($parent)]);

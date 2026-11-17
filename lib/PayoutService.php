@@ -129,6 +129,10 @@ final class PayoutService
         if ($member['status'] !== 'active') {
             $blockers[] = 'Your account must be active.';
         }
+        $purchaseBlocker = MemberService::purchaseBlocker($this->db, $memberId);
+        if ($purchaseBlocker !== null) {
+            $blockers[] = $purchaseBlocker;
+        }
         $available = (float) ($wallet['available_balance'] ?? 0);
         if ($available < (float) $this->settings['min_withdrawal_amount']) {
             $blockers[] = 'Available balance is below the minimum payout amount of ' . money((float) $this->settings['min_withdrawal_amount']) . '.';
@@ -217,6 +221,9 @@ final class PayoutService
             if (!$member || $member['status'] !== 'active') {
                 continue;
             }
+            if (MemberService::purchaseBlocker($this->db, $memberId) !== null) {
+                continue; // no purchase yet — blockedMembers() reports these with the reason
+            }
             if ((int) $this->settings['require_kyc'] === 1 && $member['kyc_status'] !== 'approved') {
                 continue;
             }
@@ -268,6 +275,10 @@ final class PayoutService
                 } elseif ($bank['status'] !== 'verified') {
                     $blockers[] = 'Bank ' . $bank['status'];
                 }
+            }
+            $purchaseBlocker = MemberService::purchaseBlocker($this->db, $memberId);
+            if ($purchaseBlocker !== null) {
+                $blockers[] = $purchaseBlocker;
             }
             if ($blockers === []) {
                 continue; // eligible — payableMembers() covers it
@@ -390,6 +401,12 @@ final class PayoutService
         foreach ($ids as $id) {
             $request = $this->db->first('SELECT * FROM payout_requests WHERE id = :id', ['id' => $id]);
             if (!$request || !in_array($request['status'], ['pending', 'approved'], true)) {
+                continue;
+            }
+            // Members who never purchased cannot be paid, so their rows stay out of the
+            // "in progress" report state — moving them would promise a payment that the
+            // activation gate must keep blocked.
+            if (MemberService::purchaseBlocker($this->db, (int) $request['member_id']) !== null) {
                 continue;
             }
             $this->db->transaction(function (Database $db) use ($id, $format) {
@@ -583,6 +600,12 @@ final class PayoutService
         }
         if (trim($utr) === '') {
             return ['ok' => false, 'message' => 'A UTR / transaction reference is required.'];
+        }
+        // Activation gate: a member who never purchased accumulates commission but cannot
+        // be paid until the first purchase - even if the request predates the rule.
+        $purchaseBlocker = MemberService::purchaseBlocker($this->db, (int) $request['member_id']);
+        if ($purchaseBlocker !== null) {
+            return ['ok' => false, 'message' => 'This payout cannot be paid yet: ' . $purchaseBlocker];
         }
         $this->db->transaction(function (Database $db) use ($request, $requestId, $utr, $proofPath, $mode) {
             $memberId = (int) $request['member_id'];

@@ -263,6 +263,12 @@ final class WalletService
             }
 
             $memberId = (int) $tx['member_id'];
+            // Activation gate: this commission was calculated and credited normally, but
+            // it cannot be handed over until the member's first purchase (green state).
+            $purchaseBlocker = MemberService::purchaseBlocker($this->db, $memberId);
+            if ($purchaseBlocker !== null) {
+                return $nothing('Cannot pay commission yet: ' . $purchaseBlocker);
+            }
             $amount = self::fromPaise(self::toPaise((float) $tx['amount']));
             $type = (string) $tx['commission_type'];
 
@@ -332,6 +338,17 @@ final class WalletService
         string $reference = '',
         string $actor = 'admin'
     ): array {
+        $purchaseBlocker = MemberService::purchaseBlocker($this->db, $memberId);
+        if ($purchaseBlocker !== null) {
+            return [
+                'ok' => false,
+                'message' => 'Cannot pay out yet: ' . $purchaseBlocker,
+                'paid' => 0,
+                'total' => 0.0,
+                'remaining' => $this->availableBalance($memberId),
+                'skipped' => 0,
+            ];
+        }
         $rows = $this->db->select(
             "SELECT id FROM commission_transactions
               WHERE member_id = :m AND status = 'available' AND reversed_amount = 0

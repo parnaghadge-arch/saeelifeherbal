@@ -182,6 +182,70 @@ final class TeamService
         return $this->db->select($sql, $params);
     }
 
+    /**
+     * One level of the genealogy tree for the MLM tree widget. Each row carries the
+     * green/red activity flag (purchased at least one non-cancelled order) so the
+     * caller can colour the node icon without N+1 queries.
+     */
+    public function treeChildren(int $parentId, int $limit = 100): array
+    {
+        $rows = $this->db->select(
+            "SELECT m.id, m.member_code, m.name, m.status,
+                    m.direct_referral_count AS directs,
+                    EXISTS(SELECT 1 FROM orders o WHERE o.member_id = m.id AND o.status <> 'cancelled') AS active
+             FROM members m
+             WHERE m.sponsor_id = :p
+             ORDER BY m.id ASC LIMIT " . (int) $limit,
+            ['p' => $parentId]
+        );
+        return array_map(static fn (array $r): array => [
+            'id' => (int) $r['id'],
+            'member_code' => (string) $r['member_code'],
+            'name' => (string) $r['name'],
+            'status' => (string) $r['status'],
+            'active' => (bool) $r['active'],
+            'directs' => (int) $r['directs'],
+            'has_children' => (int) $r['directs'] > 0,
+        ], $rows);
+    }
+
+    /**
+     * MLM details for the tree's click-to-open window: identity, sponsor, activity,
+     * purchase totals, team size and wallet figures. Values are raw (the widget
+     * fills DOM text nodes), unlike the legacy search lists which pre-escape.
+     */
+    public function mlmDetail(int $memberId): ?array
+    {
+        $member = $this->db->first(
+            "SELECT m.*, s.member_code AS sponsor_code
+               FROM members m LEFT JOIN members s ON s.id = m.sponsor_id
+              WHERE m.id = :id",
+            ['id' => $memberId]
+        );
+        if (!$member) {
+            return null;
+        }
+        $purchases = MemberService::purchaseSummary($this->db, $memberId);
+        $wallet = (new WalletService($this->db))->account($memberId);
+        return [
+            'id' => (int) $member['id'],
+            'member_code' => (string) $member['member_code'],
+            'name' => (string) $member['name'],
+            'status' => (string) $member['status'],
+            'kyc_status' => (string) $member['kyc_status'],
+            'sponsor_code' => (string) ($member['sponsor_code'] ?? ''),
+            'joined_at' => (string) ($member['joined_at'] ?? ''),
+            'active' => MemberService::hasPurchase($this->db, $memberId),
+            'purchases' => $purchases['purchases'],
+            'spent' => $purchases['spent'],
+            'directs' => (int) $member['direct_referral_count'],
+            'team' => (int) $member['downline_count'],
+            'total_earned' => (float) ($member['total_earned'] ?? 0),
+            'available_balance' => (float) ($wallet['available_balance'] ?? 0),
+            'pending_balance' => (float) ($wallet['pending_balance'] ?? 0),
+        ];
+    }
+
     public function searchMembers(string $term, int $limit = 20): array
     {
         return $this->db->select(
