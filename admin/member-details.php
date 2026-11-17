@@ -287,4 +287,17 @@ require __DIR__ . '/includes/layout.php';
     </div>
   </div>
 </div>
+<?php if (AdminAuth::can('members.manage')): ?>
+  <div class="panel p-3 p-md-4 mt-3 border border-danger">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div>
+        <h2 class="h6 mb-1 text-danger"><i class="fa-solid fa-triangle-exclamation me-2" aria-hidden="true"></i>Danger zone</h2>
+        <div class="small text-muted">Permanently delete this member. You will first see every record the deletion removes or changes.</div>
+      </div>
+      <a class="btn btn-danger" href="member-delete.php?id=<?= (int) $member['id'] ?>">
+        <i class="fa-solid fa-trash me-1" aria-hidden="true"></i>Delete member
+      </a>
+    </div>
+  </div>
+<?php endif; ?>
 <?php require __DIR__ . '/includes/layout-end.php'; ?>

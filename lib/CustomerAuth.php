@@ -179,6 +179,9 @@ final class CustomerAuth
         }
         setcookie('saee_customer_remember', '', ['expires' => time() - 3600, 'path' => '/']);
         Session::remove(self::SESSION_KEY);
+        // The partner bridge must go too: MemberAuth::user() falls back to this key, so a
+        // leftover would silently keep the partner session alive after "Sign out".
+        Session::remove('customer_member_id');
         self::$customer = null;
     }
 }

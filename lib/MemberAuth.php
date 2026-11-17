@@ -140,6 +140,9 @@ final class MemberAuth
         setcookie('saee_member_remember', '', ['expires' => time() - 3600, 'path' => '/']);
         Session::remove(self::SESSION_KEY);
         Session::remove(self::SESSION_KEY . '_2fa');
+        // Sign out must stick: without this, user() resurrects the partner session from the
+        // customer bridge key on the very next page load.
+        Session::remove('customer_member_id');
         self::$member = null;
     }
 }

@@ -488,6 +488,387 @@ final class MemberService
         return ['ok' => true, 'message' => 'Sponsor updated and audit trail recorded.'];
     }
 
+    /** Placeholders for a dynamic IN list (:prefix0, :prefix1, ...). */
+    private static function inClause(string $column, string $prefix, int $count): string
+    {
+        $keys = [];
+        for ($i = 0; $i < $count; $i++) {
+            $keys[] = ':' . $prefix . $i;
+        }
+        return $column . ' IN (' . implode(', ', $keys) . ')';
+    }
+
+    /** Params matching inClause() for the same prefix, merged into $params. */
+    private static function inParams(string $prefix, array $values, array $params = []): array
+    {
+        foreach (array_values($values) as $i => $value) {
+            $params[$prefix . $i] = $value;
+        }
+        return $params;
+    }
+
+    /** Orders touched by a member deletion: what they bought, placed or was credited for. */
+    private function orderScope(int $memberId, ?int $customerId): array
+    {
+        $where = '(member_id = :m OR referral_member_id = :m OR created_by_member_id = :m';
+        $params = ['m' => $memberId];
+        if ($customerId !== null) {
+            $where .= ' OR customer_id = :c';
+            $params['c'] = $customerId;
+        }
+        return [$where . ')', $params];
+    }
+
+    /** Commission rows removed with the member: their own earnings plus everything their
+     *  purchases paid out to the upline (level 1 direct, level 2 grand direct). */
+    private function commissionScope(int $memberId, string $orderWhere, array $orderParams): array
+    {
+        return [
+            '(member_id = :cm OR buyer_member_id = :cm OR order_id IN (SELECT id FROM orders WHERE ' . $orderWhere . '))',
+            ['cm' => $memberId] + $orderParams,
+        ];
+    }
+
+    /** Where the team moves when a member is deleted: their sponsor, or the company root. */
+    private function teamDestination(array $member): ?array
+    {
+        if (!empty($member['sponsor_id'])) {
+            return $this->db->first(
+                'SELECT id, member_code, name FROM members WHERE id = :id',
+                ['id' => (int) $member['sponsor_id']]
+            );
+        }
+        $company = $this->companySponsor();
+        return $company
+            ? ['id' => (int) $company['id'], 'member_code' => (string) $company['member_code'], 'name' => (string) $company['name']]
+            : null;
+    }
+
+    /**
+     * Everything that will be altered by a member deletion, before it happens: which rows are
+     * deleted, which rows are changed, whose commission totals are recalculated and where the
+     * team moves. Rendered by admin/member-delete.php as the confirmation screen.
+     */
+    public function deletePreview(int $memberId): array
+    {
+        $member = $this->db->first('SELECT * FROM members WHERE id = :id', ['id' => $memberId]);
+        if (!$member) {
+            return [];
+        }
+        $sponsor = $member['sponsor_id']
+            ? $this->db->first('SELECT id, member_code, name, sponsor_id FROM members WHERE id = :id', ['id' => (int) $member['sponsor_id']])
+            : null;
+        $grandSponsor = ($sponsor && $sponsor['sponsor_id'])
+            ? $this->db->first('SELECT id, member_code, name, sponsor_id FROM members WHERE id = :id', ['id' => (int) $sponsor['sponsor_id']])
+            : null;
+        $target = $this->teamDestination((array) $member);
+        $customer = $this->db->first('SELECT * FROM customers WHERE member_id = :m LIMIT 1', ['m' => $memberId]);
+        $customerId = $customer ? (int) $customer['id'] : null;
+
+        [$orderWhere, $orderParams] = $this->orderScope($memberId, $customerId);
+        [$commissionWhere, $commissionParams] = $this->commissionScope($memberId, $orderWhere, $orderParams);
+
+        $one = fn (string $sql, array $p = []): int => (int) $this->db->value($sql, $p);
+        $sum = fn (string $sql, array $p = []): float => (float) $this->db->value($sql, $p);
+
+        $wallet = $this->db->first('SELECT available_balance, total_earned FROM wallet_accounts WHERE member_id = :m', ['m' => $memberId]);
+        $commissionsEarned = $this->db->first(
+            'SELECT COUNT(*) AS c, COALESCE(SUM(amount),0) AS t FROM commission_transactions WHERE member_id = :m',
+            ['m' => $memberId]
+        );
+        $payouts = $this->db->first(
+            "SELECT COUNT(*) AS c, COALESCE(SUM(net_amount),0) AS requested,
+                    COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END),0) AS paid,
+                    COALESCE(SUM(CASE WHEN status IN ('pending','approved','processing') THEN 1 ELSE 0 END),0) AS open
+               FROM payout_requests WHERE member_id = :m",
+            ['m' => $memberId]
+        );
+        $orderRow = $this->db->first(
+            'SELECT COUNT(*) AS c, COALESCE(SUM(grand_total),0) AS t FROM orders WHERE ' . $orderWhere,
+            $orderParams
+        );
+
+        // Who loses what: every commission the deletion removes that is NOT the member's own
+        // (those go with them) - i.e. what their purchases paid to the upline.
+        $paidToOthers = $this->db->select(
+            'SELECT member_id, commission_type, COUNT(*) AS c, COALESCE(SUM(amount),0) AS t
+               FROM commission_transactions
+              WHERE ' . $commissionWhere . ' AND member_id <> :m2
+              GROUP BY member_id, commission_type',
+            $commissionParams + ['m2' => $memberId]
+        );
+
+        $recalculate = [];
+        foreach (array_filter([$sponsor, $grandSponsor]) as $person) {
+            $lost = $this->db->first(
+                'SELECT COUNT(*) AS c, COALESCE(SUM(amount),0) AS t FROM commission_transactions
+                  WHERE member_id = :s AND ' . $commissionWhere,
+                ['s' => (int) $person['id']] + $commissionParams
+            );
+            $w = $this->db->first('SELECT available_balance, total_earned FROM wallet_accounts WHERE member_id = :m', ['m' => (int) $person['id']]);
+            $recalculate[] = [
+                'member' => $person,
+                'role' => ($sponsor && (int) $person['id'] === (int) $sponsor['id']) ? 'Sponsor' : 'Grand sponsor',
+                'lost_count' => (int) ($lost['c'] ?? 0),
+                'lost_total' => (float) ($lost['t'] ?? 0),
+                'available_balance' => (float) ($w['available_balance'] ?? 0),
+                'total_earned' => (float) ($w['total_earned'] ?? 0),
+            ];
+        }
+
+        return [
+            'member' => $member,
+            'sponsor' => $sponsor,
+            'grand_sponsor' => $grandSponsor,
+            'target' => $target,
+            'own' => [
+                'profile' => $one('SELECT COUNT(*) FROM member_profiles WHERE member_id = :m', ['m' => $memberId]),
+                'kyc' => $one('SELECT COUNT(*) FROM member_kyc WHERE member_id = :m', ['m' => $memberId]),
+                'bank_accounts' => $one('SELECT COUNT(*) FROM member_bank_accounts WHERE member_id = :m', ['m' => $memberId]),
+                'sponsor_edges' => $one('SELECT COUNT(*) FROM member_sponsors WHERE member_id = :m', ['m' => $memberId]),
+                'referral_records' => $one('SELECT COUNT(*) FROM member_referrals WHERE referred_member_id = :m OR sponsor_id = :m', ['m' => $memberId]),
+                'sponsor_history' => $one('SELECT COUNT(*) FROM member_sponsor_history WHERE member_id = :m', ['m' => $memberId]),
+                'referral_clicks' => $one('SELECT COUNT(*) FROM member_referral_clicks WHERE member_id = :m', ['m' => $memberId]),
+                'wallet_transactions' => $one('SELECT COUNT(*) FROM wallet_transactions WHERE member_id = :m', ['m' => $memberId]),
+                'wallet_balance' => (float) ($wallet['available_balance'] ?? 0),
+                'wallet_earned' => (float) ($wallet['total_earned'] ?? 0),
+                'commissions' => (int) ($commissionsEarned['c'] ?? 0),
+                'commissions_total' => (float) ($commissionsEarned['t'] ?? 0),
+                'payouts' => (int) ($payouts['c'] ?? 0),
+                'payouts_requested' => (float) ($payouts['requested'] ?? 0),
+                'payouts_paid' => (float) ($payouts['paid'] ?? 0),
+                'payouts_open' => (int) ($payouts['open'] ?? 0),
+                'royalty' => $one('SELECT COUNT(*) FROM royalty_achievements WHERE member_id = :m', ['m' => $memberId]),
+            ],
+            'orders' => [
+                'count' => (int) ($orderRow['c'] ?? 0),
+                'grand_total' => (float) ($orderRow['t'] ?? 0),
+                'items' => $one('SELECT COUNT(*) FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE ' . $orderWhere . ')', $orderParams),
+                'commissions' => $one('SELECT COUNT(*) FROM commission_transactions WHERE ' . $commissionWhere, $commissionParams),
+                'commissions_total' => $sum('SELECT COALESCE(SUM(amount),0) FROM commission_transactions WHERE ' . $commissionWhere, $commissionParams),
+            ],
+            'paid_to_others' => $paidToOthers,
+            'customer' => $customer ? [
+                'row' => $customer,
+                'addresses' => $one('SELECT COUNT(*) FROM customer_addresses WHERE customer_id = :c', ['c' => $customerId]),
+                'carts' => $one('SELECT COUNT(*) FROM carts WHERE customer_id = :c', ['c' => $customerId]),
+                'wishlist' => $one('SELECT COUNT(*) FROM wishlists WHERE customer_id = :c', ['c' => $customerId]),
+            ] : null,
+            'team' => [
+                'count' => $one('SELECT COUNT(*) FROM members WHERE sponsor_id = :m', ['m' => $memberId]),
+                'sample' => $this->db->select(
+                    'SELECT id, member_code, name, status FROM members WHERE sponsor_id = :m ORDER BY id LIMIT 8',
+                    ['m' => $memberId]
+                ),
+            ],
+            'misc' => [
+                'notifications' => $one(
+                    'SELECT COUNT(*) FROM notifications WHERE (recipient_type = \'member\' AND recipient_id = :m)'
+                    . ($customer ? ' OR (recipient_type = \'customer\' AND recipient_id = :c)' : ''),
+                    $customer ? ['m' => $memberId, 'c' => $customerId] : ['m' => $memberId]
+                ),
+                'login_attempts' => $one(
+                    "SELECT COUNT(*) FROM login_attempts WHERE (scope = 'member' AND identifier = :code)"
+                    . ($customer ? " OR (scope = 'customer' AND (identifier = :mob OR identifier = :email))" : ''),
+                    $customer
+                        ? ['code' => (string) $member['member_code'], 'mob' => (string) ($customer['mobile'] ?? ''), 'email' => (string) ($customer['email'] ?? '')]
+                        : ['code' => (string) $member['member_code']]
+                ),
+            ],
+            'alterations' => [
+                'clear_referred_by' => $one(
+                    'SELECT COUNT(*) FROM customers WHERE referred_by_member_id = :m' . ($customer ? ' AND id <> :c' : ''),
+                    $customer ? ['m' => $memberId, 'c' => $customerId] : ['m' => $memberId]
+                ),
+                'clear_history_refs' => $one(
+                    'SELECT COUNT(*) FROM member_sponsor_history WHERE (old_sponsor_id = :m OR new_sponsor_id = :m) AND member_id <> :m',
+                    ['m' => $memberId]
+                ),
+            ],
+            'recalculate' => $recalculate,
+        ];
+    }
+
+    /**
+     * Hard-delete a member with everything attached to them, re-home their team on their
+     * sponsor and recalculate the sponsor and grand sponsor commission totals - the only two
+     * levels the plan pays on purchases (level 1 direct, level 2 grand direct).
+     */
+    public function deleteMember(int $memberId, string $reason): array
+    {
+        $member = $this->db->first('SELECT * FROM members WHERE id = :id', ['id' => $memberId]);
+        if (!$member) {
+            return ['ok' => false, 'message' => 'Member not found.'];
+        }
+        if ((int) ($member['is_company'] ?? 0) === 1) {
+            return ['ok' => false, 'message' => 'The company sponsor account cannot be deleted.'];
+        }
+        if (trim($reason) === '') {
+            return ['ok' => false, 'message' => 'A reason is required for deletions.'];
+        }
+
+        $sponsor = $member['sponsor_id']
+            ? $this->db->first('SELECT id, member_code, name, sponsor_id FROM members WHERE id = :id', ['id' => (int) $member['sponsor_id']])
+            : null;
+        $grandSponsor = ($sponsor && $sponsor['sponsor_id'])
+            ? $this->db->first('SELECT id, member_code, name FROM members WHERE id = :id', ['id' => (int) $sponsor['sponsor_id']])
+            : null;
+        $target = $this->teamDestination((array) $member);
+        $customer = $this->db->first('SELECT * FROM customers WHERE member_id = :m LIMIT 1', ['m' => $memberId]);
+        $customerId = $customer ? (int) $customer['id'] : null;
+        [$orderWhere, $orderParams] = $this->orderScope($memberId, $customerId);
+        [$commissionWhere, $commissionParams] = $this->commissionScope($memberId, $orderWhere, $orderParams);
+        $children = array_map('intval', (array) $this->db->column('SELECT id FROM members WHERE sponsor_id = :m', ['m' => $memberId]));
+
+        $summary = $this->db->transaction(function (Database $db) use (
+            $member, $memberId, $reason, $sponsor, $grandSponsor, $target, $customer, $customerId,
+            $orderWhere, $orderParams, $commissionWhere, $commissionParams, $children
+        ): array {
+            $now = date('Y-m-d H:i:s');
+            $adminId = AdminAuth::id();
+            $newSponsorId = isset($target['id']) ? (int) $target['id'] : null;
+
+            // 0. Clear dangling sponsor pointers in OTHER members' history rows first - before
+            //    the move-history rows below intentionally record the deleted member as the
+            //    old sponsor (those rows must keep that pointer).
+            $db->update('member_sponsor_history', ['old_sponsor_id' => null], 'old_sponsor_id = :m', ['m' => $memberId]);
+            $db->update('member_sponsor_history', ['new_sponsor_id' => null], 'new_sponsor_id = :m', ['m' => $memberId]);
+
+            // 1. Re-home the team FIRST: members.sponsor_id and member_sponsors.sponsor_id are
+            //    ON DELETE RESTRICT, so these rows must point elsewhere before the member goes.
+            if ($children !== []) {
+                $db->update('members', ['sponsor_id' => $newSponsorId, 'updated_at' => $now], 'sponsor_id = :m', ['m' => $memberId]);
+                $db->update('member_sponsors', ['sponsor_id' => $newSponsorId, 'updated_at' => $now], 'sponsor_id = :m', ['m' => $memberId]);
+                foreach ($children as $childId) {
+                    $db->insert('member_sponsor_history', [
+                        'member_id' => $childId,
+                        'old_sponsor_id' => $memberId,
+                        'new_sponsor_id' => $newSponsorId,
+                        'changed_by_admin_id' => $adminId,
+                        'reason' => 'Upstream member ' . (string) $member['member_code'] . ' deleted: ' . trim($reason),
+                        'created_at' => $now,
+                    ]);
+                }
+            }
+
+            // 2. Wallet entries that reference commissions being removed (the sponsor's and
+            //    grand sponsor's credits - and any reversal debits against them).
+            $commissionIds = array_map('intval', (array) $db->column('SELECT id FROM commission_transactions WHERE ' . $commissionWhere, $commissionParams));
+            $walletRows = 0;
+            if ($commissionIds !== []) {
+                $walletRows = $db->delete(
+                    'wallet_transactions',
+                    "reference_type = 'commission' AND " . self::inClause('reference_id', 'cw', count($commissionIds)),
+                    self::inParams('cw', $commissionIds)
+                );
+            }
+
+            // 3. The commissions themselves: the member's own earnings plus what their
+            //    purchases paid out to everyone else.
+            $commissionRows = $db->delete('commission_transactions', $commissionWhere, $commissionParams);
+
+            // 4. Royalty rows owned by the member or derived from a removed commission.
+            $royaltyWhere = 'member_id = :m';
+            $royaltyParams = ['m' => $memberId];
+            if ($commissionIds !== []) {
+                $royaltyWhere = '(' . $royaltyWhere . ' OR ' . self::inClause('commission_transaction_id', 'rc', count($commissionIds)) . ')';
+                $royaltyParams = self::inParams('rc', $commissionIds, $royaltyParams);
+            }
+            $db->delete('royalty_achievements', $royaltyWhere, $royaltyParams);
+
+            // 5. Payouts - payout_requests.member_id is ON DELETE RESTRICT, so these must go
+            //    before the member row.
+            $db->delete('payout_transactions', 'member_id = :m', ['m' => $memberId]);
+            $payoutRows = $db->delete('payout_requests', 'member_id = :m', ['m' => $memberId]);
+
+            // 6. Orders attributed to the member (items, payments and status history follow).
+            $orderIds = array_map('intval', (array) $db->column('SELECT id FROM orders WHERE ' . $orderWhere, $orderParams));
+            if ($orderIds !== []) {
+                foreach (['order_status_history', 'order_payments', 'order_items'] as $table) {
+                    $db->delete($table, self::inClause('order_id', 'oi', count($orderIds)), self::inParams('oi', $orderIds));
+                }
+            }
+            $orderRows = $db->delete('orders', $orderWhere, $orderParams);
+
+            // 7. The linked customer login - addresses, carts and wishlists go with it.
+            if ($customer) {
+                $cid = (int) $customer['id'];
+                $cartIds = array_map('intval', (array) $db->column('SELECT id FROM carts WHERE customer_id = :c', ['c' => $cid]));
+                if ($cartIds !== []) {
+                    $db->delete('cart_items', self::inClause('cart_id', 'ct', count($cartIds)), self::inParams('ct', $cartIds));
+                }
+                $db->delete('carts', 'customer_id = :c', ['c' => $cid]);
+                $db->delete('customer_addresses', 'customer_id = :c', ['c' => $cid]);
+                $db->delete('wishlists', 'customer_id = :c', ['c' => $cid]);
+                $db->delete('customers', 'id = :c', ['c' => $cid]);
+            }
+
+            // 8. Notifications and login-throttle rows that name the member or their customer.
+            $notifWhere = "(recipient_type = 'member' AND recipient_id = :m)";
+            $notifParams = ['m' => $memberId];
+            if ($customer) {
+                $notifWhere .= " OR (recipient_type = 'customer' AND recipient_id = :c)";
+                $notifParams['c'] = $customerId;
+            }
+            $db->delete('notifications', $notifWhere, $notifParams);
+            $db->delete('login_attempts', "scope = 'member' AND identifier = :code", ['code' => (string) $member['member_code']]);
+            if ($customer) {
+                $db->delete('login_attempts', "scope = 'customer' AND (identifier = :mob OR identifier = :email)", [
+                    'mob' => (string) ($customer['mobile'] ?? ''),
+                    'email' => (string) ($customer['email'] ?? ''),
+                ]);
+            }
+
+            // 9. Everything the member owns directly. MySQL cascades most of this with the
+            //     member row, but the explicit deletes keep behaviour identical everywhere.
+            foreach (['member_referral_clicks', 'member_sponsor_history', 'member_sponsors', 'member_bank_accounts', 'member_kyc', 'member_profiles', 'wallet_accounts'] as $table) {
+                $db->delete($table, 'member_id = :m', ['m' => $memberId]);
+            }
+            $db->delete('member_referrals', 'referred_member_id = :m OR sponsor_id = :m', ['m' => $memberId]);
+            $memberWalletRows = $db->delete('wallet_transactions', 'member_id = :m', ['m' => $memberId]);
+            $db->delete('members', 'id = :id', ['id' => $memberId]);
+
+            return [
+                'orders' => $orderRows,
+                'commissions' => $commissionRows,
+                'wallet_rows' => $walletRows + $memberWalletRows,
+                'payouts' => $payoutRows,
+                'moved' => count($children),
+            ];
+        });
+
+        // Recalculate the commission on the sponsor and grand sponsor after deletion: their
+        // level 1 / level 2 earnings from this member's purchases are gone from the ledger,
+        // so the wallet aggregates must be rebuilt from what remains.
+        foreach (array_filter([$sponsor, $grandSponsor]) as $person) {
+            if ((int) $person['id'] !== $memberId) {
+                (new WalletService($this->db))->recalculate((int) $person['id']);
+            }
+        }
+        // Team counters (direct / downline counts) of the sponsor chain change with the move.
+        $anchor = $sponsor ?: ($children !== [] ? $target : null);
+        if ($anchor && (int) $anchor['id'] !== $memberId) {
+            (new TeamService($this->db))->recalculate((int) $anchor['id'], true);
+        }
+
+        $message = sprintf(
+            'Member %s deleted: %d order(s), %d commission entrie(s), %d wallet transaction(s), %d payout request(s) removed; %d team member(s) moved to %s. Sponsor and grand sponsor commission totals recalculated.',
+            (string) $member['member_code'],
+            (int) ($summary['orders'] ?? 0),
+            (int) ($summary['commissions'] ?? 0),
+            (int) ($summary['wallet_rows'] ?? 0),
+            (int) ($summary['payouts'] ?? 0),
+            (int) ($summary['moved'] ?? 0),
+            $target ? (string) $target['member_code'] : 'company placement'
+        );
+        Audit::log('member_deleted', 'members', $message . ' Reason: ' . trim($reason), 'member', $memberId, [
+            'sponsor_id' => $sponsor['id'] ?? null,
+            'grand_sponsor_id' => $grandSponsor['id'] ?? null,
+            'summary' => $summary,
+        ]);
+        return ['ok' => true, 'message' => $message, 'summary' => $summary];
+    }
+
     public function setStatus(int $memberId, string $status, string $reason = ''): array
     {
         if (!in_array($status, ['active', 'inactive', 'suspended'], true)) {
