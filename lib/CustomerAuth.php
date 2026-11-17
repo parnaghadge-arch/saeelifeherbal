@@ -36,6 +36,53 @@ final class CustomerAuth
         return ['ok' => true, 'message' => 'Welcome back, ' . $customer['name'] . '!'];
     }
 
+    /**
+     * Sign in with EITHER shop-customer or MLM partner credentials.
+     *
+     * One person, one account: members automatically own a customers row with the same
+     * password (MemberService::ensureCustomerRecord), so the plain customer lookup usually
+     * finds them - but it only matches mobile or email. A partner signing in with their
+     * Member ID therefore gets a second chance against the members table; on success their
+     * customer record is loaded into the session, and via customers.member_id that same
+     * session also unlocks the partner portal (MemberAuth::user() falls back to it). That is
+     * what makes the "Customer login" and the "Partner login" interchangeable.
+     */
+    public static function attemptWithPartner(string $identifier, string $password, bool $remember = false): array
+    {
+        $result = self::attempt($identifier, $password, $remember);
+        if ($result['ok']) {
+            return $result;
+        }
+        $identifier = trim($identifier);
+        [$allowed, , $retry] = Security::throttleStatus('member', strtolower($identifier));
+        if (!$allowed) {
+            return ['ok' => false, 'message' => 'Too many failed attempts. Try again in ' . ceil($retry / 60) . ' minute(s).'];
+        }
+        $db = Database::instance();
+        $member = $db->first(
+            'SELECT * FROM members WHERE LOWER(member_code) = :id OR mobile = :id OR LOWER(email) = :id LIMIT 1',
+            ['id' => strtolower($identifier)]
+        );
+        if (!$member || !Security::verifyPassword($password, (string) $member['password_hash'])) {
+            Security::recordFailure('member', strtolower($identifier));
+            return ['ok' => false, 'message' => 'Invalid mobile, email, member ID or password.'];
+        }
+        if ((string) $member['status'] === 'suspended') {
+            return ['ok' => false, 'message' => 'This account is suspended. Please contact support.'];
+        }
+        Security::clearFailures('member', strtolower($identifier));
+        (new MemberService($db))->ensureCustomerRecord($member);
+        $customer = $db->first(
+            'SELECT * FROM customers WHERE member_id = :m OR mobile = :mob LIMIT 1',
+            ['m' => (int) $member['id'], 'mob' => $member['mobile']]
+        );
+        if (!$customer) {
+            return ['ok' => false, 'message' => 'We could not open your shop account. Please contact support.'];
+        }
+        self::loginSession($customer, $remember);
+        return ['ok' => true, 'message' => 'Welcome back, ' . $member['name'] . '!'];
+    }
+
     public static function loginSession(array $customer, bool $remember = false): void
     {
         Session::regenerate();

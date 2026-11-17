@@ -39,6 +39,9 @@ final class OrderService
         return ORDER_STATUS_LEGACY[$status] ?? ORDER_STATUS_DEFAULT;
     }
 
+    /** @var bool orders schema repair runs at most once per request (see docs/SCHEMA-ALTERS.md) */
+    private static bool $schemaRepaired = false;
+
     public function __construct(private Database $db)
     {
     }
@@ -89,6 +92,22 @@ final class OrderService
         // Every order starts life as "new" and waits for the admin to approve it. Whether the
         // money has arrived is a separate fact, recorded on payment_status.
         $status = ORDER_STATUS_DEFAULT;
+
+        // Self-heal orders.created_by_member_id for databases restored from database/schema.sql
+        // before that column existed - the INSERT below writes it unconditionally. ensureColumns
+        // only ADDs missing NULLable columns; docs/SCHEMA-ALTERS.md lists the full manual ALTERs
+        // (FK + index) for hand-managed databases.
+        if (!self::$schemaRepaired) {
+            self::$schemaRepaired = true;
+            try {
+                $tables = Schema::tables();
+                if (isset($tables['orders'])) {
+                    Schema::ensureColumns($this->db, 'orders', $tables['orders']);
+                }
+            } catch (Throwable $e) {
+                error_log('orders schema repair failed: ' . $e->getMessage());
+            }
+        }
 
         $orderId = $this->db->transaction(function (Database $db) use ($totals, $data, $shipping, $billing, $customer, $memberId, $referralMemberId, $paymentMethod, $orderNumber, $invoiceNumber, $paymentStatus, $status) {
             $now = date('Y-m-d H:i:s');

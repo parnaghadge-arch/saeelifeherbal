@@ -20,9 +20,9 @@ if (is_post()) {
     $identifier = (string) Request::input('identifier', '');
     $password = (string) Request::raw('password', '');
     if ($identifier === '' || $password === '') {
-        $errors['identifier'] = ['Please enter your mobile/email and password.'];
+        $errors['identifier'] = ['Please enter your mobile, email or Member ID and password.'];
     } else {
-        $result = CustomerAuth::attempt($identifier, $password, Request::bool('remember'));
+        $result = CustomerAuth::attemptWithPartner($identifier, $password, Request::bool('remember'));
         if ($result['ok']) {
             Session::success($result['message']);
             $redirect = Session::get('customer_redirect', 'my-account.php');
@@ -42,14 +42,14 @@ require INCLUDES_PATH . '/header.php';
       <div class="text-center mb-3">
         <img src="<?= e(Url::media(setting('logo_header'))) ?>" alt="<?= e(setting('site_name')) ?>" height="48">
         <h1 class="h4 mt-3 mb-1">Customer sign in</h1>
-        <p class="small text-muted">Track orders, reorder faster and manage your addresses.</p>
+        <p class="small text-muted">Track orders, reorder faster and manage your addresses. Partners can sign in with the same credentials as the partner portal.</p>
       </div>
       <?= render_flash() ?>
       <?php if (!empty($errors['identifier'])): ?><div class="alert alert-danger"><?= e($errors['identifier'][0]) ?></div><?php endif; ?>
       <form method="post" action="<?= e(Url::to('login.php')) ?>" novalidate>
         <?= csrf_field() ?>
         <div class="mb-3">
-          <label class="form-label" for="identifier">Mobile number or email</label>
+          <label class="form-label" for="identifier">Mobile number, email or Member ID</label>
           <input id="identifier" name="identifier" class="form-control" value="<?= old_input('identifier') ?>" required autocomplete="username">
         </div>
         <div class="mb-3">
