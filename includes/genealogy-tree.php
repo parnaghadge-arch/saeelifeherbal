@@ -31,7 +31,7 @@ $gtRootDirects = (int) ($gtRoot['directs'] ?? $gtRoot['direct_referral_count'] ?
   </span>
 </div>
 <div class="tree-wrap">
-  <ul class="mlm-tree" id="mlmTree" data-endpoint="<?= e($gtEndpoint) ?>">
+  <ul class="mlm-tree" id="mlmTree" data-endpoint="<?= e($gtEndpoint) ?>" data-currency="<?= e(currency_symbol()) ?>">
     <li class="mlm-node" data-id="<?= (int) $gtRoot['id'] ?>">
       <div class="mlm-unit">
         <button type="button" class="mlm-dot <?= $gtRootActive ? 'is-active' : 'is-inactive' ?>"
@@ -54,7 +54,7 @@ $extraScripts = ($extraScripts ?? '') . <<<HTML
   var tree = document.getElementById('mlmTree');
   if (!tree) { return; }
   var endpoint = tree.dataset.endpoint;
-  var currency = <?= json_encode(currency_symbol()) ?>;
+  var currency = tree.dataset.currency || '₹';
 
   /* ---- the MLM details window ("window besides icon") ---- */
   var pop = document.createElement('div');
